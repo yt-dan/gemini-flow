@@ -1,0 +1,9 @@
+.DS_Store
+GeminiFlow.app/
+tests/audio_cache/
+tests/logs/
+tests/baseline.json
+tests/RUN_LONG
+*.p12
+*.pem
+.env

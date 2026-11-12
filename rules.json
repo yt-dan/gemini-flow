@@ -1,0 +1,15 @@
+{
+  "cleanLikeFiller": true,
+  "cleanVocalFillers": true,
+  "cleanStutterWords": true,
+  "autoCapitalize": true,
+  "autoPunctuate": true,
+  "extraFillers": [
+    "you know",
+    "i mean",
+    "sort of",
+    "kind of"
+  ],
+  "customReplacements": {
+  }
+}
