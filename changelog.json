@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 37,
+      "scope": "engine",
+      "timestamp": "13 Nov · 11:35",
+      "title": "Long dictations stay on Live when the last sound is only a click or a breath",
+      "highlights": [
+        "After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.",
+        "The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."
+      ]
+    },
+    {
       "cycle": 36,
       "scope": "engine",
       "timestamp": "13 Nov · 11:00",

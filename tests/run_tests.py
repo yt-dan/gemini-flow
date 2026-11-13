@@ -61,6 +61,13 @@ Runs offline and unattended against a candidate binary BEFORE it is installed:
   T22 live-release-between-turns - >= 9 s of speech, then 2.2 s of silence before release (backlog 26): the split turn is
                  answered while "Fn" is still held, so the release must finish ON LIVE at once ("released between turns"), not at
                  the old 0.45 s grace timer: recall >= 0.85, no fallback, release->text <= 350 ms (includes the 120 ms cushion)
+  T29 live-silent-tail (online, backlog 0z) - the T22 sentence, 2.2 s of quiet room noise, and a key click in the last 80 ms (as
+                 on 18 real presses 2026-11-12/13: a click or breath after the last split opened one more activity, the server
+                 closed that final turn empty and the whole recording was re-run through REST). The Live text of the answered
+                 turns must be delivered as it is: ON LIVE, no fallback, no REST call, recall >= 0.99, release->text <= 3 s.
+                 The gate detail reports the app's "Live tail check" line(s) (numbers only).
+  T29 click-tail fixture (offline) - that clip is what the online case needs: >= 9 s of speech, and a tail whose only audio
+                 above the app's 150-RMS voice-scan floor is the click (1-4 frames of 20 ms, loudest frame RMS 350-1200).
   T14 live-server-turn-end - the Live server ends the open turn on its own while Fn is still held (test-only hook: a raw
                   activityEnd with no client bookkeeping, its echo hidden), in the pause between two sentences. The speech
                   after it must still be transcribed ON LIVE (no REST fallback), full recall, within the T8 limit (backlog 0c)
@@ -345,6 +352,8 @@ def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
         "dropped": "E2E: force-closing the Live socket" in out,
         "reconnected": bool(re.search(r"Live: reconnected \(#\d+\)", out)),
         "between_turns": bool(re.search(r"Live: done in [\d.]+s after release \(released between turns", out)),
+        # backlog 0z: the numbers-only tail decision line(s): (where, numbers, verdict)
+        "tail_checks": re.findall(r"Live tail check \((.*?)\): (.*?) -> (.*)", out),
         "mic_unavailable_ms": (lambda m: int(m.group(1)) if m else None)(re.search(r"E2E MIC UNAVAILABLE after (\d+) ms", out)),
         "mic_notice": (lambda m: m.group(1) if m else None)(re.search(r'E2E MIC UNAVAILABLE after \d+ ms \(.*?, notice "(.*?)"\)', out)),
         "mic_rebuilt": "rebuilding the audio engine once" in out,
@@ -542,6 +551,12 @@ def main():
     dup_bad = dup_check_selftest()
     gate("T24 dup-phrase check self-test", not dup_bad,
          f"{len(DUP_SELFTEST_CASES) - len(dup_bad)}/{len(DUP_SELFTEST_CASES)} cases ok" + (f"; failed: {dup_bad}" if dup_bad else ""))
+
+    # T29 click-tail fixture (backlog 0z): the clip of the online T29 case has the shape that case needs. Pure Python on the
+    # (cached) TTS clip: no network.
+    for cid, text in ONLINE_SILENT_TAIL:
+        fx_ok, fx_detail = click_tail_fixture(silent_tail_wav(text))
+        gate(f"T29 click-tail fixture/{cid}", fx_ok, fx_detail)
 
     report["loadavg_start"] = os.getloadavg()[0]
     if report["loadavg_start"] > 2 * os.cpu_count():
@@ -878,6 +893,13 @@ def derived_wav(kind, src_id, texts):
         out = array.array("h", (int(x * k) for x in joined))
     elif kind == "trailing_silence":  # one long sentence, then 2.2 s of silence before the release (pause, then let go of Fn)
         out = array.array("h", clips[0]); out.extend(array.array("h", [0] * int(16000 * 2.2)))
+    elif kind == "click_tail":     # backlog 0z: the same, with quiet room noise (sigma 40) and a key click in the last 80 ms
+        import math
+        rnd = random.Random(26); n = int(16000 * 2.2)
+        tail = [rnd.gauss(0, 40.0) for _ in range(n)]
+        for k in range(1280):      # decaying burst (8 ms time constant): its loudest 20 ms frame is ~RMS 800 when frame-aligned
+            tail[n - 1280 + k] += 2540.0 * math.exp(-k / 128.0) * math.sin(k * 0.9)
+        out = array.array("h", clips[0]); out.extend(array.array("h", (int(max(-32768, min(32767, x))) for x in tail)))
     else:
         raise ValueError(kind)
     _write_pcm(path, out)
@@ -1176,6 +1198,33 @@ _RELEASE_SILENCE_TEXT = ("We should ship the update on Friday, after the last ro
                          "are reviewed by the whole team, and then we can start planning the next sprint together on Monday morning.")
 ONLINE_RELEASE_BETWEEN_TURNS = [("release_silence", _RELEASE_SILENCE_TEXT)]
 RELEASE_BETWEEN_TURNS_MAX_MS = 350
+# T29 (backlog 0z): (id, text). The T22 sentence (same cached TTS clip), 2.2 s of quiet room noise, a key click in the last 80 ms.
+ONLINE_SILENT_TAIL = [("click_tail", _RELEASE_SILENCE_TEXT)]
+SILENT_TAIL_MIN_RECALL = 0.99
+SILENT_TAIL_S = 2.2
+
+
+def silent_tail_wav(text):
+    return derived_wav("click_tail", "release_silence_src", [text])
+
+
+def click_tail_fixture(path):
+    """T29 offline: numbers of the click-tail clip on the app's 20 ms frame grid (frames start at sample 0). Returns (ok, detail).
+    The tail is measured from 0.3 s after the speech clip's end (TTS clips can end on a breath of noise); the app itself measures
+    from the split point, >= 0.6 s after the last voiced frame."""
+    a = _read_pcm(path)
+    total_s = len(a) / 16000.0
+    frames = [(sum(x * x for x in a[f * 320:(f + 1) * 320]) / 320.0) ** 0.5 for f in range(len(a) // 320)]
+    first = int((total_s - SILENT_TAIL_S + 0.3) * 50)
+    tail = frames[first:]
+    above_floor = [i for i, r in enumerate(tail) if r > 150.0]
+    above_evidence = sum(1 for r in tail if r > 250.0)
+    peak = max(tail) if tail else 0.0
+    speech_s = total_s - SILENT_TAIL_S
+    late = bool(above_floor) and above_floor[0] >= len(tail) - 6   # the click sits in the last 120 ms
+    ok = speech_s >= 9.0 and 1 <= len(above_floor) <= 4 and above_evidence <= 4 and 350.0 <= peak <= 1200.0 and late
+    return ok, (f"speech {speech_s:.1f}s + tail {SILENT_TAIL_S}s: {len(above_floor)} frame(s) above RMS 150 "
+                f"({above_evidence} above 250), loudest {peak:.0f}, click in the last 120 ms={late}")
 # T25 (backlog 0p): (id, audio builder, expected, rotation age in s; e2e-only override of the app's 8.5 min). Not handsfree_long:
 # its only pause >= 0.6 s is 0.64 s long, so whether it splits at all depends on the 128 ms send phase (~50/50). Four sentences
 # with 1.8 s pauses split for sure (activity >= 8 s by the 2nd or 3rd pause), and the split turn is answered inside the pause.
@@ -1895,6 +1944,27 @@ def online_main(a):
         gate(f"T22 live-release-between-turns/{cid}", ok,
              f"between_turns={r['between_turns']} live_ok={r['live_ok']} fell_back={r['fell_back']} rest_called={r['rest_called']} "
              f"recall={rc:.2f} lat={r['latency_ms']}ms (limit {RELEASE_BETWEEN_TURNS_MAX_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T29 (backlog 0z): the split turn is answered while "Fn" is held; a key click in the last 80 ms then opens one more activity,
+    # which the server closes empty (ACTIVITY_END echo, no generationComplete). The Live text is complete: it must be delivered
+    # on Live, with no REST call (before the fix: "Live: failed (server closed the final turn with no transcript ...)" -> REST).
+    # If the server answers the click turn instead (text or an empty generationComplete), the press ends the normal way and the
+    # gate still holds; tail_checks then shows no line.
+    for cid, text in ONLINE_SILENT_TAIL:
+        wav = silent_tail_wav(text)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150)
+        res = r["result"] or ""
+        rc = recall(text, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and not r["rest_called"] and r["split_count"] >= 1
+              and rc >= SILENT_TAIL_MIN_RECALL and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"silent_tail/{cid}", "model": LIVE_MODEL + "+click-tail", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T29 live-silent-tail/{cid}", ok,
+             f"live_ok={r['live_ok']} fell_back={r['fell_back']} rest_called={r['rest_called']} splits={r['split_count']} "
+             f"activities={r['live_activities']} recall={rc:.2f} (min {SILENT_TAIL_MIN_RECALL}) lat={r['latency_ms']}ms "
+             f"(limit {USER_MAX_LATENCY_MS}ms) tail_checks={r['tail_checks']} -> {res!r}"
              + ("" if ok else f"\n      tail: {r['tail']}"))
 
     # T25 (backlog 0p (a)): planned rotation at a split point, forced at 10 s of session age (test-only hook). The fresh session

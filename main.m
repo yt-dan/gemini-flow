@@ -39,6 +39,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(37), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:35", @"title": @"Long dictations stay on Live when the last sound is only a click or a breath", @"highlights": @[@"After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.", @"The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."]},
             @{@"cycle": @(36), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:00", @"title": @"Repeated phrases and mid-thought restarts cleaned up", @"highlights": @[@"Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').", @"Leaves deliberate repeats alone: emphasis after a comma ('I know, I know'), courtesy phrases, names, number runs and idioms such as 'again and again'. Runs on your Mac in well under a millisecond."]},
             @{@"cycle": @(35), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 10:30", @"title": @"Brand refresh shared with GeminiFlow for iOS & cleaner windows", @"highlights": @[@"Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.", @"Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."]},
             @{@"cycle": @(34), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 09:40", @"title": @"Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync", @"highlights": @[@"Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.", @"Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."]},
@@ -1751,6 +1752,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) BOOL liveFinalizing;           // Fn released, waiting for the last transcript
 @property (nonatomic, assign) BOOL liveActivityEnded;        // activityEnd already sent for this session
 @property (nonatomic, assign) NSUInteger liveCoveredBytes;    // PCM bytes the server has confirmed as finished utterances
+@property (nonatomic, assign) NSUInteger liveAnsweredBytes;   // end of the last activity whose turn the server ANSWERED (backlog 0z)
 // Long hands-free sessions are split into several manual activities at local silences, because the server's
 // release->text time grows with the length of the open activity (16 s: 0.5 s, 32 s: 0.7 s, 124 s: 1.55 s).
 @property (nonatomic, assign) BOOL liveActivityOpen;          // activityStart sent, activityEnd not yet
@@ -1794,6 +1796,8 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) NSUInteger dictationSerial;
 // Tests only (--test, two-press e2e): receives each result instead of clipboard/paste/HUD. nil text = no speech.
 @property (nonatomic, copy) void (^resultSink)(NSString *text, GFDictation *d);
+// --test only: receives a dictation that would go to the REST safety net, instead of calling the API (no network in unit tests).
+@property (nonatomic, copy) void (^restFallbackSink)(GFDictation *d);
 // Auto-paste is strictly ordered (backlog 6). deferredPastes: superseded dictations that finished while the newer press was still
 // recording (pasted at its release or Esc). pasteQueue: texts waiting to be put on the clipboard and pasted, one at a time.
 @property (nonatomic, strong) NSMutableArray<NSString *> *deferredPastes;
@@ -2296,6 +2300,46 @@ static GFLiveIdleReleaseAction GFLiveIdleReleaseDecision(BOOL activityOpen, NSUI
     if (activityOpen || pendingTurns > 0) return GFLiveIdleReleaseWait; // a turn is still coming: its turn end finishes the press
     if (uncoveredVoicedSeconds > kLiveUncoveredSpeechLimit) return GFLiveIdleReleaseRest;
     return liveSegments > 0 ? GFLiveIdleReleaseFinish : GFLiveIdleReleaseWait;
+}
+// Backlog 0z: the silent tail after the last answered turn. Real log 2026-11-12 12:04 .. 2026-11-13 10:25: on 18 multi-segment
+// presses Live had answered 1-9 turns; then a breath, a movement or the Fn key-release click rose above the 150-RMS voice-scan floor
+// (liveScanVoiceUpTo:) and one more short activity was opened (0.08-3.7 s; 12 of them at or after the release, 8 of those held
+// behind a pending split turn; loudest frame after Fn up RMS 157-796). The server closed that final turn empty (ACTIVITY_END echo,
+// no generationComplete, ~0.2 s after release), and "an empty final turn always goes to REST" threw the Live text away and re-ran
+// the whole 9-101 s recording through REST (1.8-9.2 s, often behind the 3 s early paste of the on-device text).
+// The TAIL is everything recorded after the end of the last activity whose turn the server answered with a generationComplete
+// (liveAnsweredBytes; a turn that closed empty does not move it). It is measured on the same 20 ms grid as the voice scan:
+//   peakRMS / evidenceSeconds: the 0u speech evidence (GFNoLoudSpeech: loudest frame below RMS 350, or less than 0.10 s of
+//     evidence), with the evidence counted above the FLOOR of the 0u threshold (RMS 250), never a noise-relative one: 0u's
+//     threshold rises to RMS 1000 when under 20% of the frames are pauses (ordinary fluent dictation), which would hide a quiet
+//     last word. Here a higher bar is the unsafe direction, so a noisy room simply keeps today's REST path;
+//   floorSeconds: frames above the voice-scan floor itself (150), the level below which audio is never sent at all.
+// Two rules, both only with Live text in hand (no text: the no-speech / REST rules decide as before) and only while the standing
+// coverage rule holds (at most kLiveUncoveredSpeechLimit of voiced audio, adaptive estimate, after the last answered turn):
+//   (a) the SERVER closed the final turn empty AND the tail has no loud speech (GFNoLoudSpeech): two independent signals agree, so
+//       finish with the Live text already received instead of REST;
+//   (b) with no server verdict (the audio was not sent yet): only when, in addition, less than 0.10 s of the tail is above the
+//       voice-scan floor (at most four 20 ms frames: a click, never a word). Then no final activity is opened for it.
+// Anything else keeps the old behaviour exactly: the tail goes to the server, and an empty final turn goes to REST on the full
+// recording. Never finish with less than was said.
+static const double kLiveVoiceScanFloorRMS = 150.0;      // the fixed threshold of liveScanVoiceUpTo:
+static const double kLiveTailTransientSeconds = 0.10;    // rule (b): strictly less than this above the floor
+typedef struct { double seconds, peakRMS, evidenceSeconds, floorSeconds; } GFLiveTail;
+static GFLiveTail GFMeasureLiveTail(const int16_t *samples, NSUInteger count, NSUInteger tailStartSample) {
+    GFLiveTail t = {0, 0, 0, 0};
+    const NSUInteger frame = 320;
+    NSUInteger start = (MIN(tailStartSample, count) / frame) * frame;
+    t.seconds = (count - start) / 16000.0;
+    if (!samples) return t;
+    t.evidenceSeconds = GFSecondsAboveRMS(samples + start, count - start, kSpeechEvidenceFloorRMS, &t.peakRMS);
+    t.floorSeconds = GFSecondsAboveRMS(samples + start, count - start, kLiveVoiceScanFloorRMS, NULL);
+    return t;
+}
+static BOOL GFLiveTailIsSilent(BOOL serverClosedFinalTurnEmpty, NSUInteger liveSegments, GFLiveTail tail, double tailVoicedSeconds) {
+    if (liveSegments == 0) return NO;
+    if (tailVoicedSeconds > kLiveUncoveredSpeechLimit) return NO;
+    if (!GFNoLoudSpeech(tail.peakRMS, tail.evidenceSeconds)) return NO;
+    return serverClosedFinalTurnEmpty || tail.floorSeconds < kLiveTailTransientSeconds;
 }
 // Backlog 7: a press whose microphone never starts (startAndReturnError fails, the input format is 0 Hz / 0 channels, or no buffer
 // arrives) used to show "listening" and later "No speech". Now it ends right away with a clear HUD notice, after ONE automatic
@@ -4098,6 +4142,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 - (void)liveResetSessionStateResuming:(BOOL)resume {
     if (!resume) {
         self.liveCoveredBytes = 0;
+        self.liveAnsweredBytes = 0;
         self.liveSegments = [NSMutableArray array];
         self.liveCoveredSegments = 0;
         self.liveActivityCount = 0;
@@ -4335,6 +4380,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
             // Turns complete in activity order: this one covers the audio up to its activityEnd.
             NSUInteger endIndex = self.liveActivityEndsSent - MIN(self.liveActivityEndsSent, self.livePendingActivityEnds.count) + 1;
             self.liveCoveredBytes = MAX(self.liveCoveredBytes, self.livePendingActivityEnds.firstObject.unsignedIntegerValue);
+            self.liveAnsweredBytes = MAX(self.liveAnsweredBytes, self.livePendingActivityEnds.firstObject.unsignedIntegerValue);
             [self.livePendingActivityEnds removeObjectAtIndex:0];
             self.liveSpeechActive = self.livePendingActivityEnds.count > 0 || self.liveActivityOpen;
             NSTimeInterval since = [NSDate timeIntervalSinceReferenceDate] - self.liveSplitTime;
@@ -4399,8 +4445,14 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 
 // Backlog 0r: released while speech was held behind a pending split turn. That turn has ended now: open the final activity, send
 // the held audio (from its pre-roll) and end it, exactly as a release with an open activity does.
+// Backlog 0z (b): when all that is held is a transient (a key click), no final activity is opened for it and the press finishes
+// between turns right away.
 - (void)liveSendDeferredFinalActivity {
     self.liveFinalReopenDeferred = NO;
+    if ([self liveTailIsSilentAfterEmptyFinalTurn:NO where:@"held behind the split turn"]) {
+        [self liveFinishIfReleasedBetweenTurns];
+        return;
+    }
     GFLog(@"Live: pending split turn ended after release; sending the held %.2fs as the final activity",
           (self.recordedPCMData.length - MIN(self.recordedPCMData.length, self.liveSentBytes)) / 32000.0);
     [self sendLiveActivityStart];
@@ -4442,6 +4494,9 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
                 // the final activity the same way.
                 return;
             case GFLiveBetweenReopen:
+                // Backlog 0z (b): at release (sendLiveAudioStreamEnd's last pump) a transient alone, e.g. the Fn key-release click,
+                // does not open a final activity; sendLiveAudioStreamEnd then finishes between turns.
+                if (self.liveFinalizing && [self liveTailIsSilentAfterEmptyFinalTurn:NO where:@"at release"]) return;
                 break;
         }
         [self sendLiveActivityStart];
@@ -4636,9 +4691,29 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     }
 }
 
+// Backlog 0z: is the audio after the last answered turn silent enough to finish with the Live text in hand (GFLiveTailIsSilent)?
+// serverClosedEmpty = the server already closed the final turn with no transcript (rule a); NO = not sent yet (rule b). Logs one
+// numbers-only line per decision.
+- (BOOL)liveTailIsSilentAfterEmptyFinalTurn:(BOOL)serverClosedEmpty where:(NSString *)where {
+    if (self.liveSegments.count == 0) return NO; // no Live text: nothing changes
+    NSData *pcm = self.recordedPCMData;
+    NSUInteger from = MIN(self.liveAnsweredBytes, pcm.length);
+    GFLiveTail t = GFMeasureLiveTail((const int16_t *)pcm.bytes, pcm.length / 2, from / 2);
+    double voiced = [self voicedSecondsInRecordingFromByte:from];
+    BOOL silent = GFLiveTailIsSilent(serverClosedEmpty, self.liveSegments.count, t, voiced);
+    if (!self.unitTestMode)
+        GFLog(@"Live tail check (%@): %.2fs after the last answered turn (%.2fs): peak RMS %.0f, evidence %.2fs above RMS %.0f, "
+              @"voiced %.2fs, above the scan floor %.2fs, %lu segments, server_empty=%d -> %@", where, t.seconds, from / 32000.0,
+              t.peakRMS, t.evidenceSeconds, kSpeechEvidenceFloorRMS, voiced, t.floorSeconds, (unsigned long)self.liveSegments.count,
+              serverClosedEmpty, silent ? @"silent tail, finishing on Live" : (serverClosedEmpty ? @"speech possible, using REST"
+                                                                                               : @"sending it to Live as before"));
+    return silent;
+}
+
 // The server echoed the release's activityEnd before that turn produced anything (see GFLiveEchoMeansEmptyFinalTurn).
 // Give in-flight messages a moment, then re-run the full recording through the REST safety net now instead of at the 2.5 s cap.
-// Never finishes with less than was said: an empty final turn always goes to REST, even when earlier turns had text.
+// Never finishes with less than was said: an empty final turn goes to REST even when earlier turns had text, unless the audio
+// after the last answered turn has no loud speech either (backlog 0z (a), GFLiveTailIsSilent).
 - (void)liveScheduleEmptyFinalTurnCheckSession:(NSUInteger)sid {
     NSUInteger pendingAtEcho = self.livePendingActivityEnds.count;
     NSTimeInterval echoTime = [NSDate timeIntervalSinceReferenceDate];
@@ -4658,7 +4733,16 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 // Backlog 0u: ALWAYS wait (<= kNoSpeechOnDeviceWait) for on-device's verdict, even when audio is above the RMS-60 level (a quiet
 // room's noise is), so the speech-evidence rule can decide with it.
 - (void)liveEmptyFinalTurnSession:(NSUInteger)sid reason:(NSString *)reason {
-    if (self.liveSegments.count > 0) { [self liveFailedWithReason:reason session:sid]; return; } // earlier turns heard speech
+    if (self.liveSegments.count > 0) { // earlier turns heard speech
+        // Backlog 0z (a): the server heard nothing in the final turn and the tail has no loud speech: the Live text is complete.
+        if (self.liveSessionId == sid && !self.liveFailed && !self.hasCompletedGeminiTurn
+            && [self liveTailIsSilentAfterEmptyFinalTurn:YES where:@"final turn closed empty"]) {
+            [self finishLiveTranscriptWithReason:@"final turn closed empty, no speech after the last answered turn"];
+            return;
+        }
+        [self liveFailedWithReason:reason session:sid];
+        return;
+    }
     GFSpeechEvidence ev = GFMeasureSpeechEvidence((const int16_t *)self.recordedPCMData.bytes, self.recordedPCMData.length / 2);
     [self liveNoSpeechAwaitOnDeviceSession:sid reason:reason evidence:ev
                                   deadline:[NSDate timeIntervalSinceReferenceDate] + kNoSpeechOnDeviceWait];
@@ -4794,7 +4878,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     [self closeLiveWebSocket];
     if (self.liveFinalizing) {
         self.hasCompletedGeminiTurn = YES;
-        GFLog(@"Live: falling back to REST (%@) on the full recording", kDefaultModel);
+        if (!self.unitTestMode) GFLog(@"Live: falling back to REST (%@) on the full recording", kDefaultModel);
         [self performGenerateContentFallbackForDictation:self.activeDictation];
     }
     // If still recording, finishWithGeminiProcessing will see liveFailed and use REST.
@@ -5078,6 +5162,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 }
 
 - (void)performGenerateContentFallbackForDictation:(GFDictation *)dictation {
+    if (self.restFallbackSink) { self.restFallbackSink(dictation); return; } // --test only (never set outside the built-in suite)
     NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
     NSString *selectedModel = [self currentGeminiModel];
     if ([self isLiveWebSocketModel:selectedModel]) selectedModel = kDefaultModel; // live models are streaming-only
@@ -7579,6 +7664,278 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (okC) passed++; else failed++;
             printf("%s: a late echo of an answered turn leaves coverage at its own end (%.1f s, not the pending 20.0 s)\n",
                    okC ? "PASS" : "FAIL", c.liveCoveredBytes / 32000.0);
+        }
+        // Backlog 0z: the silent tail after the last answered turn (GFLiveTailIsSilent). Pure rule first: srv = the server closed the
+        // final turn empty (rule a), NO = the audio was not sent yet (rule b). Peaks, tail lengths and segment counts of the "real"
+        // rows are from GeminiFlow.log; evidence / voiced seconds were never logged before this change, so those are assumptions.
+        {
+            struct { BOOL srv; NSUInteger segs; GFLiveTail t; double voiced; BOOL want; const char *what; } tr[] = {
+                {YES, 9, {0.13, 190, 0.00, 0.12}, 0.12, YES, "real 2026-11-13 10:25: 9 segments, 0.13 s held tail, loudest frame RMS 190"},
+                {YES, 3, {1.77, 796, 0.08, 0.08}, 0.08, YES, "real 2026-11-13 08:34: 3 segments, 1.77 s tail, key click RMS 796 (4 frames assumed)"},
+                {YES, 3, {1.77, 796, 0.10, 0.10}, 0.10, NO,  "the same click sustained for 5 frames (0.10 s of evidence): speech possible"},
+                {YES, 1, {0.08, 613, 0.08, 0.08}, 0.08, YES, "real 2026-11-12 17:02: 1 segment, 0.08 s held tail, RMS 613"},
+                {YES, 3, {4.02, 212, 0.00, 1.20}, 0.30, YES, "real 2026-11-12 23:37: 3 segments, 4.02 s tail, RMS 212 (0.30 s voiced assumed)"},
+                {YES, 3, {4.02, 212, 0.00, 1.20}, 0.36, NO,  "the same tail with 0.36 s voiced: over the 0.35 s coverage limit"},
+                {YES, 2, {1.00, 900, 0.30, 0.30}, 0.30, NO,  "a quiet word, 0.3 s at RMS 900"},
+                {YES, 2, {1.00, 349, 0.30, 0.30}, 0.30, YES, "0.3 s with the loudest frame just below RMS 350"},
+                {YES, 2, {1.00, 350, 0.10, 0.30}, 0.30, NO,  "RMS 350 with 0.10 s of evidence"},
+                {YES, 0, {1.00, 100, 0.00, 0.00}, 0.00, NO,  "no Live text (the no-speech / REST rules decide)"},
+                {YES, 2, {1.00, 1e9, 1e9, 1e9}, 0.00, NO,   "an absurd measurement never reads as silence"},
+                {NO,  2, {1.00,  80, 0.00, 0.00}, 0.00, YES, "not sent yet: room noise only"},
+                {NO,  3, {1.77, 796, 0.08, 0.08}, 0.08, YES, "not sent yet: a 4-frame click"},
+                {NO,  3, {1.77, 796, 0.08, 0.10}, 0.08, NO,  "not sent yet: 5 frames above the scan floor (the server decides)"},
+                {NO,  9, {0.13, 190, 0.00, 0.12}, 0.12, NO,  "not sent yet: 0.12 s at RMS 190 (the server decides)"},
+                {NO,  3, {0.60, 200, 0.00, 0.50}, 0.00, NO,  "not sent yet: a 0.5 s breath (the server decides)"},
+                {NO,  0, {0.60,   0, 0.00, 0.00}, 0.00, NO,  "not sent yet, no Live text"},
+            };
+            for (size_t i = 0; i < sizeof(tr) / sizeof(tr[0]); i++) {
+                BOOL got = GFLiveTailIsSilent(tr[i].srv, tr[i].segs, tr[i].t, tr[i].voiced);
+                BOOL ok = got == tr[i].want;
+                if (ok) passed++; else failed++;
+                printf("%s: Live tail (%s), %s = %s\n", ok ? "PASS" : "FAIL", tr[i].srv ? "final turn closed empty" : "not sent",
+                       tr[i].what, got ? "silent, finish on Live" : "keep (server / REST)");
+            }
+            // Scan: rule (b) is never looser than rule (a); (a) is exactly "Live text + no loud speech + coverage limit"; (b) also
+            // needs < 0.10 s above the scan floor.
+            BOOL scanOk = YES; NSUInteger scanned = 0;
+            for (double peak = 0; peak <= 1200.0; peak += 50.0)
+                for (double ev = 0; ev <= 0.3001; ev += 0.02)
+                    for (double fl = ev; fl <= 0.6001; fl += 0.02)
+                        for (double vo = 0; vo <= 0.5001; vo += 0.05)
+                            for (NSUInteger segs = 0; segs <= 2; segs++) {
+                                GFLiveTail t = {1.0, peak, ev, fl};
+                                BOOL a = GFLiveTailIsSilent(YES, segs, t, vo), b = GFLiveTailIsSilent(NO, segs, t, vo);
+                                BOOL quiet = segs > 0 && GFNoLoudSpeech(peak, ev) && vo <= kLiveUncoveredSpeechLimit;
+                                if (a != quiet || (b && !a) || b != (quiet && fl < kLiveTailTransientSeconds)) scanOk = NO;
+                                scanned++;
+                            }
+            if (scanOk) passed++; else failed++;
+            printf("%s: Live tail rule scan (%lu points): not-sent rule within the server-confirmed rule, both within no-loud-speech + %.2f s coverage\n",
+                   scanOk ? "PASS" : "FAIL", (unsigned long)scanned, kLiveUncoveredSpeechLimit);
+
+            // Synthetic recordings: 0.5 s of room noise, speech, then 2.5 s of room noise up to the release, with one event in that
+            // tail. The split point (end of the answered activity) is 0.7 s after the last word.
+            enum { kTailQuiet = 0, kTailClick, kTailBurst85, kTailBurst60, kTailBreath, kTailWord, kTailOnset, kTailShortBreath };
+            NSMutableData *(^mkRec)(double, double, double, int, double) = ^NSMutableData *(double speechSeconds, double noiseRMS,
+                                                                                         double speechScale, int kind, double eventRMS) {
+                NSUInteger E = (NSUInteger)((0.5 + speechSeconds) * 16000.0 + 0.5), rel = E + 40000;
+                NSMutableData *d = [NSMutableData dataWithLength:rel * 2];
+                int16_t *b = (int16_t *)d.mutableBytes;
+                uint32_t lcg = 20261113u;
+                NSUInteger breathAt = kind == kTailBreath ? E + 22400 : rel - 3840, breathLen = kind == kTailBreath ? 8000 : 3200;
+                BOOL breath = kind == kTailBreath || kind == kTailShortBreath;
+                for (NSUInteger i = 0; i < rel; i++) {
+                    lcg = lcg * 1664525u + 1013904223u;
+                    double u = ((lcg >> 8) & 0xFFFF) / 32768.0 - 1.0; // uniform [-1, 1): RMS 1/sqrt(3)
+                    double v = (breath && i >= breathAt && i < breathAt + breathLen ? eventRMS : noiseRMS) * 1.7320508 * u;
+                    if ((i >= 8000 && i < E) || (kind == kTailOnset && i >= rel - 1920))
+                        v += speechScale * 3000.0 * sin(i * 0.11) * (0.6 + 0.4 * sin(i * 0.0007));
+                    if (kind == kTailWord && i >= E + 25600 && i < E + 30400) v += eventRMS * 1.41421356 * sin(i * 0.37);  // 0.3 s
+                    if (kind == kTailBurst85 && i >= rel - 1360) v += eventRMS * 1.41421356 * sin(i * 0.37);                // last 85 ms
+                    if (kind == kTailBurst60 && i >= rel - 960) v += eventRMS * 1.41421356 * sin(i * 0.37);                 // last 60 ms
+                    if (kind == kTailClick && i >= rel - 1280)   // a decaying click (8 ms time constant) 80 ms before the end
+                        v += (eventRMS / 0.315) * exp(-(double)(i - (rel - 1280)) / 128.0) * sin((i - (rel - 1280)) * 0.9);
+                    b[i] = (int16_t)v;
+                }
+                return d;
+            };
+            // Verdicts through the app's own measuring method on a fresh delegate: one earlier segment, answered up to the split.
+            struct { double speech, noise, scale; int kind; double rms; BOOL wantSrv, wantLocal; const char *what; } sp[] = {
+                {8.5, 80, 1.0, kTailQuiet,   0,   YES, YES, "room noise only"},
+                {8.5, 80, 1.0, kTailClick,   800, YES, YES, "a key click in the last 85 ms (decaying, loudest frame RMS ~800)"},
+                {8.5, 80, 1.0, kTailBurst60, 800, YES, YES, "a 60 ms burst at RMS 800"},
+                {8.5, 80, 1.0, kTailBurst85, 800, NO,  NO,  "a sustained 85 ms burst at RMS 800 (5 frames = 0.10 s of evidence: at the limit, kept)"},
+                {8.5, 80, 1.0, kTailBreath,  200, YES, NO,  "a 0.5 s breath at RMS 200 (sent to the server; silent once it closes the turn empty)"},
+                {8.5, 30, 1.0, kTailBreath,  200, NO,  NO,  "the same breath in a very quiet recording (noise RMS 30): 0.5 s voiced > 0.35 s, kept"},
+                {8.5, 80, 1.0, kTailWord,    900, NO,  NO,  "a quiet word, 0.3 s at RMS 900"},
+                {8.5, 80, 0.3, kTailWord,    400, NO,  NO,  "a quiet voice (speech at 0.3x) with a 0.3 s word at RMS 400"},
+                {20.0, 80, 1.0, kTailWord,   500, NO,  NO,  "a speech-dense recording (0u threshold at its 1000 cap) with a 0.3 s word at RMS 500"},
+                {8.5, 300, 1.0, kTailQuiet,  0,   YES, NO,  "steady noise at RMS 300 (no frame reaches RMS 350): sent; silent once closed empty"},
+                {8.5, 300, 1.0, kTailWord,   400, NO,  NO,  "a 0.3 s word at RMS 400 in that noise"},
+                {8.5, 400, 1.0, kTailQuiet,  0,   NO,  NO,  "a noisy room (noise RMS 400, every frame above RMS 350): kept on today's path"},
+                {8.5, 80, 1.0, kTailOnset,   0,   NO,  NO,  "a word starting 0.12 s before the release"},
+            };
+            for (size_t i = 0; i < sizeof(sp) / sizeof(sp[0]); i++) {
+                NSMutableData *rec = mkRec(sp[i].speech, sp[i].noise, sp[i].scale, sp[i].kind, sp[i].rms);
+                NSUInteger splitBytes = (NSUInteger)((0.5 + sp[i].speech + 0.7) * 32000.0 + 0.5);
+                AppDelegate *m = [[AppDelegate alloc] init];
+                m.unitTestMode = YES;
+                m.recordedPCMData = rec;
+                m.liveSegments = [@[@"earlier text"] mutableCopy];
+                m.liveAnsweredBytes = splitBytes;
+                GFLiveTail t = GFMeasureLiveTail((const int16_t *)rec.bytes, rec.length / 2, splitBytes / 2);
+                double voiced = [m voicedSecondsInRecordingFromByte:splitBytes];
+                BOOL srv = [m liveTailIsSilentAfterEmptyFinalTurn:YES where:@"test"], local = [m liveTailIsSilentAfterEmptyFinalTurn:NO where:@"test"];
+                m.liveSegments = [NSMutableArray array];
+                BOOL noText = ![m liveTailIsSilentAfterEmptyFinalTurn:YES where:@"test"] && ![m liveTailIsSilentAfterEmptyFinalTurn:NO where:@"test"];
+                BOOL ok = srv == sp[i].wantSrv && local == sp[i].wantLocal && noText && fabs(t.seconds - 1.8) < 0.001;
+                if (ok) passed++; else failed++;
+                printf("%s: Live tail PCM, %s: %.2f s tail, peak RMS %.0f, evidence %.2f s above RMS %.0f, voiced %.2f s, above the scan floor "
+                       "%.2f s -> closed empty: %s, not sent: %s\n", ok ? "PASS" : "FAIL", sp[i].what, t.seconds, t.peakRMS,
+                       t.evidenceSeconds, kSpeechEvidenceFloorRMS, voiced, t.floorSeconds, srv ? "finish on Live" : "REST",
+                       local ? "finish, no final activity" : "send it");
+            }
+            {
+                // Why the evidence level is fixed at RMS 250: in a speech-dense recording 0u's noise-relative threshold sits at its
+                // RMS-1000 cap (for the whole recording, and for a tail that is all word), which would hide an RMS-500 word.
+                NSMutableData *dense = mkRec(20.0, 80, 1.0, kTailWord, 500);
+                GFSpeechEvidence wholeEv = GFMeasureSpeechEvidence((const int16_t *)dense.bytes, dense.length / 2);
+                NSData *cut = [dense subdataWithRange:NSMakeRange(0, (328000 + 30400) * 2)]; // released right at the end of the word
+                GFSpeechEvidence ownEv = GFMeasureSpeechEvidence((const int16_t *)cut.bytes + 328000 + 25600, 4800);
+                GFLiveTail allWord = GFMeasureLiveTail((const int16_t *)cut.bytes, cut.length / 2, 328000 + 25600);
+                double hidden = GFSecondsAboveRMS((const int16_t *)cut.bytes + 328000 + 25600, 4800, wholeEv.thresholdRMS, NULL);
+                BOOL okFix = wholeEv.thresholdRMS == kSpeechEvidenceCapRMS && ownEv.thresholdRMS == kSpeechEvidenceCapRMS && hidden == 0
+                             && fabs(allWord.seconds - 0.30) < 0.001 && fabs(allWord.evidenceSeconds - 0.30) < 0.001
+                             && !GFNoLoudSpeech(allWord.peakRMS, allWord.evidenceSeconds);
+                if (okFix) passed++; else failed++;
+                printf("%s: Live tail evidence is counted above the fixed RMS %.0f, not 0u's noise-relative threshold (here %.0f for the whole "
+                       "recording and %.0f for an all-word tail, hiding the word: %.2f s): %.2f s of evidence, peak RMS %.0f\n",
+                       okFix ? "PASS" : "FAIL", kSpeechEvidenceFloorRMS, wholeEv.thresholdRMS, ownEv.thresholdRMS, hidden,
+                       allWord.evidenceSeconds, allWord.peakRMS);
+                GFLiveTail none = GFMeasureLiveTail(NULL, 0, 0), past = GFMeasureLiveTail((const int16_t *)cut.bytes, cut.length / 2, cut.length);
+                BOOL okEdge = none.seconds == 0 && none.peakRMS == 0 && none.floorSeconds == 0 && past.seconds == 0 && past.evidenceSeconds == 0;
+                if (okEdge) passed++; else failed++;
+                printf("%s: Live tail of an empty buffer / a start past the end measures nothing\n", okEdge ? "PASS" : "FAIL");
+            }
+
+            // Sequences on fresh AppDelegates (no socket: sends are no-ops; REST is recorded by restFallbackSink, never called).
+            // 9.0 s of speech in activity #1, split at 9.70 s; release at 11.50 s.
+            const NSUInteger splitB = 310400, relB = 368000; // bytes (32000 per second)
+            NSDictionary *seg1 = @{@"serverContent": @{@"inputTranscription": @{@"text": @"first part of the update"}, @"generationComplete": @YES}};
+            NSDictionary *gen0 = @{@"serverContent": @{@"generationComplete": @YES}}; // a turn answered with no text
+            NSDictionary *echoEnd = @{@"voiceActivity": @{@"type": @"ACTIVITY_END"}};
+            NSMutableData *(^upTo)(NSData *, NSUInteger) = ^NSMutableData *(NSData *full, NSUInteger n) {
+                return [[full subdataWithRange:NSMakeRange(0, n)] mutableCopy];
+            };
+            // answer: 0 = the split turn is still pending, 1 = answered with text (+ its echo), 2 = answered without text (+ its echo)
+            AppDelegate *(^mkLive)(NSData *, NSMutableArray *, NSMutableArray *, int) = ^AppDelegate *(NSData *full, NSMutableArray *sink,
+                                                                                                     NSMutableArray *rest, int answer) {
+                AppDelegate *d = [[AppDelegate alloc] init];
+                d.unitTestMode = YES; d.liveTestSocketless = YES; d.liveWebSocketConnected = YES;
+                d.activeDictation = [[GFDictation alloc] init];
+                d.resultSink = ^(NSString *t, GFDictation *dd) { [sink addObject:t ?: @"<NO SPEECH>"]; };
+                d.restFallbackSink = ^(GFDictation *dd) { [rest addObject:@"REST"]; };
+                d.liveSegments = [NSMutableArray array];
+                d.livePendingActivityEnds = [NSMutableArray array];
+                d.liveActivityCount = 1; d.liveActivityOpen = YES; d.liveActivityStartByte = 0;
+                d.recordedPCMData = upTo(full, splitB);
+                [d pumpLiveAudioForce:YES]; // 9.70 s sent; split at the pause
+                if (answer > 0) { [d handleLiveMessage:answer == 1 ? seg1 : gen0 session:0]; [d handleLiveMessage:echoEnd session:0]; }
+                return d;
+            };
+            void (^release)(AppDelegate *) = ^(AppDelegate *d) {
+                d.liveFinalizing = YES; d.liveReleaseTime = [NSDate timeIntervalSinceReferenceDate];
+                [d sendLiveAudioStreamEnd];
+            };
+            NSData *recBreath = mkRec(8.5, 80, 1.0, kTailBreath, 200), *recWord = mkRec(8.5, 80, 1.0, kTailWord, 900);
+            NSData *recClick = mkRec(8.5, 80, 1.0, kTailClick, 800), *recOnset = mkRec(8.5, 80, 1.0, kTailOnset, 0);
+            NSData *recShortBreath = mkRec(8.5, 80, 1.0, kTailShortBreath, 200);
+
+            // (1) A breath reopens an activity before the release; the server closes that final turn empty -> Live text, no REST.
+            NSMutableArray *gotA = [NSMutableArray array], *restA = [NSMutableArray array];
+            AppDelegate *a = mkLive(recBreath, gotA, restA, 1);
+            BOOL okA0 = a.liveSegments.count == 1 && a.liveAnsweredBytes == splitB && a.liveCoveredBytes == splitB && a.livePendingActivityEnds.count == 0;
+            a.recordedPCMData = upTo(recBreath, relB);
+            [a pumpLiveAudioForce:YES];
+            BOOL okA1 = okA0 && a.liveActivityOpen && a.liveActivityCount == 2;
+            release(a);
+            okA1 = okA1 && a.liveFinalEndIndex == 2 && a.livePendingActivityEnds.count == 1 && gotA.count == 0 && restA.count == 0;
+            [a handleLiveMessage:echoEnd session:0];
+            okA1 = okA1 && a.liveCoveredBytes == relB && a.liveAnsweredBytes == splitB && gotA.count == 0; // the echo covers, it does not answer
+            // (2) The same with a quiet word in the tail -> REST on the full recording, exactly as before.
+            NSMutableArray *gotW = [NSMutableArray array], *restW = [NSMutableArray array];
+            AppDelegate *w = mkLive(recWord, gotW, restW, 1);
+            w.recordedPCMData = upTo(recWord, relB);
+            [w pumpLiveAudioForce:YES];
+            release(w);
+            BOOL okW1 = w.liveActivityCount == 2 && w.liveFinalEndIndex == 2 && gotW.count == 0 && restW.count == 0;
+            [w handleLiveMessage:echoEnd session:0];
+            // (3) The key click arrives with the release (nothing voiced before it): no final activity, finished at once.
+            NSMutableArray *gotK = [NSMutableArray array], *restK = [NSMutableArray array];
+            AppDelegate *k = mkLive(recClick, gotK, restK, 1);
+            k.recordedPCMData = upTo(recClick, relB - 3200);
+            [k pumpLiveAudioForce:YES]; // silence so far: held back
+            BOOL okK0 = !k.liveActivityOpen && k.liveActivityCount == 1 && k.liveSentBytes == relB - 3200 - 9600;
+            k.recordedPCMData = upTo(recClick, relB);
+            release(k);
+            BOOL okK = okK0 && gotK.count == 1 && restK.count == 0 && k.liveActivityCount == 1 && k.liveActivityEndsSent == 1
+                       && k.liveFinalEndIndex == 0 && k.liveActivityEnded && k.hasCompletedGeminiTurn && !k.liveFailed
+                       && [gotK.firstObject rangeOfString:@"update"].location != NSNotFound;
+            if (okK) passed++; else failed++;
+            printf("%s: 0z: a key click at the release after an answered split opens no final activity and finishes at once on Live "
+                   "(%lu delivered, %lu REST, %lu activities)\n", okK ? "PASS" : "FAIL", (unsigned long)gotK.count, (unsigned long)restK.count,
+                   (unsigned long)k.liveActivityCount);
+            // (4) A word starting 0.12 s before the release still opens the final activity; closed empty -> REST as before.
+            NSMutableArray *gotO = [NSMutableArray array], *restO = [NSMutableArray array];
+            AppDelegate *o = mkLive(recOnset, gotO, restO, 1);
+            o.recordedPCMData = upTo(recOnset, relB - 3200);
+            [o pumpLiveAudioForce:YES];
+            o.recordedPCMData = upTo(recOnset, relB);
+            release(o);
+            BOOL okO1 = o.liveActivityCount == 2 && o.liveFinalEndIndex == 2 && o.livePendingActivityEnds.count == 1 && gotO.count == 0
+                        && restO.count == 0 && o.liveSentBytes == relB;
+            if (okO1) passed++; else failed++;
+            printf("%s: 0z: a word starting 0.12 s before the release still opens the final activity (%lu activities, nothing finished)\n",
+                   okO1 ? "PASS" : "FAIL", (unsigned long)o.liveActivityCount);
+            [o handleLiveMessage:echoEnd session:0];
+            // (5) Released with only the click held behind the pending split turn: its answer finishes the press, no final activity.
+            NSMutableArray *gotH = [NSMutableArray array], *restH = [NSMutableArray array];
+            AppDelegate *h = mkLive(recClick, gotH, restH, 0);
+            h.recordedPCMData = upTo(recClick, relB);
+            release(h);
+            BOOL okH0 = h.liveFinalReopenDeferred && h.liveActivityCount == 1 && gotH.count == 0 && h.livePendingActivityEnds.count == 1;
+            [h handleLiveMessage:seg1 session:0];
+            BOOL okH = okH0 && gotH.count == 1 && restH.count == 0 && h.liveActivityCount == 1 && h.liveActivityEndsSent == 1
+                       && h.liveFinalEndIndex == 0 && !h.liveFinalReopenDeferred && !h.liveFailed
+                       && [gotH.firstObject rangeOfString:@"update"].location != NSNotFound;
+            if (okH) passed++; else failed++;
+            printf("%s: 0z: released with only a key click held behind the pending split turn: its answer finishes the press, no final "
+                   "activity (%lu delivered, %lu REST)\n", okH ? "PASS" : "FAIL", (unsigned long)gotH.count, (unsigned long)restH.count);
+            // (6) A 0.2 s breath held the same way is sent as the final activity (the server decides); closed empty -> Live text.
+            NSMutableArray *gotS = [NSMutableArray array], *restS = [NSMutableArray array];
+            AppDelegate *sb = mkLive(recShortBreath, gotS, restS, 0);
+            sb.recordedPCMData = upTo(recShortBreath, relB);
+            release(sb);
+            [sb handleLiveMessage:seg1 session:0];
+            BOOL okS0 = sb.liveActivityCount == 2 && sb.liveFinalEndIndex == 2 && sb.livePendingActivityEnds.count == 1 && gotS.count == 0
+                        && sb.liveSentBytes == relB && sb.liveAnsweredBytes == splitB;
+            [sb handleLiveMessage:echoEnd session:0]; // the split turn's echo
+            [sb handleLiveMessage:echoEnd session:0]; // the final turn's echo: closed empty
+            // (7) No Live text (the split turn was answered with no text): everything as before. The click still opens the final
+            // activity, and its empty close goes through the no-speech check to REST (the recording has speech evidence).
+            NSMutableArray *gotZ = [NSMutableArray array], *restZ = [NSMutableArray array];
+            AppDelegate *z = mkLive(recClick, gotZ, restZ, 2);
+            z.recordedPCMData = upTo(recClick, relB - 3200);
+            [z pumpLiveAudioForce:YES];
+            z.recordedPCMData = upTo(recClick, relB);
+            release(z);
+            BOOL okZ0 = z.liveSegments.count == 0 && z.liveActivityCount == 2 && z.liveFinalEndIndex == 2 && gotZ.count == 0 && restZ.count == 0;
+            [z handleLiveMessage:echoEnd session:0];
+            // One wait for all the empty-final-turn checks (grace 0.15 s).
+            [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:kLiveEmptyTurnGrace + 0.2]];
+            BOOL okA = okA1 && gotA.count == 1 && restA.count == 0 && a.hasCompletedGeminiTurn && !a.liveFailed
+                       && [gotA.firstObject rangeOfString:@"update"].location != NSNotFound;
+            if (okA) passed++; else failed++;
+            printf("%s: 0z: segments + a breath tail + empty final turn (echo, no generationComplete) finishes with the Live text, no REST "
+                   "(%lu delivered, %lu REST)\n", okA ? "PASS" : "FAIL", (unsigned long)gotA.count, (unsigned long)restA.count);
+            BOOL okW = okW1 && gotW.count == 0 && restW.count == 1 && w.liveFailed && w.hasCompletedGeminiTurn;
+            if (okW) passed++; else failed++;
+            printf("%s: 0z: segments + a spoken tail (0.3 s at RMS 900) + empty final turn goes to REST on the full recording as before "
+                   "(%lu delivered, %lu REST)\n", okW ? "PASS" : "FAIL", (unsigned long)gotW.count, (unsigned long)restW.count);
+            BOOL okO = okO1 && gotO.count == 0 && restO.count == 1 && o.liveFailed;
+            if (okO) passed++; else failed++;
+            printf("%s: 0z: ...and that 0.12 s word start, closed empty by the server, goes to REST (%lu delivered, %lu REST)\n",
+                   okO ? "PASS" : "FAIL", (unsigned long)gotO.count, (unsigned long)restO.count);
+            BOOL okS = okS0 && gotS.count == 1 && restS.count == 0 && !sb.liveFailed
+                       && [gotS.firstObject rangeOfString:@"update"].location != NSNotFound;
+            if (okS) passed++; else failed++;
+            printf("%s: 0z: a 0.2 s breath held behind the pending split turn is sent as the final activity; closed empty -> Live text, no REST "
+                   "(%lu delivered, %lu REST)\n", okS ? "PASS" : "FAIL", (unsigned long)gotS.count, (unsigned long)restS.count);
+            BOOL okZ = okZ0 && gotZ.count == 0 && restZ.count == 1 && z.liveFailed;
+            if (okZ) passed++; else failed++;
+            printf("%s: 0z: zero segments is unchanged: the click opens the final activity and its empty close goes to REST "
+                   "(%lu delivered, %lu REST, %lu activities)\n", okZ ? "PASS" : "FAIL", (unsigned long)gotZ.count, (unsigned long)restZ.count,
+                   (unsigned long)z.liveActivityCount);
         }
         // No-speech verdict (backlog 0e): all three signals must agree; any single sign of speech keeps REST. Rows with noLoud = NO
         // are the original rule (audio has loud speech evidence); backlog 0u rows add the speech-evidence rule.
