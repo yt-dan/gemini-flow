@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "product": "GeminiFlow",
+  "entries": [
+    {
+      "cycle": 34,
+      "scope": "mac",
+      "timestamp": "13 Nov · 09:40",
+      "title": "Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync",
+      "highlights": [
+        "Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.",
+        "Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."
+      ]
+    },
+    {
+      "cycle": 33,
+      "scope": "engine",
+      "timestamp": "13 Nov · 09:09",
+      "title": "Silent-press prompt-echo guard & low-evidence silence net",
+      "highlights": [
+        "Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').",
+        "Instructed the REST fallback model to return an empty result on silence or background noise and routed empty low-evidence responses cleanly to No speech."
+      ]
+    },
+    {
+      "cycle": 32,
+      "scope": "engine",
+      "timestamp": "12 Nov · 16:46",
+      "title": "Noise-relative silence detection & REST plausibility safety net",
+      "highlights": [
+        "Measured speech evidence relative to each press's 20th-percentile room noise floor so quiet-room taps and holds end immediately as No speech instead of calling REST.",
+        "Added a numbers-only REST plausibility net rejecting hallucinated zero-timestamps ('00:00') and runaway text lengths on silent audio."
+      ]
+    },
+    {
+      "cycle": 31,
+      "scope": "engine",
+      "timestamp": "12 Nov · 15:16",
+      "title": "Zero word loss across slow split turns",
+      "highlights": [
+        "Held voiced audio (with 0.3s pre-roll) behind any in-flight split turn until generationComplete arrives instead of reopening early after 1.5s, eliminating dropped seam words.",
+        "Raised the T26 multi-close hands-free recall gate from 0.95 to 0.99."
+      ]
+    },
+    {
+      "cycle": 30,
+      "scope": "mac",
+      "timestamp": "12 Nov · 13:16",
+      "title": "Hands-free HUD indicator redesign",
+      "highlights": [
+        "Replaced the outer mint rim and glow in locked hands-free mode with a crisp 7px green indicator dot on a soft inner halo and solid green waveform bars inside the pill.",
+        "Kept hold-to-talk, Thinking, and notice pill renders pixel-identical."
+      ]
+    },
+    {
+      "cycle": 29,
+      "scope": "engine",
+      "timestamp": "12 Nov · 12:01",
+      "title": "Planned Live session rotation before the 10-minute server cap",
+      "highlights": [
+        "Proactively rotates the Gemini Live WebSocket at the first quiet split point after 8.5 minutes with zero resent audio and zero seam duplicates.",
+        "Treats server closes after 9.5 minutes (or after goAway) as planned rotations that do not consume the 2-reconnect drop budget."
+      ]
+    },
+    {
+      "cycle": 28,
+      "scope": "mac",
+      "timestamp": "12 Nov · 09:10",
+      "title": "Accurate 4-gram duplicate-phrase test gate",
+      "highlights": [
+        "Updated duplicated_phrases() in the test runner to flag 4-grams only when they appear at least twice in the output and more often than in expected text, eliminating false positives on minor recognizer phrasing variants."
+      ]
+    },
+    {
+      "cycle": 27,
+      "scope": "engine",
+      "timestamp": "11 Nov · 19:57",
+      "title": "5- and 10-minute marathon dictation suite & privacy-safe press stats",
+      "highlights": [
+        "Added opt-in 5-minute and 10-minute continuous Live dictation gates (T23) and scaled the e2e watchdog for multi-minute sessions.",
+        "Logged one numbers-only Press stats line per dictation (audio duration, Live session age, reconnects, and activity count)."
+      ]
+    },
+    {
+      "cycle": 26,
+      "scope": "mac",
+      "timestamp": "11 Nov · 17:35",
+      "title": "Visual distinction for locked hands-free HUD & offscreen PNG renderer",
+      "highlights": [
+        "Added visual differentiation between hold-to-talk and double-tap locked hands-free mode on the floating HUD pill.",
+        "Added --render-hud-png for deterministic 2x offscreen HUD verification."
+      ]
+    },
+    {
+      "cycle": 25,
+      "scope": "engine",
+      "timestamp": "11 Nov · 15:37",
+      "title": "Release-cushion telemetry & atomic test audio cache",
+      "highlights": [
+        "Logged numbers-only Fn-up release cushion coverage (hostTime reach past key release and post-release RMS) to measure real hardware buffer lag.",
+        "Made test runner TTS and WAV cache writes atomic so interrupted runs never leave truncated audio fixtures."
+      ]
+    },
+    {
+      "cycle": 24,
+      "scope": "engine",
+      "timestamp": "11 Nov · 13:47",
+      "title": "Instant completion when releasing Fn between Live turns",
+      "highlights": [
+        "Finished Live dictations immediately on key release (~135ms instead of ~570ms) when all prior speech was already finalized at a pause split and no uncovered speech remains."
+      ]
+    },
+    {
+      "cycle": 23,
+      "scope": "engine",
+      "timestamp": "11 Nov · 11:55",
+      "title": "Last-sentence question punctuation & filler-like cleanup",
+      "highlights": [
+        "Judged trailing '?' vs '.' from the final sentence rather than earlier clauses in multi-sentence dictations.",
+        "Removed stray filler 'like' immediately preceding a stripped 'kind of' or 'sort of' hedge."
+      ]
+    },
+    {
+      "cycle": 22,
+      "scope": "engine",
+      "timestamp": "11 Nov · 09:56",
+      "title": "Context-aware 'kind of' and 'sort of' filler removal",
+      "highlights": [
+        "Stripped 'kind of' and 'sort of' only when set off as spoken pauses or adjacent to vocal fillers, preserving meaningful uses like 'what kind of car' and 'sort of works'."
+      ]
+    },
+    {
+      "cycle": 21,
+      "scope": "engine",
+      "timestamp": "10 Nov · 19:36",
+      "title": "Pronoun capitalization, mixed-case brands & grammatical doubles",
+      "highlights": [
+        "Protected 'i.e.', dotfiles ('.env'), URLs, and mixed-case names ('iPhone', 'macOS') during capitalization and punctuation cleanup.",
+        "Collapsed single-word stutters ('the the', 'I I') while keeping grammatical doubles ('had had', 'that that', 'very very')."
+      ]
+    },
+    {
+      "cycle": 20,
+      "scope": "engine",
+      "timestamp": "10 Nov · 17:59",
+      "title": "Header-only API key auth & automatic log redaction",
+      "highlights": [
+        "Moved Gemini API key authentication from query URLs into the x-goog-api-key request header across Live WebSocket and REST calls.",
+        "Added defensive secret scrubbing in GFLog and static binary/request verification (T19)."
+      ]
+    }
+  ]
+}

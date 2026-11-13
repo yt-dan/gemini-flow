@@ -27,6 +27,203 @@ typedef NS_ENUM(NSInteger, GFLiveAuthMode) {
     GFLiveAuthKeyInURL = 2,   // header auth was rejected and the key-in-URL retry worked: keep using it this run
 };
 
+#pragma mark - Structured Changelog Data (Foundation-only; synced one-way to iOS via changelog.json)
+
+static BOOL GFStringHasForbiddenDash(NSString *s) {
+    if (![s isKindOfClass:[NSString class]]) return NO;
+    return [s rangeOfString:@"\u2014"].location != NSNotFound || [s rangeOfString:@"\u2013"].location != NSNotFound;
+}
+
+static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
+    static NSArray<NSDictionary *> *entries = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        entries = @[
+            @{@"cycle": @(34), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 09:40", @"title": @"Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync", @"highlights": @[@"Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.", @"Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."]},
+            @{@"cycle": @(33), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 09:09", @"title": @"Silent-press prompt-echo guard & low-evidence silence net", @"highlights": @[@"Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').", @"Instructed the REST fallback model to return an empty result on silence or background noise and routed empty low-evidence responses cleanly to No speech."]},
+            @{@"cycle": @(32), @"scope": @"engine", @"timestamp": @"12 Nov \u00B7 16:46", @"title": @"Noise-relative silence detection & REST plausibility safety net", @"highlights": @[@"Measured speech evidence relative to each press's 20th-percentile room noise floor so quiet-room taps and holds end immediately as No speech instead of calling REST.", @"Added a numbers-only REST plausibility net rejecting hallucinated zero-timestamps ('00:00') and runaway text lengths on silent audio."]},
+            @{@"cycle": @(31), @"scope": @"engine", @"timestamp": @"12 Nov \u00B7 15:16", @"title": @"Zero word loss across slow split turns", @"highlights": @[@"Held voiced audio (with 0.3s pre-roll) behind any in-flight split turn until generationComplete arrives instead of reopening early after 1.5s, eliminating dropped seam words.", @"Raised the T26 multi-close hands-free recall gate from 0.95 to 0.99."]},
+            @{@"cycle": @(30), @"scope": @"mac", @"timestamp": @"12 Nov \u00B7 13:16", @"title": @"Hands-free HUD indicator redesign", @"highlights": @[@"Replaced the outer mint rim and glow in locked hands-free mode with a crisp 7px green indicator dot on a soft inner halo and solid green waveform bars inside the pill.", @"Kept hold-to-talk, Thinking, and notice pill renders pixel-identical."]},
+            @{@"cycle": @(29), @"scope": @"engine", @"timestamp": @"12 Nov \u00B7 12:01", @"title": @"Planned Live session rotation before the 10-minute server cap", @"highlights": @[@"Proactively rotates the Gemini Live WebSocket at the first quiet split point after 8.5 minutes with zero resent audio and zero seam duplicates.", @"Treats server closes after 9.5 minutes (or after goAway) as planned rotations that do not consume the 2-reconnect drop budget."]},
+            @{@"cycle": @(28), @"scope": @"mac", @"timestamp": @"12 Nov \u00B7 09:10", @"title": @"Accurate 4-gram duplicate-phrase test gate", @"highlights": @[@"Updated duplicated_phrases() in the test runner to flag 4-grams only when they appear at least twice in the output and more often than in expected text, eliminating false positives on minor recognizer phrasing variants."]},
+            @{@"cycle": @(27), @"scope": @"engine", @"timestamp": @"11 Nov \u00B7 19:57", @"title": @"5- and 10-minute marathon dictation suite & privacy-safe press stats", @"highlights": @[@"Added opt-in 5-minute and 10-minute continuous Live dictation gates (T23) and scaled the e2e watchdog for multi-minute sessions.", @"Logged one numbers-only Press stats line per dictation (audio duration, Live session age, reconnects, and activity count)."]},
+            @{@"cycle": @(26), @"scope": @"mac", @"timestamp": @"11 Nov \u00B7 17:35", @"title": @"Visual distinction for locked hands-free HUD & offscreen PNG renderer", @"highlights": @[@"Added visual differentiation between hold-to-talk and double-tap locked hands-free mode on the floating HUD pill.", @"Added --render-hud-png for deterministic 2x offscreen HUD verification."]},
+            @{@"cycle": @(25), @"scope": @"engine", @"timestamp": @"11 Nov \u00B7 15:37", @"title": @"Release-cushion telemetry & atomic test audio cache", @"highlights": @[@"Logged numbers-only Fn-up release cushion coverage (hostTime reach past key release and post-release RMS) to measure real hardware buffer lag.", @"Made test runner TTS and WAV cache writes atomic so interrupted runs never leave truncated audio fixtures."]},
+            @{@"cycle": @(24), @"scope": @"engine", @"timestamp": @"11 Nov \u00B7 13:47", @"title": @"Instant completion when releasing Fn between Live turns", @"highlights": @[@"Finished Live dictations immediately on key release (~135ms instead of ~570ms) when all prior speech was already finalized at a pause split and no uncovered speech remains."]},
+            @{@"cycle": @(23), @"scope": @"engine", @"timestamp": @"11 Nov \u00B7 11:55", @"title": @"Last-sentence question punctuation & filler-like cleanup", @"highlights": @[@"Judged trailing '?' vs '.' from the final sentence rather than earlier clauses in multi-sentence dictations.", @"Removed stray filler 'like' immediately preceding a stripped 'kind of' or 'sort of' hedge."]},
+            @{@"cycle": @(22), @"scope": @"engine", @"timestamp": @"11 Nov \u00B7 09:56", @"title": @"Context-aware 'kind of' and 'sort of' filler removal", @"highlights": @[@"Stripped 'kind of' and 'sort of' only when set off as spoken pauses or adjacent to vocal fillers, preserving meaningful uses like 'what kind of car' and 'sort of works'."]},
+            @{@"cycle": @(21), @"scope": @"engine", @"timestamp": @"10 Nov \u00B7 19:36", @"title": @"Pronoun capitalization, mixed-case brands & grammatical doubles", @"highlights": @[@"Protected 'i.e.', dotfiles ('.env'), URLs, and mixed-case names ('iPhone', 'macOS') during capitalization and punctuation cleanup.", @"Collapsed single-word stutters ('the the', 'I I') while keeping grammatical doubles ('had had', 'that that', 'very very')."]},
+            @{@"cycle": @(20), @"scope": @"engine", @"timestamp": @"10 Nov \u00B7 17:59", @"title": @"Header-only API key auth & automatic log redaction", @"highlights": @[@"Moved Gemini API key authentication from query URLs into the x-goog-api-key request header across Live WebSocket and REST calls.", @"Added defensive secret scrubbing in GFLog and static binary/request verification (T19)."]}
+        ];
+    });
+    return entries;
+}
+
+static BOOL GFChangelogValidateEntries(NSArray<NSDictionary *> *entries, NSString **outReason) {
+    if (![entries isKindOfClass:[NSArray class]] || entries.count == 0) {
+        if (outReason) *outReason = @"entries must be a non-empty array";
+        return NO;
+    }
+    NSInteger prevCycle = -1;
+    for (NSUInteger i = 0; i < entries.count; i++) {
+        NSDictionary *e = entries[i];
+        if (![e isKindOfClass:[NSDictionary class]]) {
+            if (outReason) *outReason = @"entry is not a dictionary";
+            return NO;
+        }
+        NSNumber *cycNum = e[@"cycle"];
+        NSString *scope = e[@"scope"];
+        NSString *ts = e[@"timestamp"];
+        NSString *title = e[@"title"];
+        NSArray *highlights = e[@"highlights"];
+        if (![cycNum isKindOfClass:[NSNumber class]] || cycNum.integerValue <= 0) {
+            if (outReason) *outReason = @"invalid cycle number";
+            return NO;
+        }
+        NSInteger cyc = cycNum.integerValue;
+        if (i > 0 && cyc != prevCycle - 1) {
+            if (outReason) *outReason = [NSString stringWithFormat:@"non-contiguous cycle %ld after %ld", (long)cyc, (long)prevCycle];
+            return NO;
+        }
+        prevCycle = cyc;
+        if (![scope isKindOfClass:[NSString class]] || (![scope isEqualToString:@"engine"] && ![scope isEqualToString:@"mac"])) {
+            if (outReason) *outReason = @"scope must be engine or mac";
+            return NO;
+        }
+        if (![ts isKindOfClass:[NSString class]] || [ts stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0 || GFStringHasForbiddenDash(ts)) {
+            if (outReason) *outReason = @"invalid or dashed timestamp";
+            return NO;
+        }
+        if (![title isKindOfClass:[NSString class]] || [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0 || GFStringHasForbiddenDash(title)) {
+            if (outReason) *outReason = @"invalid or dashed title";
+            return NO;
+        }
+        if (![highlights isKindOfClass:[NSArray class]] || highlights.count == 0) {
+            if (outReason) *outReason = @"highlights must be non-empty";
+            return NO;
+        }
+        for (id h in highlights) {
+            if (![h isKindOfClass:[NSString class]] || [(NSString *)h stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0 || GFStringHasForbiddenDash((NSString *)h)) {
+                if (outReason) *outReason = @"invalid or dashed highlight";
+                return NO;
+            }
+        }
+    }
+    return YES;
+}
+
+static NSArray<NSDictionary *> *GFChangelogParseJSONData(NSData *data) {
+    if (!data || data.length == 0) return nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    NSArray *raw = nil;
+    if ([root isKindOfClass:[NSDictionary class]]) {
+        raw = ((NSDictionary *)root)[@"entries"];
+    } else if ([root isKindOfClass:[NSArray class]]) {
+        raw = (NSArray *)root;
+    }
+    if (!GFChangelogValidateEntries(raw, NULL)) return nil;
+    return raw;
+}
+
+static NSArray<NSDictionary *> *GFChangelogLoadEntriesFromPaths(NSArray<NSString *> *paths) {
+    NSArray<NSDictionary *> *builtIn = GFBuiltInChangelogEntries();
+    NSInteger builtInLatest = [builtIn.firstObject[@"cycle"] integerValue];
+    for (NSString *p in paths) {
+        if (![p isKindOfClass:[NSString class]] || p.length == 0) continue;
+        NSData *d = [NSData dataWithContentsOfFile:p];
+        NSArray<NSDictionary *> *parsed = GFChangelogParseJSONData(d);
+        if (parsed && [parsed.firstObject[@"cycle"] integerValue] >= builtInLatest) {
+            return parsed;
+        }
+    }
+    return builtIn;
+}
+
+static NSArray<NSDictionary *> *GFChangelogFilterEntries(NSArray<NSDictionary *> *entries, NSString *query, NSString *scopeFilter) {
+    if (!entries) return @[];
+    NSString *scopeTrim = [scopeFilter ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].lowercaseString;
+    NSString *trimmed = [query ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL hasScope = scopeTrim.length > 0 && ![scopeTrim isEqualToString:@"all"];
+    if (!hasScope && trimmed.length == 0) return entries;
+
+    NSInteger exactHashCycle = -1;
+    if ([trimmed hasPrefix:@"#"] && trimmed.length > 1) {
+        NSString *digits = [trimmed substringFromIndex:1];
+        NSCharacterSet *nonDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+        if ([digits rangeOfCharacterFromSet:nonDigits].location == NSNotFound) {
+            exactHashCycle = digits.integerValue;
+        }
+    }
+
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    for (NSDictionary *e in entries) {
+        NSString *eScope = [e[@"scope"] lowercaseString];
+        if (hasScope && ![eScope isEqualToString:scopeTrim]) continue;
+        if (trimmed.length == 0) {
+            [out addObject:e];
+            continue;
+        }
+        NSInteger cyc = [e[@"cycle"] integerValue];
+        if (exactHashCycle > 0) {
+            if (cyc == exactHashCycle) [out addObject:e];
+            continue;
+        }
+        NSString *cycStr = [NSString stringWithFormat:@"%ld", (long)cyc];
+        if ([cycStr isEqualToString:trimmed] ||
+            [e[@"title"] localizedCaseInsensitiveContainsString:trimmed] ||
+            [eScope localizedCaseInsensitiveContainsString:trimmed]) {
+            [out addObject:e];
+            continue;
+        }
+        for (NSString *h in e[@"highlights"]) {
+            if ([h localizedCaseInsensitiveContainsString:trimmed]) {
+                [out addObject:e];
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+// Sanitizes pasted API keys (.env assignments, export lines, quotes, curl snippets, query URLs, stray whitespace/newlines).
+// Returns @"" if input is empty or a keyless http(s) URL (e.g. https://aistudio.google.com/apikey) so an existing key is never clobbered.
+static NSString *GFSanitizeApiKeyInput(NSString *raw) {
+    if (![raw isKindOfClass:[NSString class]] || raw.length == 0) return @"";
+    NSString *s = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (s.length == 0) return @"";
+
+    // Extract ?key=AIza... or x-goog-api-key: ... if user pasted a curl command or URL snippet
+    static NSRegularExpression *urlKeyRe, *hdrKeyRe, *envRe;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        urlKeyRe = [NSRegularExpression regularExpressionWithPattern:@"[?&](?:api_?)?key=([A-Za-z0-9_\\-]{16,})" options:NSRegularExpressionCaseInsensitive error:nil];
+        hdrKeyRe = [NSRegularExpression regularExpressionWithPattern:@"x-goog-api-key[\"']?\\s*[:=]\\s*[\"']?([A-Za-z0-9_\\-]{16,})" options:NSRegularExpressionCaseInsensitive error:nil];
+        envRe    = [NSRegularExpression regularExpressionWithPattern:@"^(?:export\\s+)?[A-Za-z0-9_]*KEY[A-Za-z0-9_]*\\s*=\\s*(.*)$" options:NSRegularExpressionCaseInsensitive error:nil];
+    });
+    NSTextCheckingResult *um = [urlKeyRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    if (um && [um rangeAtIndex:1].location != NSNotFound) {
+        return [s substringWithRange:[um rangeAtIndex:1]];
+    }
+    NSTextCheckingResult *hm = [hdrKeyRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    if (hm && [hm rangeAtIndex:1].location != NSNotFound) {
+        return [s substringWithRange:[hm rangeAtIndex:1]];
+    }
+    NSTextCheckingResult *em = [envRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    if (em && [em rangeAtIndex:1].location != NSNotFound) {
+        s = [[s substringWithRange:[em rangeAtIndex:1]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    NSCharacterSet *quotes = [NSCharacterSet characterSetWithCharactersInString:@"\"'`"];
+    while (s.length >= 2 && [quotes characterIsMember:[s characterAtIndex:0]] && [quotes characterIsMember:[s characterAtIndex:s.length - 1]]) {
+        s = [[s substringWithRange:NSMakeRange(1, s.length - 2)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    // Strip any internal whitespace or newlines introduced by terminal wrapping
+    NSArray<NSString *> *parts = [s componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    s = [parts componentsJoinedByString:@""];
+    NSString *lower = s.lowercaseString;
+    if ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"]) return @"";
+    return s;
+}
+
 // Custom NSTextField that supports Cmd+V, Cmd+C, Cmd+X, Cmd+A inside accessory app dialogs
 @interface PasteableTextField : NSTextField
 @end
@@ -46,6 +243,959 @@ typedef NS_ENUM(NSInteger, GFLiveAuthMode) {
         }
     }
     return [super performKeyEquivalent:event];
+}
+@end
+
+// Shared closable window for accessory-app utilities: supports traffic-light X, Cmd+W, Cmd+F, and Esc.
+@interface GFClosableWindow : NSWindow
+@property (nonatomic, copy) void (^onFindShortcut)(void);
+@property (nonatomic, copy) BOOL (^onEscapeShortcut)(void); // return YES if consumed (e.g. cleared search), NO to close window
+@end
+
+@implementation GFClosableWindow
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return YES; }
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    NSString *ch = event.charactersIgnoringModifiers.lowercaseString;
+    if (mods == NSEventModifierFlagCommand) {
+        if ([ch isEqualToString:@"w"]) {
+            [self performClose:nil];
+            return YES;
+        }
+        if ([ch isEqualToString:@"f"] && self.onFindShortcut) {
+            self.onFindShortcut();
+            return YES;
+        }
+    }
+    return [super performKeyEquivalent:event];
+}
+- (void)cancelOperation:(id)sender {
+    if (self.onEscapeShortcut && self.onEscapeShortcut()) return;
+    [self performClose:sender];
+}
+@end
+
+// Clean, flat Mac-native Changelog UI (unified surface, no nested folder boxes; stripped by transplant.py on iOS)
+typedef struct {
+    NSRect rect;
+    NSInteger cycle; // > 0 = earlier cycle toggle, -1 = Collapse all
+} GFChangelogHitTarget;
+
+@interface GFChangelogDocumentView : NSView
+@property (nonatomic, copy) NSArray<NSDictionary *> *allEntries;
+@property (nonatomic, copy) NSString *searchQuery;
+@property (nonatomic, copy) NSString *scopeFilter;
+@property (nonatomic, strong) NSMutableSet<NSNumber *> *expandedCycles;
+@property (nonatomic, assign) NSInteger hoveredTargetCycle;
+@property (nonatomic, copy) void (^onStateChanged)(void);
+- (CGFloat)preferredHeightForWidth:(CGFloat)width;
+- (void)relayoutForWidth:(CGFloat)width;
+@end
+
+@implementation GFChangelogDocumentView {
+    NSMutableArray<NSValue *> *_hitTargets;
+    NSTrackingArea *_trackingArea;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        _allEntries = GFBuiltInChangelogEntries();
+        _searchQuery = @"";
+        _scopeFilter = @"all";
+        _expandedCycles = [NSMutableSet set];
+        _hoveredTargetCycle = 0;
+        _hitTargets = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (BOOL)isDarkAppearance {
+    NSAppearance *app = self.effectiveAppearance ?: [NSApp effectiveAppearance];
+    NSAppearanceName match = [app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    return [match isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+                                                 options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+                                                   owner:self
+                                                userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+
+- (BOOL)isFilteringActive {
+    NSString *q = [self.searchQuery ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *s = [self.scopeFilter ?: @"all" lowercaseString];
+    return q.length > 0 || (s.length > 0 && ![s isEqualToString:@"all"]);
+}
+
+- (CGFloat)wrappedHeightForText:(NSString *)text font:(NSFont *)font width:(CGFloat)width {
+    if (text.length == 0 || width <= 4.0) return 16.0;
+    NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+    ps.lineBreakMode = NSLineBreakByWordWrapping;
+    ps.lineSpacing = 2.5;
+    NSRect r = [text boundingRectWithSize:NSMakeSize(width, 10000.0)
+                                  options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
+                               attributes:@{NSFontAttributeName: font, NSParagraphStyleAttributeName: ps}];
+    return ceil(MAX(font.ascender - font.descender + 2.0, r.size.height));
+}
+
+static NSString *GFShortDateFromTimestamp(NSString *ts) {
+    if (![ts isKindOfClass:[NSString class]]) return @"";
+    NSRange mid = [ts rangeOfString:@"\u00B7"];
+    if (mid.location != NSNotFound) {
+        return [[ts substringToIndex:mid.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    }
+    return ts;
+}
+
+- (CGFloat)renderOrMeasureWithWidth:(CGFloat)width draw:(BOOL)doDraw {
+    BOOL dark = [self isDarkAppearance];
+    NSColor *bgColor      = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
+                                 : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    NSColor *hoverColor   = dark ? [NSColor colorWithWhite:1.0 alpha:0.055]
+                                 : [NSColor colorWithWhite:0.0 alpha:0.040];
+    NSColor *dividerColor = dark ? [NSColor colorWithWhite:1.0 alpha:0.075]
+                                 : [NSColor colorWithWhite:0.0 alpha:0.075];
+    NSColor *inkColor     = dark ? [NSColor colorWithWhite:0.97 alpha:1.0]
+                                 : [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
+    NSColor *bodyColor    = dark ? [NSColor colorWithSRGBRed:0.730 green:0.735 blue:0.775 alpha:1.0]
+                                 : [NSColor colorWithSRGBRed:0.310 green:0.315 blue:0.355 alpha:1.0];
+    NSColor *mutedColor   = dark ? [NSColor colorWithSRGBRed:0.530 green:0.535 blue:0.580 alpha:1.0]
+                                 : [NSColor colorWithSRGBRed:0.510 green:0.515 blue:0.560 alpha:1.0];
+
+    if (doDraw) {
+        [bgColor setFill];
+        NSRectFill(self.bounds);
+        [_hitTargets removeAllObjects];
+    }
+
+    NSFont *overlineFont = [NSFont monospacedDigitSystemFontOfSize:10.5 weight:NSFontWeightSemibold];
+    NSFont *timeFont     = [NSFont monospacedDigitSystemFontOfSize:11.5 weight:NSFontWeightRegular];
+    NSFont *heroTitleFont= [NSFont systemFontOfSize:15.5 weight:NSFontWeightSemibold];
+    NSFont *rowTitleFont = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+    NSFont *cycleColFont = [NSFont monospacedDigitSystemFontOfSize:12.0 weight:NSFontWeightMedium];
+    NSFont *bulletFont   = [NSFont systemFontOfSize:12.5 weight:NSFontWeightRegular];
+    NSFont *secHdrFont   = [NSFont monospacedDigitSystemFontOfSize:11.5 weight:NSFontWeightMedium];
+
+    NSMutableParagraphStyle *wrapPS = [[NSMutableParagraphStyle alloc] init];
+    wrapPS.lineBreakMode = NSLineBreakByWordWrapping;
+    wrapPS.lineSpacing = 2.5;
+
+    NSMutableParagraphStyle *truncPS = [[NSMutableParagraphStyle alloc] init];
+    truncPS.lineBreakMode = NSLineBreakByTruncatingTail;
+
+    CGFloat padX = 24.0;
+    CGFloat contentW = MAX(260.0, width - padX * 2.0);
+    CGFloat y = 18.0;
+
+    BOOL filtering = [self isFilteringActive];
+    NSArray<NSDictionary *> *filtered = GFChangelogFilterEntries(self.allEntries, self.searchQuery, self.scopeFilter);
+
+    CGFloat (^measureOrDrawBullets)(NSArray<NSString *> *, CGFloat, CGFloat, CGFloat, BOOL) = ^CGFloat(NSArray<NSString *> *items, CGFloat bx, CGFloat by, CGFloat bw, BOOL drawNow) {
+        CGFloat curY = by;
+        NSDictionary *bAttrs = @{NSFontAttributeName: bulletFont, NSForegroundColorAttributeName: bodyColor, NSParagraphStyleAttributeName: wrapPS};
+        NSDictionary *dotAttrs = @{NSFontAttributeName: bulletFont, NSForegroundColorAttributeName: mutedColor};
+        for (NSUInteger i = 0; i < items.count; i++) {
+            NSString *item = items[i];
+            CGFloat textW = MAX(80.0, bw - 14.0);
+            CGFloat h = [self wrappedHeightForText:item font:bulletFont width:textW];
+            if (drawNow) {
+                [@"\u2022" drawAtPoint:NSMakePoint(bx, curY) withAttributes:dotAttrs];
+                [item drawWithRect:NSMakeRect(bx + 14.0, curY, textW, h + 4.0)
+                           options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
+                        attributes:bAttrs];
+            }
+            curY += h + (i + 1 < items.count ? 6.0 : 0.0);
+        }
+        return curY - by;
+    };
+
+    if (filtering) {
+        if (filtered.count == 0) {
+            if (doDraw) {
+                NSString *empty = @"No matching updates.";
+                NSDictionary *ea = @{NSFontAttributeName: rowTitleFont, NSForegroundColorAttributeName: mutedColor};
+                NSSize esz = [empty sizeWithAttributes:ea];
+                [empty drawAtPoint:NSMakePoint((width - esz.width) / 2.0, y + 36.0) withAttributes:ea];
+            }
+            return y + 96.0;
+        }
+        for (NSUInteger i = 0; i < filtered.count; i++) {
+            NSDictionary *entry = filtered[i];
+            if (i > 0) {
+                if (doDraw) {
+                    [dividerColor setFill];
+                    NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
+                }
+                y += 15.0;
+            }
+            NSInteger cyc = [entry[@"cycle"] integerValue];
+            NSString *meta = [NSString stringWithFormat:@"#%ld", (long)cyc];
+            CGFloat titleX = padX + 42.0;
+            CGFloat dateReserve = 96.0;
+            CGFloat titleW = contentW - 42.0 - dateReserve;
+            CGFloat th = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:titleW];
+            if (doDraw) {
+                [meta drawAtPoint:NSMakePoint(padX, y + 1.0)
+                   withAttributes:@{NSFontAttributeName: cycleColFont, NSForegroundColorAttributeName: mutedColor}];
+                [entry[@"title"] drawWithRect:NSMakeRect(titleX, y, titleW, th + 4.0)
+                                      options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
+                                   attributes:@{NSFontAttributeName: rowTitleFont, NSForegroundColorAttributeName: inkColor, NSParagraphStyleAttributeName: wrapPS}];
+                NSDictionary *ta = @{NSFontAttributeName: timeFont, NSForegroundColorAttributeName: mutedColor};
+                NSSize tsz = [entry[@"timestamp"] sizeWithAttributes:ta];
+                [entry[@"timestamp"] drawAtPoint:NSMakePoint(padX + contentW - tsz.width, y + 1.0) withAttributes:ta];
+            }
+            CGFloat bh = measureOrDrawBullets(entry[@"highlights"], titleX, y + th + 7.0, contentW - 42.0, doDraw);
+            y += th + 7.0 + bh + 15.0;
+        }
+        return y + 12.0;
+    }
+
+    if (self.allEntries.count == 0) return 60.0;
+
+    // 1. Flat Latest Release Section (clean macOS typography, no nested card box)
+    NSDictionary *latest = self.allEntries[0];
+    if (doDraw) {
+        NSString *overText = [NSString stringWithFormat:@"LATEST \u00B7 CYCLE %ld", (long)[latest[@"cycle"] integerValue]];
+        [overText drawAtPoint:NSMakePoint(padX, y)
+               withAttributes:@{NSFontAttributeName: overlineFont, NSForegroundColorAttributeName: mutedColor, NSKernAttributeName: @(0.6)}];
+        NSDictionary *ta = @{NSFontAttributeName: timeFont, NSForegroundColorAttributeName: mutedColor};
+        NSSize tsz = [latest[@"timestamp"] sizeWithAttributes:ta];
+        [latest[@"timestamp"] drawAtPoint:NSMakePoint(padX + contentW - tsz.width, y - 0.5) withAttributes:ta];
+    }
+    y += 20.0;
+
+    CGFloat heroTitleH = [self wrappedHeightForText:latest[@"title"] font:heroTitleFont width:contentW];
+    if (doDraw) {
+        [latest[@"title"] drawWithRect:NSMakeRect(padX, y, contentW, heroTitleH + 4.0)
+                               options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
+                            attributes:@{NSFontAttributeName: heroTitleFont, NSForegroundColorAttributeName: inkColor, NSParagraphStyleAttributeName: wrapPS}];
+    }
+    y += heroTitleH + 10.0;
+
+    CGFloat heroBulletsH = measureOrDrawBullets(latest[@"highlights"], padX, y, contentW, doDraw);
+    y += heroBulletsH + 20.0;
+
+    if (doDraw) {
+        [dividerColor setFill];
+        NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
+    }
+    y += 18.0;
+
+    // 2. Flat Earlier Updates Timeline (borderless rows, subtle hover, click to expand)
+    if (self.allEntries.count > 1) {
+        NSUInteger earlierCount = self.allEntries.count - 1;
+        if (doDraw) {
+            NSString *hdr = [NSString stringWithFormat:@"Earlier updates (%lu)", (unsigned long)earlierCount];
+            [hdr drawAtPoint:NSMakePoint(padX, y)
+              withAttributes:@{NSFontAttributeName: secHdrFont, NSForegroundColorAttributeName: mutedColor}];
+            if (self.expandedCycles.count > 0) {
+                NSString *colStr = @"Collapse all";
+                NSDictionary *ca = @{NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
+                                     NSForegroundColorAttributeName: (self.hoveredTargetCycle == -1 ? inkColor : mutedColor)};
+                NSSize csz = [colStr sizeWithAttributes:ca];
+                [colStr drawAtPoint:NSMakePoint(padX + contentW - csz.width, y) withAttributes:ca];
+                GFChangelogHitTarget ht = {NSMakeRect(padX + contentW - csz.width - 6.0, y - 3.0, csz.width + 12.0, 22.0), -1};
+                [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFChangelogHitTarget)]];
+            }
+        }
+        y += 24.0;
+
+        for (NSUInteger idx = 0; idx < earlierCount; idx++) {
+            NSDictionary *entry = self.allEntries[idx + 1];
+            NSInteger cyc = [entry[@"cycle"] integerValue];
+            BOOL open = [self.expandedCycles containsObject:@(cyc)];
+            NSString *shortDate = GFShortDateFromTimestamp(entry[@"timestamp"]);
+
+            CGFloat leftLead = 54.0; // chevron + #cycle
+            CGFloat rightDateW = 54.0;
+            CGFloat titleW = contentW - leftLead - rightDateW;
+            CGFloat rh = 36.0;
+            CGFloat th = 18.0;
+            CGFloat bh = 0.0;
+            if (open) {
+                th = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:titleW];
+                bh = measureOrDrawBullets(entry[@"highlights"], 0, 0, contentW - leftLead, NO);
+                rh = 10.0 + th + 8.0 + bh + 14.0;
+            }
+
+            if (doDraw) {
+                if (idx > 0) {
+                    [dividerColor setFill];
+                    NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
+                }
+                NSRect rowHit = NSMakeRect(padX - 8.0, y + 1.0, contentW + 16.0, rh - 2.0);
+                if (self.hoveredTargetCycle == cyc) {
+                    NSBezierPath *hbp = [NSBezierPath bezierPathWithRoundedRect:rowHit xRadius:6.0 yRadius:6.0];
+                    [hoverColor setFill];
+                    [hbp fill];
+                }
+                GFChangelogHitTarget ht = {rowHit, cyc};
+                [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFChangelogHitTarget)]];
+
+                // Left subtle chevron
+                NSBezierPath *chev = [NSBezierPath bezierPath];
+                chev.lineWidth = 1.5;
+                chev.lineCapStyle = NSLineCapStyleRound;
+                chev.lineJoinStyle = NSLineJoinStyleRound;
+                CGFloat cx = padX + 4.0, cy = y + 18.0;
+                if (open) {
+                    [chev moveToPoint:NSMakePoint(cx - 3.5, cy - 1.5)];
+                    [chev lineToPoint:NSMakePoint(cx, cy + 2.0)];
+                    [chev lineToPoint:NSMakePoint(cx + 3.5, cy - 1.5)];
+                } else {
+                    [chev moveToPoint:NSMakePoint(cx - 1.5, cy - 3.5)];
+                    [chev lineToPoint:NSMakePoint(cx + 2.0, cy)];
+                    [chev lineToPoint:NSMakePoint(cx - 1.5, cy + 3.5)];
+                }
+                [mutedColor setStroke];
+                [chev stroke];
+
+                NSString *cycLabel = [NSString stringWithFormat:@"#%ld", (long)cyc];
+                [cycLabel drawAtPoint:NSMakePoint(padX + 16.0, y + 9.5)
+                       withAttributes:@{NSFontAttributeName: cycleColFont, NSForegroundColorAttributeName: mutedColor}];
+
+                NSDictionary *da = @{NSFontAttributeName: timeFont, NSForegroundColorAttributeName: mutedColor};
+                NSString *dateToShow = open ? entry[@"timestamp"] : shortDate;
+                NSSize dsz = [dateToShow sizeWithAttributes:da];
+
+                if (open) {
+                    CGFloat openTitleW = contentW - leftLead - (dsz.width + 12.0);
+                    CGFloat openTH = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:MAX(120.0, openTitleW)];
+                    [entry[@"title"] drawWithRect:NSMakeRect(padX + leftLead, y + 9.0, MAX(120.0, openTitleW), openTH + 4.0)
+                                          options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
+                                       attributes:@{NSFontAttributeName: rowTitleFont, NSForegroundColorAttributeName: inkColor, NSParagraphStyleAttributeName: wrapPS}];
+                    [dateToShow drawAtPoint:NSMakePoint(padX + contentW - dsz.width, y + 10.0) withAttributes:da];
+                    measureOrDrawBullets(entry[@"highlights"], padX + leftLead, y + 9.0 + openTH + 8.0, contentW - leftLead, YES);
+                } else {
+                    [entry[@"title"] drawWithRect:NSMakeRect(padX + leftLead, y + 9.0, titleW, 20.0)
+                                          options:NSStringDrawingUsesLineFragmentOrigin
+                                       attributes:@{NSFontAttributeName: rowTitleFont, NSForegroundColorAttributeName: inkColor, NSParagraphStyleAttributeName: truncPS}];
+                    [dateToShow drawAtPoint:NSMakePoint(padX + contentW - dsz.width, y + 10.0) withAttributes:da];
+                }
+            }
+            y += rh;
+        }
+        y += 20.0;
+    }
+
+    return y;
+}
+
+- (CGFloat)preferredHeightForWidth:(CGFloat)width {
+    return MAX(360.0, [self renderOrMeasureWithWidth:width draw:NO]);
+}
+
+- (void)relayoutForWidth:(CGFloat)width {
+    CGFloat w = MAX(320.0, width);
+    CGFloat h = [self preferredHeightForWidth:w];
+    [self setFrameSize:NSMakeSize(w, h)];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    [self renderOrMeasureWithWidth:self.bounds.size.width draw:YES];
+}
+
+- (NSInteger)targetCycleAtPoint:(NSPoint)pt {
+    for (NSValue *v in _hitTargets) {
+        GFChangelogHitTarget ht;
+        [v getValue:&ht];
+        if (NSPointInRect(pt, ht.rect)) return ht.cycle;
+    }
+    return 0;
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    NSInteger hit = [self targetCycleAtPoint:pt];
+    if (hit != self.hoveredTargetCycle) {
+        self.hoveredTargetCycle = hit;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    if (self.hoveredTargetCycle != 0) {
+        self.hoveredTargetCycle = 0;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    NSInteger hit = [self targetCycleAtPoint:pt];
+    if (hit == -1) {
+        [self.expandedCycles removeAllObjects];
+        [self relayoutForWidth:self.bounds.size.width];
+        if (self.onStateChanged) self.onStateChanged();
+    } else if (hit > 0) {
+        if ([self.expandedCycles containsObject:@(hit)]) [self.expandedCycles removeObject:@(hit)];
+        else [self.expandedCycles addObject:@(hit)];
+        [self relayoutForWidth:self.bounds.size.width];
+        if (self.onStateChanged) self.onStateChanged();
+    }
+}
+@end
+
+static NSArray<NSString *> *GFChangelogDefaultMacPaths(void) {
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    NSString *bundlePath = [[NSBundle mainBundle] pathForResource:@"changelog" ofType:@"json"];
+    if (bundlePath) [paths addObject:bundlePath];
+    NSString *home = NSHomeDirectory();
+    if (home.length > 0) {
+        [paths addObject:[home stringByAppendingPathComponent:@"GeminiFlow/changelog.json"]];
+        [paths addObject:[home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/changelog.json"]];
+    }
+    return paths;
+}
+
+// Inline header bar that draws the unified flat background + bottom 1px separator hairline
+@interface GFFlatHeaderView : NSView
+@property (nonatomic, copy) NSString *headerTitle;
+@end
+
+@implementation GFFlatHeaderView
+- (void)drawRect:(NSRect)dirtyRect {
+    NSAppearance *app = self.effectiveAppearance ?: [NSApp effectiveAppearance];
+    BOOL dark = [[app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    NSColor *bg = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
+                       : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    NSColor *sep = dark ? [NSColor colorWithWhite:1.0 alpha:0.08]
+                        : [NSColor colorWithWhite:0.0 alpha:0.08];
+    NSColor *ink = dark ? [NSColor colorWithWhite:0.97 alpha:1.0]
+                        : [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
+    [bg setFill];
+    NSRectFill(self.bounds);
+    [sep setFill];
+    NSRectFillUsingOperation(NSMakeRect(0, 0, self.bounds.size.width, 1.0), NSCompositingOperationSourceOver);
+    if (self.headerTitle.length > 0) {
+        NSDictionary *ta = @{NSFontAttributeName: [NSFont systemFontOfSize:13.5 weight:NSFontWeightSemibold],
+                             NSForegroundColorAttributeName: ink};
+        NSSize sz = [self.headerTitle sizeWithAttributes:ta];
+        [self.headerTitle drawAtPoint:NSMakePoint(78.0, (self.bounds.size.height - sz.height) / 2.0 - 1.0) withAttributes:ta];
+    }
+}
+@end
+
+static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, NSString *scopeFilter, NSSet<NSNumber *> *expanded) {
+    CGFloat w = 520.0;
+    GFChangelogDocumentView *doc = [[GFChangelogDocumentView alloc] initWithFrame:NSMakeRect(0, 0, w, 560.0)];
+    doc.allEntries = GFChangelogLoadEntriesFromPaths(GFChangelogDefaultMacPaths());
+    doc.searchQuery = query ?: @"";
+    doc.scopeFilter = scopeFilter ?: @"all";
+    if (expanded) [doc.expandedCycles setSet:expanded];
+    NSAppearance *appearance = [NSAppearance appearanceNamed:(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
+    CGFloat docH = [doc preferredHeightForWidth:w];
+    CGFloat headerH = 52.0;
+    CGFloat totalH = headerH + docH;
+
+    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, w, totalH)];
+    container.appearance = appearance;
+    GFFlatHeaderView *hdr = [[GFFlatHeaderView alloc] initWithFrame:NSMakeRect(0, docH, w, headerH)];
+    hdr.headerTitle = @"Changelog";
+    // Simulated macOS traffic lights for realistic window preview
+    [doc setFrame:NSMakeRect(0, 0, w, docH)];
+    [container addSubview:doc];
+    [container addSubview:hdr];
+
+    NSInteger pw = (NSInteger)(w * 2.0), ph = (NSInteger)(totalH * 2.0);
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:pw pixelsHigh:ph
+        bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+        bytesPerRow:pw * 4 bitsPerPixel:32];
+    rep.size = NSMakeSize(w, totalH);
+    [appearance performAsCurrentDrawingAppearance:^{
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
+        [container displayRectIgnoringOpacity:container.bounds inContext:[NSGraphicsContext currentContext]];
+        // Draw standard traffic-light circles in preview top-left
+        CGFloat tlY = docH + (headerH - 12.0) / 2.0;
+        NSColor *tlColors[3] = {
+            [NSColor colorWithSRGBRed:1.0 green:0.373 blue:0.341 alpha:1.0],
+            [NSColor colorWithSRGBRed:0.996 green:0.737 blue:0.180 alpha:1.0],
+            [NSColor colorWithSRGBRed:0.157 green:0.784 blue:0.251 alpha:1.0]
+        };
+        for (int i = 0; i < 3; i++) {
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(20.0 + i * 20.0, tlY, 12.0, 12.0)];
+            [tlColors[i] setFill];
+            [dot fill];
+        }
+        [NSGraphicsContext restoreGraphicsState];
+    }];
+    return rep;
+}
+
+@interface GFChangelogWindowController : NSObject <NSSearchFieldDelegate, NSWindowDelegate>
+@property (nonatomic, strong) GFClosableWindow *window;
+@property (nonatomic, strong) NSSearchField *searchField;
+@property (nonatomic, strong) NSSegmentedControl *scopeControl;
+@property (nonatomic, strong) NSScrollView *scrollView;
+@property (nonatomic, strong) GFChangelogDocumentView *docView;
++ (instancetype)sharedController;
+- (void)showWindow;
+- (void)reloadEntries;
+@end
+
+@implementation GFChangelogWindowController
+
++ (instancetype)sharedController {
+    static GFChangelogWindowController *shared = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        shared = [[GFChangelogWindowController alloc] init];
+    });
+    return shared;
+}
+
+- (void)ensureWindow {
+    if (self.window) return;
+    NSRect frame = NSMakeRect(0, 0, 520, 600);
+    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
+    self.window = [[GFClosableWindow alloc] initWithContentRect:frame styleMask:style backing:NSBackingStoreBuffered defer:NO];
+    self.window.title = @"GeminiFlow Changelog";
+    self.window.titleVisibility = NSWindowTitleHidden;
+    self.window.titlebarAppearsTransparent = YES;
+    self.window.minSize = NSMakeSize(440, 400);
+    self.window.releasedWhenClosed = NO;
+    self.window.delegate = self;
+    [self.window center];
+
+    __weak typeof(self) weakSelf = self;
+    self.window.onFindShortcut = ^{
+        [weakSelf.window makeFirstResponder:weakSelf.searchField];
+    };
+    self.window.onEscapeShortcut = ^BOOL{
+        if (weakSelf.searchField.stringValue.length > 0) {
+            weakSelf.searchField.stringValue = @"";
+            weakSelf.docView.searchQuery = @"";
+            CGFloat cw = weakSelf.scrollView.contentSize.width > 100 ? weakSelf.scrollView.contentSize.width : weakSelf.window.contentView.bounds.size.width;
+            [weakSelf.docView relayoutForWidth:cw];
+            return YES;
+        }
+        return NO;
+    };
+
+    NSView *root = self.window.contentView;
+    root.autoresizesSubviews = YES;
+
+    CGFloat headerH = 52.0;
+    GFFlatHeaderView *topBar = [[GFFlatHeaderView alloc] initWithFrame:NSMakeRect(0, frame.size.height - headerH, frame.size.width, headerH)];
+    topBar.headerTitle = @"Changelog";
+    topBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+
+    self.scopeControl = [NSSegmentedControl segmentedControlWithLabels:@[@"All", @"Engine"]
+                                                          trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                                target:self
+                                                                action:@selector(scopeSegmentChanged:)];
+    self.scopeControl.selectedSegment = 0;
+    self.scopeControl.controlSize = NSControlSizeSmall;
+    self.scopeControl.frame = NSMakeRect(frame.size.width - 20.0 - 104.0, 13.0, 104.0, 24.0);
+    self.scopeControl.autoresizingMask = NSViewMinXMargin;
+    [topBar addSubview:self.scopeControl];
+
+    self.searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(frame.size.width - 20.0 - 104.0 - 10.0 - 190.0, 12.0, 190.0, 26.0)];
+    self.searchField.placeholderString = @"Filter updates...";
+    self.searchField.controlSize = NSControlSizeSmall;
+    self.searchField.font = [NSFont systemFontOfSize:12.0];
+    self.searchField.delegate = self;
+    self.searchField.autoresizingMask = NSViewMinXMargin;
+    [topBar addSubview:self.searchField];
+
+    [root addSubview:topBar];
+
+    self.scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height - headerH)];
+    self.scrollView.hasVerticalScroller = YES;
+    self.scrollView.hasHorizontalScroller = NO;
+    self.scrollView.autohidesScrollers = YES;
+    self.scrollView.drawsBackground = NO;
+    self.scrollView.borderType = NSNoBorder;
+    self.scrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+    self.docView = [[GFChangelogDocumentView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, 540.0)];
+    self.scrollView.documentView = self.docView;
+    [root addSubview:self.scrollView];
+
+    [self reloadEntries];
+}
+
+- (void)reloadEntries {
+    [self ensureWindow];
+    self.docView.allEntries = GFChangelogLoadEntriesFromPaths(GFChangelogDefaultMacPaths());
+    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
+    [self.docView relayoutForWidth:contentW];
+}
+
+- (void)scopeSegmentChanged:(NSSegmentedControl *)sender {
+    self.docView.scopeFilter = sender.selectedSegment == 1 ? @"engine" : @"all";
+    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
+    [self.docView relayoutForWidth:contentW];
+}
+
+- (void)controlTextDidChange:(NSNotification *)obj {
+    self.docView.searchQuery = self.searchField.stringValue ?: @"";
+    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
+    [self.docView relayoutForWidth:contentW];
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
+    [self.docView relayoutForWidth:contentW];
+}
+
+- (void)showWindow {
+    [self reloadEntries];
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.window makeKeyAndOrderFront:nil];
+}
+@end
+
+// Non-modal, closable Setup & Onboarding Window (replaces the trapping modal NSAlert)
+typedef struct {
+    BOOL hasApiKey;
+    NSInteger micStatus;    // AVAuthorizationStatus: 0 notDetermined, 1 restricted, 2 denied, 3 authorized
+    BOOL axTrusted;
+    NSInteger speechStatus; // SFSpeechRecognizerAuthorizationStatus: 0 notDetermined, 1 denied, 2 restricted, 3 authorized
+    BOOL fnDoNothing;
+} GFSetupState;
+
+typedef struct {
+    NSRect rect;
+    NSInteger actionId; // 1=API Key, 2=Mic, 3=Accessibility, 4=Speech, 5=Keyboard, 6=Done
+} GFSetupHitTarget;
+
+@interface GFSetupContentView : NSView
+@property (nonatomic, assign) GFSetupState state;
+@property (nonatomic, assign) NSInteger hoveredActionId;
+@property (nonatomic, copy) void (^onAction)(NSInteger actionId);
+@end
+
+@implementation GFSetupContentView {
+    NSMutableArray<NSValue *> *_hitTargets;
+    NSTrackingArea *_trackingArea;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        _hitTargets = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+                                                 options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+                                                   owner:self
+                                                userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    NSAppearance *app = self.effectiveAppearance ?: [NSApp effectiveAppearance];
+    BOOL dark = [[app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    NSColor *bgColor    = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
+                               : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    NSColor *inkColor   = dark ? [NSColor colorWithWhite:0.97 alpha:1.0]
+                               : [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
+    NSColor *mutedColor = dark ? [NSColor colorWithSRGBRed:0.560 green:0.565 blue:0.615 alpha:1.0]
+                               : [NSColor colorWithSRGBRed:0.450 green:0.455 blue:0.500 alpha:1.0];
+    NSColor *sepColor   = dark ? [NSColor colorWithWhite:1.0 alpha:0.075]
+                               : [NSColor colorWithWhite:0.0 alpha:0.075];
+    NSColor *btnBg      = dark ? [NSColor colorWithWhite:1.0 alpha:0.09]
+                               : [NSColor colorWithWhite:0.0 alpha:0.055];
+    NSColor *btnHoverBg = dark ? [NSColor colorWithWhite:1.0 alpha:0.15]
+                               : [NSColor colorWithWhite:0.0 alpha:0.095];
+    NSColor *doneBg     = inkColor;
+    NSColor *doneFg     = bgColor;
+    NSColor *greenDot   = [NSColor colorWithSRGBRed:0.176 green:0.784 blue:0.294 alpha:1.0];
+    NSColor *amberDot   = [NSColor colorWithSRGBRed:0.960 green:0.650 blue:0.140 alpha:1.0];
+
+    [bgColor setFill];
+    NSRectFill(self.bounds);
+    [_hitTargets removeAllObjects];
+
+    CGFloat w = self.bounds.size.width;
+    CGFloat padX = 24.0;
+    CGFloat contentW = w - padX * 2.0;
+
+    // Header bar (inline with traffic lights)
+    [@"GeminiFlow Setup" drawAtPoint:NSMakePoint(78.0, 17.0)
+                      withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:13.5 weight:NSFontWeightSemibold],
+                                       NSForegroundColorAttributeName: inkColor}];
+    [sepColor setFill];
+    NSRectFillUsingOperation(NSMakeRect(0, 51.0, w, 1.0), NSCompositingOperationSourceOver);
+
+    CGFloat y = 66.0;
+    [@"Hold Fn to speak and release to paste anywhere on your Mac." drawAtPoint:NSMakePoint(padX, y)
+                                                                 withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12.5],
+                                                                                  NSForegroundColorAttributeName: mutedColor}];
+    y += 28.0;
+
+    struct {
+        NSInteger actionId;
+        BOOL ok;
+        NSString *title;
+        NSString *subtitle;
+        NSString *btnTitle;
+    } rows[5] = {
+        {1, self.state.hasApiKey,
+         @"Gemini API Key",
+         self.state.hasApiKey ? @"Configured (Gemini Live Transcribe active)" : @"Optional: add a key for fast cloud transcription",
+         self.state.hasApiKey ? @"Change..." : @"Set Key..."},
+        {2, self.state.micStatus == 3,
+         @"Microphone",
+         self.state.micStatus == 3 ? @"Ready" : @"Required to hear your voice while holding Fn",
+         self.state.micStatus == 0 ? @"Allow" : (self.state.micStatus == 3 ? @"Settings" : @"Open Settings")},
+        {3, self.state.axTrusted,
+         @"Accessibility",
+         self.state.axTrusted ? @"Ready (auto-paste & Fn key listener active)" : @"Required to paste at your cursor and detect Fn",
+         self.state.axTrusted ? @"Settings" : @"Open Settings"},
+        {4, self.state.speechStatus == 3,
+         @"Speech Recognition",
+         self.state.speechStatus == 3 ? @"Ready (offline safety net)" : @"Recommended for offline fallback",
+         self.state.speechStatus == 0 ? @"Allow" : (self.state.speechStatus == 3 ? @"Settings" : @"Open Settings")},
+        {5, self.state.fnDoNothing,
+         @"Fn / Globe Key",
+         self.state.fnDoNothing ? @"Set to 'Do Nothing' in Keyboard Settings" : @"Tip: set 'Press fn key to: Do Nothing'",
+         @"Keyboard..."}
+    };
+
+    NSFont *rowTitleF = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+    NSFont *rowSubF   = [NSFont systemFontOfSize:11.5 weight:NSFontWeightRegular];
+    NSFont *btnFont   = [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium];
+
+    for (int i = 0; i < 5; i++) {
+        [sepColor setFill];
+        NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
+
+        CGFloat rowH = 54.0;
+        NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(padX + 2.0, y + 14.0, 8.0, 8.0)];
+        [(rows[i].ok ? greenDot : amberDot) setFill];
+        [dot fill];
+
+        [rows[i].title drawAtPoint:NSMakePoint(padX + 18.0, y + 9.0)
+                    withAttributes:@{NSFontAttributeName: rowTitleF, NSForegroundColorAttributeName: inkColor}];
+        [rows[i].subtitle drawAtPoint:NSMakePoint(padX + 18.0, y + 28.0)
+                       withAttributes:@{NSFontAttributeName: rowSubF, NSForegroundColorAttributeName: mutedColor}];
+
+        NSDictionary *ba = @{NSFontAttributeName: btnFont, NSForegroundColorAttributeName: inkColor};
+        NSSize bsz = [rows[i].btnTitle sizeWithAttributes:ba];
+        CGFloat bw = MAX(74.0, ceil(bsz.width) + 22.0);
+        NSRect bRect = NSMakeRect(padX + contentW - bw, y + 14.0, bw, 26.0);
+        NSBezierPath *bbp = [NSBezierPath bezierPathWithRoundedRect:bRect xRadius:6.0 yRadius:6.0];
+        [(self.hoveredActionId == rows[i].actionId ? btnHoverBg : btnBg) setFill];
+        [bbp fill];
+        [rows[i].btnTitle drawAtPoint:NSMakePoint(bRect.origin.x + (bw - bsz.width) / 2.0, bRect.origin.y + (26.0 - bsz.height) / 2.0 - 0.5)
+                       withAttributes:ba];
+        GFSetupHitTarget ht = {bRect, rows[i].actionId};
+        [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFSetupHitTarget)]];
+
+        y += rowH;
+    }
+
+    [sepColor setFill];
+    NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
+    y += 16.0;
+
+    // Bottom-right Done button
+    NSString *doneLabel = @"Done";
+    NSDictionary *da = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5 weight:NSFontWeightSemibold], NSForegroundColorAttributeName: doneFg};
+    NSSize dsz = [doneLabel sizeWithAttributes:da];
+    NSRect doneRect = NSMakeRect(padX + contentW - 76.0, y, 76.0, 28.0);
+    NSBezierPath *dbp = [NSBezierPath bezierPathWithRoundedRect:doneRect xRadius:7.0 yRadius:7.0];
+    [doneBg setFill];
+    [dbp fill];
+    [doneLabel drawAtPoint:NSMakePoint(doneRect.origin.x + (76.0 - dsz.width) / 2.0, doneRect.origin.y + (28.0 - dsz.height) / 2.0 - 0.5)
+            withAttributes:da];
+    GFSetupHitTarget dht = {doneRect, 6};
+    [_hitTargets addObject:[NSValue valueWithBytes:&dht objCType:@encode(GFSetupHitTarget)]];
+}
+
+- (NSInteger)actionAtPoint:(NSPoint)pt {
+    for (NSValue *v in _hitTargets) {
+        GFSetupHitTarget ht;
+        [v getValue:&ht];
+        if (NSPointInRect(pt, ht.rect)) return ht.actionId;
+    }
+    return 0;
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    NSInteger hit = [self actionAtPoint:pt];
+    if (hit != self.hoveredActionId) {
+        self.hoveredActionId = hit;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    if (self.hoveredActionId != 0) {
+        self.hoveredActionId = 0;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    NSInteger hit = [self actionAtPoint:pt];
+    if (hit > 0 && self.onAction) self.onAction(hit);
+}
+@end
+
+static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
+    CGFloat w = 470.0, h = 424.0;
+    GFSetupContentView *v = [[GFSetupContentView alloc] initWithFrame:NSMakeRect(0, 0, w, h)];
+    v.state = state;
+    NSAppearance *appearance = [NSAppearance appearanceNamed:(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
+    v.appearance = appearance;
+    NSInteger pw = (NSInteger)(w * 2.0), ph = (NSInteger)(h * 2.0);
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:pw pixelsHigh:ph
+        bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+        bytesPerRow:pw * 4 bitsPerPixel:32];
+    rep.size = NSMakeSize(w, h);
+    [appearance performAsCurrentDrawingAppearance:^{
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
+        [v displayRectIgnoringOpacity:v.bounds inContext:[NSGraphicsContext currentContext]];
+        // Simulated traffic lights (Close X and Minimize -)
+        NSColor *tlColors[3] = {
+            [NSColor colorWithSRGBRed:1.0 green:0.373 blue:0.341 alpha:1.0],
+            [NSColor colorWithSRGBRed:0.996 green:0.737 blue:0.180 alpha:1.0],
+            [NSColor colorWithWhite:0.5 alpha:0.25]
+        };
+        for (int i = 0; i < 3; i++) {
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(20.0 + i * 20.0, h - 32.0, 12.0, 12.0)];
+            [tlColors[i] setFill];
+            [dot fill];
+        }
+        [NSGraphicsContext restoreGraphicsState];
+    }];
+    return rep;
+}
+
+@interface GFSetupWindowController : NSObject <NSWindowDelegate>
+@property (nonatomic, strong) GFClosableWindow *window;
+@property (nonatomic, strong) GFSetupContentView *contentView;
+@property (nonatomic, strong) NSTimer *refreshTimer;
+@property (nonatomic, copy) void (^onPromptApiKey)(void);
+@property (nonatomic, copy) void (^onAccessibilityTrusted)(void);
++ (instancetype)sharedController;
+- (void)showWindow;
+- (void)refreshState;
+@end
+
+@implementation GFSetupWindowController
+
++ (instancetype)sharedController {
+    static GFSetupWindowController *shared = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        shared = [[GFSetupWindowController alloc] init];
+    });
+    return shared;
+}
+
+- (GFSetupState)queryLiveState {
+    GFSetupState st = {0};
+    NSString *key = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
+    st.hasApiKey = key.length > 0;
+    st.micStatus = (NSInteger)[AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    st.axTrusted = AXIsProcessTrusted();
+    st.speechStatus = (NSInteger)[SFSpeechRecognizer authorizationStatus];
+    NSDictionary *hi = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.apple.HIToolbox"];
+    id fnVal = hi[@"AppleFnUsageType"];
+    st.fnDoNothing = (fnVal != nil && [fnVal respondsToSelector:@selector(integerValue)] && [fnVal integerValue] == 0);
+    return st;
+}
+
+- (void)refreshState {
+    if (!self.contentView) return;
+    GFSetupState st = [self queryLiveState];
+    if (st.axTrusted && self.onAccessibilityTrusted) self.onAccessibilityTrusted();
+    self.contentView.state = st;
+    [self.contentView setNeedsDisplay:YES];
+}
+
+- (void)ensureWindow {
+    if (self.window) return;
+    NSRect frame = NSMakeRect(0, 0, 470, 424);
+    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskFullSizeContentView;
+    self.window = [[GFClosableWindow alloc] initWithContentRect:frame styleMask:style backing:NSBackingStoreBuffered defer:NO];
+    self.window.title = @"GeminiFlow Setup";
+    self.window.titleVisibility = NSWindowTitleHidden;
+    self.window.titlebarAppearsTransparent = YES;
+    self.window.releasedWhenClosed = NO;
+    self.window.delegate = self;
+    [self.window center];
+
+    self.contentView = [[GFSetupContentView alloc] initWithFrame:frame];
+    __weak typeof(self) weakSelf = self;
+    self.contentView.onAction = ^(NSInteger actionId) {
+        typeof(self) s = weakSelf;
+        if (!s) return;
+        if (actionId == 1) {
+            if (s.onPromptApiKey) s.onPromptApiKey();
+            [s refreshState];
+        } else if (actionId == 2) {
+            if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusNotDetermined) {
+                [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf refreshState]; });
+                }];
+            } else {
+                [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"]];
+            }
+        } else if (actionId == 3) {
+            NSDictionary *opts = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+            AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts);
+            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];
+        } else if (actionId == 4) {
+            if ([SFSpeechRecognizer authorizationStatus] == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
+                [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf refreshState]; });
+                }];
+            } else {
+                [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"]];
+            }
+        } else if (actionId == 5) {
+            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.Keyboard-Settings.extension"]];
+        } else if (actionId == 6) {
+            [s.window performClose:nil];
+        }
+    };
+    self.window.contentView = self.contentView;
+
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appDidBecomeActive:)
+                                                 name:NSApplicationDidBecomeActiveNotification object:nil];
+}
+
+- (void)appDidBecomeActive:(NSNotification *)note {
+    if (self.window.isVisible) [self refreshState];
+}
+
+- (void)windowWillClose:(NSNotification *)notification {
+    [self.refreshTimer invalidate];
+    self.refreshTimer = nil;
+}
+
+- (void)showWindow {
+    [self ensureWindow];
+    [self refreshState];
+    [self.refreshTimer invalidate];
+    self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(refreshState) userInfo:nil repeats:YES];
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.window makeKeyAndOrderFront:nil];
 }
 @end
 
@@ -1561,20 +2711,15 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 }
 
 - (void)requestAllPermissions {
-    // 1. Microphone access
-    [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
-        NSLog(@"Microphone authorization result: %d", granted);
-    }];
-
-    // 2. Speech recognition access
-    [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
-        NSLog(@"Speech recognition authorization status: %ld", (long)status);
-    }];
-
-    // 3. Accessibility access prompt for auto-paste
-    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
-    BOOL trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
-    NSLog(@"Accessibility trusted status: %d", trusted);
+    BOOL micReady = ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusAuthorized);
+    BOOL axReady = AXIsProcessTrusted();
+    if (!micReady || !axReady) {
+        [self openSetupWindow];
+    } else if ([SFSpeechRecognizer authorizationStatus] == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
+        [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+            NSLog(@"Speech recognition authorization status: %ld", (long)status);
+        }];
+    }
 }
 
 #pragma mark - HUD / menu state
@@ -1733,8 +2878,17 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     [self.menu addItem:recentItem];
 
     // Keyboard & permissions setup
-    NSMenuItem *setupItem = [[NSMenuItem alloc] initWithTitle:@"Permissions & Keyboard Setup..." action:@selector(showPermissionsWindow) keyEquivalent:@"p"];
+    NSMenuItem *setupItem = [[NSMenuItem alloc] initWithTitle:@"Permissions & Keyboard Setup..." action:@selector(openSetupWindow) keyEquivalent:@"p"];
     [self.menu addItem:setupItem];
+
+    // In-app Changelog (Cycle history & iOS engine sync)
+    NSMenuItem *changelogItem = [[NSMenuItem alloc] initWithTitle:@"Changelog..." action:@selector(showChangelogWindow) keyEquivalent:@"l"];
+    NSArray<NSDictionary *> *clEntries = GFChangelogLoadEntriesFromPaths(GFChangelogDefaultMacPaths());
+    if (clEntries.count > 0) {
+        changelogItem.toolTip = [NSString stringWithFormat:@"Latest: Cycle %ld - %@",
+                                 (long)[clEntries.firstObject[@"cycle"] integerValue], clEntries.firstObject[@"title"]];
+    }
+    [self.menu addItem:changelogItem];
 
     [self.menu addItem:[NSMenuItem separatorItem]];
 
@@ -1746,6 +2900,18 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 
 - (void)setupHUD {
     self.hudPanel = [[FloatingHUDPanel alloc] init];
+}
+
+- (void)showChangelogWindow {
+    [[GFChangelogWindowController sharedController] showWindow];
+}
+
+- (void)openSetupWindow {
+    GFSetupWindowController *ctrl = [GFSetupWindowController sharedController];
+    __weak typeof(self) weakSelf = self;
+    ctrl.onPromptApiKey = ^{ [weakSelf promptForApiKey]; };
+    ctrl.onAccessibilityTrusted = ^{ [weakSelf installFnEventTapIfPossible]; };
+    [ctrl showWindow];
 }
 
 - (void)setupSpeechRecognizer {
@@ -1765,6 +2931,11 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 }
 
 - (void)selectGeminiMode {
+    NSString *existingKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
+    if (existingKey.length == 0) {
+        [self promptForApiKey];
+        return;
+    }
     [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
     [self updateEngineCheckmarks];
 }
@@ -1775,28 +2946,49 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 }
 
 - (void)promptForApiKey {
+    NSString *existingKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Gemini API Key";
-    alert.informativeText = @"Paste your Google Gemini API key below. It is stored locally on your Mac:";
+    alert.informativeText = @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
     [alert addButtonWithTitle:@"Save"];
     [alert addButtonWithTitle:@"Cancel"];
+    [alert addButtonWithTitle:@"Get API Key..."];
+    if (existingKey.length > 0) {
+        [alert addButtonWithTitle:@"Remove Key"];
+    }
 
-    NSString *existingKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
-    PasteableTextField *input = [[PasteableTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+    PasteableTextField *input = [[PasteableTextField alloc] initWithFrame:NSMakeRect(0, 0, 340, 24)];
     input.placeholderString = @"AIzaSy...";
     input.stringValue = existingKey;
     alert.accessoryView = input;
 
     [NSApp activateIgnoringOtherApps:YES];
-    if ([alert runModal] == NSAlertFirstButtonReturn) {
-        NSString *trimmed = [input.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        [[NSUserDefaults standardUserDefaults] setObject:trimmed forKey:kPrefApiKey];
-        if (trimmed.length > 0) {
-            NSLog(@"Gemini API key saved.");
-            [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
-            [self updateEngineCheckmarks];
-            [self verifyApiKeyForLive];
+    NSModalResponse resp = [alert runModal];
+    if (resp == NSAlertThirdButtonReturn) {
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://aistudio.google.com/apikey"]];
+        return;
+    }
+    if (existingKey.length > 0 && resp == NSAlertThirdButtonReturn + 1) {
+        [[NSUserDefaults standardUserDefaults] setObject:@"" forKey:kPrefApiKey];
+        [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
+        [self updateEngineCheckmarks];
+        return;
+    }
+    if (resp == NSAlertFirstButtonReturn) {
+        NSString *cleanKey = GFSanitizeApiKeyInput(input.stringValue);
+        if (cleanKey.length == 0) {
+            // Never silently wipe an existing saved key when pasting an empty string or bare AI Studio URL
+            if (existingKey.length == 0) {
+                [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
+                [self updateEngineCheckmarks];
+            }
+            return;
         }
+        [[NSUserDefaults standardUserDefaults] setObject:cleanKey forKey:kPrefApiKey];
+        NSLog(@"Gemini API key saved.");
+        [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
+        [self updateEngineCheckmarks];
+        [self verifyApiKeyForLive];
     }
 }
 
@@ -6609,6 +7801,68 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (okC4) passed++; else failed++;
             printf("%s: offline header-auth connect failure falls back as before (no key-in-URL retry)\n", okC4 ? "PASS" : "FAIL");
         }
+        // Changelog data & filter invariants (Foundation-only; also runs in GFEngine --test on iOS)
+        {
+            NSArray<NSDictionary *> *builtIn = GFBuiltInChangelogEntries();
+            NSString *valReason = nil;
+            BOOL validBuiltIn = GFChangelogValidateEntries(builtIn, &valReason) && builtIn.count >= 15 && [builtIn.firstObject[@"cycle"] integerValue] >= 34;
+            if (validBuiltIn) passed++; else failed++;
+            printf("%s: built-in Changelog has %lu contiguous descending cycles (latest #%ld), valid scopes, zero em/en dashes (%s)\n",
+                   validBuiltIn ? "PASS" : "FAIL", (unsigned long)builtIn.count,
+                   (long)[builtIn.firstObject[@"cycle"] integerValue], (valReason ?: @"ok").UTF8String);
+
+            // If changelog.json is present next to the binary or repo cwd, verify exact parity with built-in entries
+            NSData *diskData = [NSData dataWithContentsOfFile:@"changelog.json"];
+            BOOL parityOk = YES;
+            if (diskData) {
+                NSArray<NSDictionary *> *diskEntries = GFChangelogParseJSONData(diskData);
+                parityOk = diskEntries != nil && [diskEntries isEqualToArray:builtIn];
+            }
+            if (parityOk) passed++; else failed++;
+            printf("%s: changelog.json schema & built-in parity check (%s)\n",
+                   parityOk ? "PASS" : "FAIL", diskData ? "verified on disk" : "no cwd file, skipped");
+
+            // Validation rejects em/en dashes, out-of-order cycles, and invalid scopes
+            NSArray *badDash = @[@{@"cycle": @(2), @"scope": @"engine", @"timestamp": @"13 Nov", @"title": @"Bad \u2014 dash", @"highlights": @[@"ok"]}];
+            NSArray *badGap  = @[@{@"cycle": @(5), @"scope": @"engine", @"timestamp": @"13 Nov", @"title": @"Top", @"highlights": @[@"ok"]},
+                                 @{@"cycle": @(3), @"scope": @"engine", @"timestamp": @"12 Nov", @"title": @"Gap", @"highlights": @[@"ok"]}];
+            NSArray *badScope= @[@{@"cycle": @(1), @"scope": @"ios", @"timestamp": @"13 Nov", @"title": @"Bad scope", @"highlights": @[@"ok"]}];
+            BOOL rejectOk = !GFChangelogValidateEntries(badDash, NULL) &&
+                            !GFChangelogValidateEntries(badGap, NULL) &&
+                            !GFChangelogValidateEntries(badScope, NULL) &&
+                            GFChangelogParseJSONData([@"{not json" dataUsingEncoding:NSUTF8StringEncoding]) == nil;
+            if (rejectOk) passed++; else failed++;
+            printf("%s: GFChangelogValidateEntries rejects em/en dashes, cycle gaps, invalid scopes, and malformed JSON\n",
+                   rejectOk ? "PASS" : "FAIL");
+
+            // Filtering: empty, #N exact cycle, bare cycle number, text match, scope filter, and miss
+            NSArray *fAll   = GFChangelogFilterEntries(builtIn, @"", @"all");
+            NSArray *fHash  = GFChangelogFilterEntries(builtIn, @"#33", @"all");
+            NSArray *fBare  = GFChangelogFilterEntries(builtIn, @"29", @"all");
+            NSArray *fText  = GFChangelogFilterEntries(builtIn, @"prompt-echo", @"all");
+            NSArray *fEng   = GFChangelogFilterEntries(builtIn, @"", @"engine");
+            NSArray *fMiss  = GFChangelogFilterEntries(builtIn, @"zzzz-nonexistent-query", @"all");
+            BOOL allEngScope = fEng.count > 0 && fEng.count < builtIn.count;
+            for (NSDictionary *e in fEng) if (![e[@"scope"] isEqualToString:@"engine"]) allEngScope = NO;
+            BOOL filterOk = fAll.count == builtIn.count &&
+                            fHash.count == 1 && [fHash[0][@"cycle"] integerValue] == 33 &&
+                            fBare.count >= 1 && [fBare[0][@"cycle"] integerValue] == 29 &&
+                            fText.count >= 1 && [fText[0][@"cycle"] integerValue] == 33 &&
+                            allEngScope && fMiss.count == 0;
+            if (filterOk) passed++; else failed++;
+            printf("%s: GFChangelogFilterEntries supports #cycle, number, keyword, and engine-scope filtering (%lu engine / %lu total)\n",
+                   filterOk ? "PASS" : "FAIL", (unsigned long)fEng.count, (unsigned long)builtIn.count);
+        }
+        {
+            BOOL sanOk = [GFSanitizeApiKeyInput(@"  AIzaSyTestKey1234567890  \n") isEqualToString:@"AIzaSyTestKey1234567890"] &&
+                         [GFSanitizeApiKeyInput(@"export GEMINI_API_KEY=\"AIzaSyQuotedKey123456789\"") isEqualToString:@"AIzaSyQuotedKey123456789"] &&
+                         [GFSanitizeApiKeyInput(@"GEMINI_API_KEY = 'AIzaSySingle1234567890'") isEqualToString:@"AIzaSySingle1234567890"] &&
+                         [GFSanitizeApiKeyInput(@"curl 'https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyFromURL12345678'") isEqualToString:@"AIzaSyFromURL12345678"] &&
+                         [GFSanitizeApiKeyInput(@"https://aistudio.google.com/apikey") isEqualToString:@""] &&
+                         [GFSanitizeApiKeyInput(@"   ") isEqualToString:@""];
+            if (sanOk) passed++; else failed++;
+            printf("%s: GFSanitizeApiKeyInput cleans .env/export/quotes/URLs and rejects keyless URLs\n", sanOk ? "PASS" : "FAIL");
+        }
         // Backlog 0s (replaces the cycle-26 0n rim/glow tests): hands-free (locked) mode has NO green at or around the pill edge, only a
         // strong green dot + green waveform bars inside the pill; hold-to-talk, Thinking and notices have no green at all.
         // Renders the real HUD view offscreen.
@@ -6773,6 +8027,38 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (geoOk) passed++; else failed++;
             printf("%s: HUD window grows by %.0f pt per side but the pill keeps its old screen position and 144x36 size\n", geoOk ? "PASS" : "FAIL", kHUDGlowPad);
         }
+        // Backlog 0c1: Changelog menu item & monochrome Light/Dark AppKit view checks
+        {
+            GFChangelogDocumentView *dv = [[GFChangelogDocumentView alloc] initWithFrame:NSMakeRect(0, 0, 480, 500)];
+            CGFloat collapsedH = [dv preferredHeightForWidth:480.0];
+            [dv.expandedCycles addObject:@(33)];
+            [dv.expandedCycles addObject:@(32)];
+            CGFloat expandedH = [dv preferredHeightForWidth:480.0];
+            [dv.expandedCycles removeAllObjects];
+            CGFloat recollapsedH = [dv preferredHeightForWidth:480.0];
+            BOOL layoutOk = expandedH > collapsedH + 60.0 && fabs(collapsedH - recollapsedH) < 1.0;
+            if (layoutOk) passed++; else failed++;
+            printf("%s: Changelog document view expands/collapses earlier cycles cleanly (%.0f -> %.0f -> %.0f pt)\n",
+                   layoutOk ? "PASS" : "FAIL", collapsedH, expandedH, recollapsedH);
+
+            NSBitmapImageRep *lightRep = GFRenderChangelogSnapshot(NO, @"", @"all", nil);
+            NSBitmapImageRep *darkRep  = GFRenderChangelogSnapshot(YES, @"", @"all", [NSSet setWithObject:@(33)]);
+            GFSetupState readySt = {YES, 3, YES, 3, YES};
+            GFSetupState freshSt = {NO, 0, NO, 0, NO};
+            NSBitmapImageRep *setupLight = GFRenderSetupSnapshot(NO, freshSt);
+            NSBitmapImageRep *setupDark  = GFRenderSetupSnapshot(YES, readySt);
+            BOOL renderOk = lightRep != nil && darkRep != nil && lightRep.pixelsWide == 1040 && darkRep.pixelsWide == 1040 &&
+                            darkRep.pixelsHigh > lightRep.pixelsHigh && setupLight != nil && setupDark != nil &&
+                            setupLight.pixelsWide == 940 && setupDark.pixelsWide == 940;
+            // Verify monochrome Light canvas is light and Dark canvas is dark (top-left corner pixel)
+            if (renderOk) {
+                const unsigned char *lp = lightRep.bitmapData;
+                const unsigned char *dp = darkRep.bitmapData;
+                renderOk = lp[0] > 220 && lp[1] > 220 && lp[2] > 220 && dp[0] < 35 && dp[1] < 35 && dp[2] < 40;
+            }
+            if (renderOk) passed++; else failed++;
+            printf("%s: Changelog renders crisp 2x Light and Dark monochrome snapshots\n", renderOk ? "PASS" : "FAIL");
+        }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
     }
@@ -6803,6 +8089,26 @@ int main(int argc, const char * argv[]) {
                 v.smoothedLevel = levels[i];
                 v.animPhase = 3.0f; // halo pulse near its middle
                 NSData *png = [GFRenderHUDView(v, 2.0, YES) representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                NSString *path = [dir stringByAppendingPathComponent:names[i]];
+                if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);
+                else { printf("FAILED %s\n", path.UTF8String); bad++; }
+            }
+            return bad ? 1 : 0;
+        }
+        if (argc > 2 && strcmp(argv[1], "--render-changelog-png") == 0) {
+            NSString *dir = [NSString stringWithUTF8String:argv[2]];
+            GFSetupState freshSt = {NO, 0, NO, 0, NO};
+            GFSetupState readySt = {YES, 3, YES, 3, YES};
+            NSBitmapImageRep *reps[] = {
+                GFRenderChangelogSnapshot(NO, @"", @"all", nil),
+                GFRenderChangelogSnapshot(YES, @"", @"all", [NSSet setWithObject:@(33)]),
+                GFRenderSetupSnapshot(NO, freshSt),
+                GFRenderSetupSnapshot(YES, readySt)
+            };
+            NSString *names[] = {@"changelog-light.png", @"changelog-dark-expanded.png", @"setup-first-run-light.png", @"setup-ready-dark.png"};
+            int bad = 0;
+            for (int i = 0; i < 4; i++) {
+                NSData *png = [reps[i] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
                 NSString *path = [dir stringByAppendingPathComponent:names[i]];
                 if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);
                 else { printf("FAILED %s\n", path.UTF8String); bad++; }

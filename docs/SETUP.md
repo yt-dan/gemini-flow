@@ -1,6 +1,6 @@
 # Step-by-step setup (no technical experience needed)
 
-This takes about 5–15 minutes. Most of that is waiting for Apple's tools to download the first time.
+This takes about 5 to 15 minutes. Most of that is waiting for Apple's tools to download the first time.
 
 ## What you need
 - A Mac running macOS 11 (Big Sur) or newer.
