@@ -39,6 +39,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(35), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 10:30", @"title": @"Brand refresh shared with GeminiFlow for iOS & cleaner windows", @"highlights": @[@"Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.", @"Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."]},
             @{@"cycle": @(34), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 09:40", @"title": @"Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync", @"highlights": @[@"Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.", @"Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."]},
             @{@"cycle": @(33), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 09:09", @"title": @"Silent-press prompt-echo guard & low-evidence silence net", @"highlights": @[@"Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').", @"Instructed the REST fallback model to return an empty result on silence or background noise and routed empty low-evidence responses cleanly to No speech."]},
             @{@"cycle": @(32), @"scope": @"engine", @"timestamp": @"12 Nov \u00B7 16:46", @"title": @"Noise-relative silence detection & REST plausibility safety net", @"highlights": @[@"Measured speech evidence relative to each press's 20th-percentile room noise floor so quiet-room taps and holds end immediately as No speech instead of calling REST.", @"Added a numbers-only REST plausibility net rejecting hallucinated zero-timestamps ('00:00') and runaway text lengths on silent audio."]},
@@ -657,7 +658,98 @@ static NSArray<NSString *> *GFChangelogDefaultMacPaths(void) {
     return paths;
 }
 
-// Inline header bar that draws the unified flat background + bottom 1px separator hairline
+// Height of the strip that holds the window buttons (close / minimize / zoom). Nothing of ours is drawn or placed in it: titles and
+// controls sit in the row below (user report 2026-11-13: a title next to the window buttons looked awkward).
+static const CGFloat kGFTitlebarStripHeight = 28.0;
+static const CGFloat kGFChangelogHeaderHeight = 84.0;
+
+// Brand mark and wordmark shared with GeminiFlow for iOS (Core/BrandMotion.swift BrandMarkPose, App/UI/BrandHeaderView.swift):
+// three capsule bars, each 0.156 of the mark size wide with 0.102 gaps, rest heights 0.44 / 0.84 / 0.58, the group slanted 14
+// degrees clockwise; "Gemini" bold (kerning -0.032 em) + "Flow" semibold italic (kerning -0.020 em), 0.035 em apart.
+static const CGFloat kGFBrandBarWidth = 0.156, kGFBrandBarGap = 0.102, kGFBrandSlantDegrees = 14.0;
+static const CGFloat kGFBrandRestHeights[3] = {0.44, 0.84, 0.58};
+static void GFDrawBrandMark(NSRect box, const CGFloat heights[3], NSColor *color) {
+    CGFloat size = MIN(box.size.width, box.size.height);
+    CGFloat bw = size * kGFBrandBarWidth, step = bw + size * kGFBrandBarGap;
+    BOOL flipped = [NSGraphicsContext currentContext].flipped; // a positive rotation is clockwise only in a flipped context
+    NSAffineTransform *t = [NSAffineTransform transform];
+    [t translateXBy:NSMidX(box) yBy:NSMidY(box)];
+    [t rotateByDegrees:flipped ? kGFBrandSlantDegrees : -kGFBrandSlantDegrees];
+    [NSGraphicsContext saveGraphicsState];
+    [t concat];
+    [color setFill];
+    for (int i = 0; i < 3; i++) {
+        CGFloat h = MAX(bw, size * heights[i]);
+        NSRect r = NSMakeRect((i - 1) * step - bw / 2.0, -h / 2.0, bw, h);
+        [[NSBezierPath bezierPathWithRoundedRect:r xRadius:bw / 2.0 yRadius:bw / 2.0] fill];
+    }
+    [NSGraphicsContext restoreGraphicsState];
+}
+static NSAttributedString *GFBrandTitle(NSString *text, CGFloat size, NSColor *ink) {
+    return [[NSAttributedString alloc] initWithString:text ?: @""
+                                           attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:size weight:NSFontWeightBold],
+                                                        NSForegroundColorAttributeName: ink, NSKernAttributeName: @(-size * 0.032)}];
+}
+static NSAttributedString *GFBrandWordmark(CGFloat size, NSColor *ink) {
+    NSFont *bold = [NSFont systemFontOfSize:size weight:NSFontWeightBold];
+    NSFont *semi = [NSFont systemFontOfSize:size weight:NSFontWeightSemibold];
+    NSFontDescriptor *itd = [semi.fontDescriptor fontDescriptorWithSymbolicTraits:(semi.fontDescriptor.symbolicTraits | NSFontDescriptorTraitItalic)];
+    NSFont *flow = (itd ? [NSFont fontWithDescriptor:itd size:size] : nil) ?: semi;
+    NSMutableDictionary *fa = [@{NSFontAttributeName: flow, NSForegroundColorAttributeName: ink, NSKernAttributeName: @(-size * 0.020)} mutableCopy];
+    if (!(flow.fontDescriptor.symbolicTraits & NSFontDescriptorTraitItalic)) fa[NSObliquenessAttributeName] = @(0.18);
+    NSMutableAttributedString *w = [[NSMutableAttributedString alloc] init];
+    [w appendAttributedString:[[NSAttributedString alloc] initWithString:@"Gemin" attributes:@{NSFontAttributeName: bold,
+        NSForegroundColorAttributeName: ink, NSKernAttributeName: @(-size * 0.032)}]];
+    [w appendAttributedString:[[NSAttributedString alloc] initWithString:@"i" attributes:@{NSFontAttributeName: bold,
+        NSForegroundColorAttributeName: ink, NSKernAttributeName: @(size * 0.035)}]];
+    [w appendAttributedString:[[NSAttributedString alloc] initWithString:@"Flow" attributes:fa]];
+    return w;
+}
+// Mark + text on one line; returns the width used from origin.x.
+static CGFloat GFDrawBrandLockup(NSPoint origin, NSAttributedString *text, CGFloat size, NSColor *ink) {
+    CGFloat lineH = text.size.height, mark = size * 1.05;
+    GFDrawBrandMark(NSMakeRect(origin.x - mark * 0.12, origin.y + (lineH - mark) / 2.0, mark, mark), kGFBrandRestHeights, ink);
+    CGFloat textX = origin.x + mark * 0.76 + size * 0.22;
+    [text drawAtPoint:NSMakePoint(textX, origin.y)];
+    return (textX - origin.x) + text.size.width;
+}
+// The iOS app icon ("Obsidian Ink": dark tile, white mark at 0.6 of the tile) as a Mac-shaped rounded tile, used at runtime
+// (dialogs); the bundle's Finder icon is unchanged.
+static NSImage *GFBrandAppIconImage(CGFloat side) {
+    return [NSImage imageWithSize:NSMakeSize(side, side) flipped:NO drawingHandler:^BOOL(NSRect r) {
+        NSRect tile = NSInsetRect(r, r.size.width * 0.09, r.size.width * 0.09);
+        CGFloat rad = tile.size.width * 0.225;
+        NSGradient *g = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithSRGBRed:0.180 green:0.184 blue:0.220 alpha:1.0]
+                                                      endingColor:[NSColor colorWithSRGBRed:0.055 green:0.059 blue:0.078 alpha:1.0]];
+        [g drawInBezierPath:[NSBezierPath bezierPathWithRoundedRect:tile xRadius:rad yRadius:rad] angle:-90.0];
+        GFDrawBrandMark(NSInsetRect(tile, tile.size.width * 0.2, tile.size.width * 0.2), kGFBrandRestHeights, [NSColor whiteColor]);
+        return YES;
+    }];
+}
+static NSBitmapImageRep *GFRenderBrandPreview(NSArray<NSImage *> *menuIcons) {
+    CGFloat W = 640.0, H = 220.0;
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:(NSInteger)(W * 2) pixelsHigh:(NSInteger)(H * 2)
+        bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+        bytesPerRow:(NSInteger)(W * 2) * 4 bitsPerPixel:32];
+    rep.size = NSMakeSize(W, H);
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
+    [[NSColor colorWithWhite:0.94 alpha:1.0] setFill];
+    NSRectFill(NSMakeRect(0, 0, W, H));
+    [GFBrandAppIconImage(180.0) drawInRect:NSMakeRect(20, 20, 180, 180) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+    NSArray<NSString *> *labels = @[@"Idle", @"Listening", @"Thinking"];
+    NSColor *ink = [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
+    for (NSUInteger i = 0; i < menuIcons.count && i < 3; i++) {
+        NSRect box = NSMakeRect(250 + i * 125, 96, 72, 72);
+        [menuIcons[i] drawInRect:box fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+        [labels[i] drawAtPoint:NSMakePoint(box.origin.x + 4, 68) withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12.0], NSForegroundColorAttributeName: ink}];
+    }
+    GFDrawBrandLockup(NSMakePoint(254, 22), GFBrandWordmark(22.0, ink), 22.0, ink);
+    [NSGraphicsContext restoreGraphicsState];
+    return rep;
+}
+
+// Header that draws the unified flat background, the title below the window-button strip, and a bottom 1px separator hairline
 @interface GFFlatHeaderView : NSView
 @property (nonatomic, copy) NSString *headerTitle;
 @end
@@ -677,13 +769,38 @@ static NSArray<NSString *> *GFChangelogDefaultMacPaths(void) {
     [sep setFill];
     NSRectFillUsingOperation(NSMakeRect(0, 0, self.bounds.size.width, 1.0), NSCompositingOperationSourceOver);
     if (self.headerTitle.length > 0) {
-        NSDictionary *ta = @{NSFontAttributeName: [NSFont systemFontOfSize:13.5 weight:NSFontWeightSemibold],
-                             NSForegroundColorAttributeName: ink};
-        NSSize sz = [self.headerTitle sizeWithAttributes:ta];
-        [self.headerTitle drawAtPoint:NSMakePoint(78.0, (self.bounds.size.height - sz.height) / 2.0 - 1.0) withAttributes:ta];
+        NSAttributedString *title = GFBrandTitle(self.headerTitle, 20.0, ink);
+        CGFloat rowH = MAX(0.0, self.bounds.size.height - kGFTitlebarStripHeight); // the row under the window buttons
+        [title drawAtPoint:NSMakePoint(24.0, (rowH - title.size.height) / 2.0 + 1.0)];
     }
 }
 @end
+
+// The Changelog header: title on the left, filter field + All/Engine switch on the right, all below the window-button strip.
+static GFFlatHeaderView *GFMakeChangelogHeader(NSRect frame, id target, NSSearchField * __autoreleasing *outSearch,
+                                               NSSegmentedControl * __autoreleasing *outScope) {
+    GFFlatHeaderView *bar = [[GFFlatHeaderView alloc] initWithFrame:frame];
+    bar.headerTitle = @"Changelog";
+    CGFloat w = frame.size.width, rowH = frame.size.height - kGFTitlebarStripHeight;
+    NSSegmentedControl *scope = [NSSegmentedControl segmentedControlWithLabels:@[@"All", @"Engine"]
+                                                                  trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                                        target:target
+                                                                        action:NSSelectorFromString(@"scopeSegmentChanged:")];
+    scope.selectedSegment = 0;
+    scope.controlSize = NSControlSizeSmall;
+    scope.frame = NSMakeRect(w - 24.0 - 104.0, (rowH - 24.0) / 2.0, 104.0, 24.0);
+    scope.autoresizingMask = NSViewMinXMargin;
+    [bar addSubview:scope];
+    NSSearchField *search = [[NSSearchField alloc] initWithFrame:NSMakeRect(w - 24.0 - 104.0 - 10.0 - 170.0, (rowH - 26.0) / 2.0, 170.0, 26.0)];
+    search.placeholderString = @"Filter updates";
+    search.controlSize = NSControlSizeSmall;
+    search.font = [NSFont systemFontOfSize:12.0];
+    search.autoresizingMask = NSViewMinXMargin;
+    [bar addSubview:search];
+    if (outSearch) *outSearch = search;
+    if (outScope) *outScope = scope;
+    return bar;
+}
 
 static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, NSString *scopeFilter, NSSet<NSNumber *> *expanded) {
     CGFloat w = 520.0;
@@ -694,13 +811,12 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
     if (expanded) [doc.expandedCycles setSet:expanded];
     NSAppearance *appearance = [NSAppearance appearanceNamed:(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
     CGFloat docH = [doc preferredHeightForWidth:w];
-    CGFloat headerH = 52.0;
+    CGFloat headerH = kGFChangelogHeaderHeight;
     CGFloat totalH = headerH + docH;
 
     NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, w, totalH)];
     container.appearance = appearance;
-    GFFlatHeaderView *hdr = [[GFFlatHeaderView alloc] initWithFrame:NSMakeRect(0, docH, w, headerH)];
-    hdr.headerTitle = @"Changelog";
+    GFFlatHeaderView *hdr = GFMakeChangelogHeader(NSMakeRect(0, docH, w, headerH), nil, NULL, NULL);
     // Simulated macOS traffic lights for realistic window preview
     [doc setFrame:NSMakeRect(0, 0, w, docH)];
     [container addSubview:doc];
@@ -716,14 +832,14 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
         [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
         [container displayRectIgnoringOpacity:container.bounds inContext:[NSGraphicsContext currentContext]];
         // Draw standard traffic-light circles in preview top-left
-        CGFloat tlY = docH + (headerH - 12.0) / 2.0;
+        CGFloat tlY = totalH - 20.0; // centred in the 28 pt window-button strip
         NSColor *tlColors[3] = {
             [NSColor colorWithSRGBRed:1.0 green:0.373 blue:0.341 alpha:1.0],
             [NSColor colorWithSRGBRed:0.996 green:0.737 blue:0.180 alpha:1.0],
             [NSColor colorWithSRGBRed:0.157 green:0.784 blue:0.251 alpha:1.0]
         };
         for (int i = 0; i < 3; i++) {
-            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(20.0 + i * 20.0, tlY, 12.0, 12.0)];
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(12.0 + i * 20.0, tlY, 12.0, 12.0)];
             [tlColors[i] setFill];
             [dot fill];
         }
@@ -762,7 +878,7 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
     self.window.title = @"GeminiFlow Changelog";
     self.window.titleVisibility = NSWindowTitleHidden;
     self.window.titlebarAppearsTransparent = YES;
-    self.window.minSize = NSMakeSize(440, 400);
+    self.window.minSize = NSMakeSize(480, 400);
     self.window.releasedWhenClosed = NO;
     self.window.delegate = self;
     [self.window center];
@@ -785,29 +901,15 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
     NSView *root = self.window.contentView;
     root.autoresizesSubviews = YES;
 
-    CGFloat headerH = 52.0;
-    GFFlatHeaderView *topBar = [[GFFlatHeaderView alloc] initWithFrame:NSMakeRect(0, frame.size.height - headerH, frame.size.width, headerH)];
-    topBar.headerTitle = @"Changelog";
+    CGFloat headerH = kGFChangelogHeaderHeight;
+    NSSearchField *search = nil;
+    NSSegmentedControl *scope = nil;
+    GFFlatHeaderView *topBar = GFMakeChangelogHeader(NSMakeRect(0, frame.size.height - headerH, frame.size.width, headerH), self,
+                                                     &search, &scope);
     topBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-
-    self.scopeControl = [NSSegmentedControl segmentedControlWithLabels:@[@"All", @"Engine"]
-                                                          trackingMode:NSSegmentSwitchTrackingSelectOne
-                                                                target:self
-                                                                action:@selector(scopeSegmentChanged:)];
-    self.scopeControl.selectedSegment = 0;
-    self.scopeControl.controlSize = NSControlSizeSmall;
-    self.scopeControl.frame = NSMakeRect(frame.size.width - 20.0 - 104.0, 13.0, 104.0, 24.0);
-    self.scopeControl.autoresizingMask = NSViewMinXMargin;
-    [topBar addSubview:self.scopeControl];
-
-    self.searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(frame.size.width - 20.0 - 104.0 - 10.0 - 190.0, 12.0, 190.0, 26.0)];
-    self.searchField.placeholderString = @"Filter updates...";
-    self.searchField.controlSize = NSControlSizeSmall;
-    self.searchField.font = [NSFont systemFontOfSize:12.0];
+    self.searchField = search;
     self.searchField.delegate = self;
-    self.searchField.autoresizingMask = NSViewMinXMargin;
-    [topBar addSubview:self.searchField];
-
+    self.scopeControl = scope;
     [root addSubview:topBar];
 
     self.scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height - headerH)];
@@ -929,12 +1031,11 @@ typedef struct {
     CGFloat padX = 24.0;
     CGFloat contentW = w - padX * 2.0;
 
-    // Header bar (inline with traffic lights)
-    [@"GeminiFlow Setup" drawAtPoint:NSMakePoint(78.0, 17.0)
-                      withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:13.5 weight:NSFontWeightSemibold],
-                                       NSForegroundColorAttributeName: inkColor}];
-    [sepColor setFill];
-    NSRectFillUsingOperation(NSMakeRect(0, 51.0, w, 1.0), NSCompositingOperationSourceOver);
+    // Title below the window-button strip (the top kGFTitlebarStripHeight pt stay empty)
+    CGFloat lockW = GFDrawBrandLockup(NSMakePoint(padX, 34.0), GFBrandWordmark(20.0, inkColor), 20.0, inkColor);
+    [@"Setup" drawAtPoint:NSMakePoint(padX + lockW + 7.0, 34.0)
+           withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:20.0 weight:NSFontWeightRegular],
+                            NSForegroundColorAttributeName: mutedColor, NSKernAttributeName: @(-20.0 * 0.020)}];
 
     CGFloat y = 66.0;
     [@"Hold Fn to speak and release to paste anywhere on your Mac." drawAtPoint:NSMakePoint(padX, y)
@@ -952,7 +1053,7 @@ typedef struct {
         {1, self.state.hasApiKey,
          @"Gemini API Key",
          self.state.hasApiKey ? @"Configured (Gemini Live Transcribe active)" : @"Optional: add a key for fast cloud transcription",
-         self.state.hasApiKey ? @"Change..." : @"Set Key..."},
+         self.state.hasApiKey ? @"Change" : @"Set Key"},
         {2, self.state.micStatus == 3,
          @"Microphone",
          self.state.micStatus == 3 ? @"Ready" : @"Required to hear your voice while holding Fn",
@@ -968,7 +1069,7 @@ typedef struct {
         {5, self.state.fnDoNothing,
          @"Fn / Globe Key",
          self.state.fnDoNothing ? @"Set to 'Do Nothing' in Keyboard Settings" : @"Tip: set 'Press fn key to: Do Nothing'",
-         @"Keyboard..."}
+         @"Keyboard"}
     };
 
     NSFont *rowTitleF = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
@@ -1076,7 +1177,7 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
             [NSColor colorWithWhite:0.5 alpha:0.25]
         };
         for (int i = 0; i < 3; i++) {
-            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(20.0 + i * 20.0, h - 32.0, 12.0, 12.0)];
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(12.0 + i * 20.0, h - 20.0, 12.0, 12.0)];
             [tlColors[i] setFill];
             [dot fill];
         }
@@ -2789,46 +2890,12 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 }
 
 - (NSImage *)menuBarIconForState:(NSInteger)state {
-    // state: 0 = idle, 1 = listening, 2 = thinking
+    // state: 0 = idle, 1 = listening, 2 = thinking. The GeminiFlow brand mark shared with the iOS app (three slanted bars):
+    // rest heights when idle, taller bars while listening, three dots while thinking. A template image (tinted by the menu bar).
     NSImage *image = [NSImage imageWithSize:NSMakeSize(18, 18) flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
-        // Draw solid rounded block
-        NSRect blockRect = NSMakeRect(1.5, 2.0, 15.0, 14.0);
-        NSBezierPath *block = [NSBezierPath bezierPathWithRoundedRect:blockRect xRadius:3.5 yRadius:3.5];
-        [[NSColor blackColor] setFill];
-        [block fill];
-
-        // Punch transparent cutouts into the solid block
-        [[NSGraphicsContext currentContext] setCompositingOperation:NSCompositingOperationClear];
-
-        if (state == 0) {
-            // Idle: 4 vertical waveform cutouts
-            CGFloat xs[4] = {4.2, 7.1, 10.0, 12.9};
-            CGFloat hs[4] = {5.0, 9.0, 7.0, 4.0};
-            for (int i = 0; i < 4; i++) {
-                CGFloat y = (18.0 - hs[i]) / 2.0;
-                NSRect bar = NSMakeRect(xs[i], y, 1.6, hs[i]);
-                NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:bar xRadius:0.8 yRadius:0.8];
-                [p fill];
-            }
-        } else if (state == 1) {
-            // Listening: active taller waveform bars
-            CGFloat xs[4] = {4.2, 7.1, 10.0, 12.9};
-            CGFloat hs[4] = {7.5, 10.0, 10.0, 7.5};
-            for (int i = 0; i < 4; i++) {
-                CGFloat y = (18.0 - hs[i]) / 2.0;
-                NSRect bar = NSMakeRect(xs[i], y, 1.6, hs[i]);
-                NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:bar xRadius:0.8 yRadius:0.8];
-                [p fill];
-            }
-        } else {
-            // Thinking: 3 circular dots
-            CGFloat xs[3] = {4.8, 7.9, 11.0};
-            for (int i = 0; i < 3; i++) {
-                NSRect dot = NSMakeRect(xs[i], 7.9, 2.2, 2.2);
-                NSBezierPath *p = [NSBezierPath bezierPathWithOvalInRect:dot];
-                [p fill];
-            }
-        }
+        static const CGFloat listening[3] = {0.66, 0.98, 0.80}, thinking[3] = {0.0, 0.0, 0.0};
+        const CGFloat *h = state == 1 ? listening : (state == 2 ? thinking : kGFBrandRestHeights);
+        GFDrawBrandMark(NSInsetRect(dstRect, 0.5, 0.5), h, [NSColor blackColor]);
         return YES;
     }];
     [image setTemplate:YES];
@@ -2841,6 +2908,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     [self setMenuIconState:0];
 
     self.menu = [[NSMenu alloc] init];
+    [NSApp setApplicationIconImage:GFBrandAppIconImage(256.0)]; // the icon shown in this app's dialogs (same mark as the iOS app)
 
     self.statusMenuItem = [[NSMenuItem alloc] initWithTitle:@"Ready: Hold or Double-Tap Fn" action:nil keyEquivalent:@""];
     [self.statusMenuItem setEnabled:NO];
@@ -2865,7 +2933,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     [self updateEngineCheckmarks];
 
     // API Key setup
-    NSMenuItem *apiKeyItem = [[NSMenuItem alloc] initWithTitle:@"Set Gemini API Key..." action:@selector(promptForApiKey) keyEquivalent:@"k"];
+    NSMenuItem *apiKeyItem = [[NSMenuItem alloc] initWithTitle:@"Set Gemini API Key" action:@selector(promptForApiKey) keyEquivalent:@"k"];
     [self.menu addItem:apiKeyItem];
 
     [self.menu addItem:[NSMenuItem separatorItem]];
@@ -2878,11 +2946,11 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     [self.menu addItem:recentItem];
 
     // Keyboard & permissions setup
-    NSMenuItem *setupItem = [[NSMenuItem alloc] initWithTitle:@"Permissions & Keyboard Setup..." action:@selector(openSetupWindow) keyEquivalent:@"p"];
+    NSMenuItem *setupItem = [[NSMenuItem alloc] initWithTitle:@"Permissions & Keyboard Setup" action:@selector(openSetupWindow) keyEquivalent:@"p"];
     [self.menu addItem:setupItem];
 
     // In-app Changelog (Cycle history & iOS engine sync)
-    NSMenuItem *changelogItem = [[NSMenuItem alloc] initWithTitle:@"Changelog..." action:@selector(showChangelogWindow) keyEquivalent:@"l"];
+    NSMenuItem *changelogItem = [[NSMenuItem alloc] initWithTitle:@"Changelog" action:@selector(showChangelogWindow) keyEquivalent:@"l"];
     NSArray<NSDictionary *> *clEntries = GFChangelogLoadEntriesFromPaths(GFChangelogDefaultMacPaths());
     if (clEntries.count > 0) {
         changelogItem.toolTip = [NSString stringWithFormat:@"Latest: Cycle %ld - %@",
@@ -2952,7 +3020,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     alert.informativeText = @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
     [alert addButtonWithTitle:@"Save"];
     [alert addButtonWithTitle:@"Cancel"];
-    [alert addButtonWithTitle:@"Get API Key..."];
+    [alert addButtonWithTitle:@"Get API Key"];
     if (existingKey.length > 0) {
         [alert addButtonWithTitle:@"Remove Key"];
     }
@@ -8058,6 +8126,63 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             }
             if (renderOk) passed++; else failed++;
             printf("%s: Changelog renders crisp 2x Light and Dark monochrome snapshots\n", renderOk ? "PASS" : "FAIL");
+
+            // User report 2026-11-13: the window title sat next to the close/minimize/zoom buttons. Titles now sit in the row BELOW
+            // them: the top 26 pt right of the buttons is empty in both windows, and the title's dark ink is underneath.
+            BOOL (^stripClear)(NSBitmapImageRep *) = ^BOOL(NSBitmapImageRep *r) {
+                if (!r) return NO;
+                for (NSInteger y = 0; y < 26 * 2; y++)
+                    for (NSInteger x = 76 * 2; x < r.pixelsWide; x++) {
+                        const unsigned char *px = r.bitmapData + y * r.bytesPerRow + x * 4;
+                        if (px[0] < 235 || px[1] < 235 || px[2] < 235) return NO;
+                    }
+                return YES;
+            };
+            NSInteger (^titleInk)(NSBitmapImageRep *, NSInteger, NSInteger) = ^NSInteger(NSBitmapImageRep *r, NSInteger topPt, NSInteger bottomPt) {
+                NSInteger n = 0;
+                if (!r) return 0;
+                for (NSInteger y = topPt * 2; y < bottomPt * 2 && y < r.pixelsHigh; y++)
+                    for (NSInteger x = 24 * 2; x < 200 * 2 && x < r.pixelsWide; x++) {
+                        const unsigned char *px = r.bitmapData + y * r.bytesPerRow + x * 4;
+                        if (px[0] < 90 && px[1] < 90 && px[2] < 90) n++;
+                    }
+                return n;
+            };
+            NSInteger clInk = titleInk(lightRep, 28, 84), suInk = titleInk(setupLight, 28, 62);
+            BOOL hdrOk = stripClear(lightRep) && clInk > 200 && stripClear(setupLight) && suInk > 200;
+            if (hdrOk) passed++; else failed++;
+            printf("%s: Changelog and Setup titles sit below the window buttons (button row empty; title ink %ld / %ld px)\n",
+                   hdrOk ? "PASS" : "FAIL", (long)clInk, (long)suInk);
+
+            // Brand mark shared with the iOS app: the menu bar icon is three bars slanted clockwise (the tall bar's top end is right of
+            // its bottom end), a template image; listening has more ink than idle, thinking (three dots) less.
+            NSInteger inkN[3] = {0, 0, 0}, rowN[72] = {0}; double rowX[72] = {0};
+            for (int st = 0; st < 3; st++) {
+                NSBitmapImageRep *ir = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:72 pixelsHigh:72 bitsPerSample:8
+                    samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:72 * 4 bitsPerPixel:32];
+                memset(ir.bitmapData, 0, 72 * 72 * 4);
+                [NSGraphicsContext saveGraphicsState];
+                [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:ir]];
+                [[self menuBarIconForState:st] drawInRect:NSMakeRect(0, 0, 72, 72) fromRect:NSZeroRect
+                                                operation:NSCompositingOperationSourceOver fraction:1.0];
+                [NSGraphicsContext restoreGraphicsState];
+                for (NSInteger y = 0; y < 72; y++)
+                    for (NSInteger x = 0; x < 72; x++) {
+                        if (ir.bitmapData[y * ir.bytesPerRow + x * 4 + 3] < 128) continue;
+                        inkN[st]++;
+                        if (st == 0) { rowX[y] += x; rowN[y]++; }
+                    }
+            }
+            // Mean x of the idle icon's top 3 and bottom 3 inked rows: both belong to the tall middle bar (bitmap rows run top-down)
+            double topX = 0, botX = 0; NSInteger topN = 0, botN = 0, rowsSeen = 0;
+            for (NSInteger y = 0; y < 72 && rowsSeen < 3; y++) if (rowN[y] > 0) { topX += rowX[y]; topN += rowN[y]; rowsSeen++; }
+            rowsSeen = 0;
+            for (NSInteger y = 71; y >= 0 && rowsSeen < 3; y--) if (rowN[y] > 0) { botX += rowX[y]; botN += rowN[y]; rowsSeen++; }
+            BOOL markOk = inkN[1] > inkN[0] && inkN[0] > inkN[2] && inkN[2] > 100 && topN > 0 && botN > 0
+                          && topX / topN > botX / botN + 4.0 && [self menuBarIconForState:0].isTemplate;
+            if (markOk) passed++; else failed++;
+            printf("%s: menu bar icon is the brand mark: slanted clockwise, template, ink idle %ld < listening %ld, thinking dots %ld\n",
+                   markOk ? "PASS" : "FAIL", (long)inkN[0], (long)inkN[1], (long)inkN[2]);
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
@@ -8103,11 +8228,13 @@ int main(int argc, const char * argv[]) {
                 GFRenderChangelogSnapshot(NO, @"", @"all", nil),
                 GFRenderChangelogSnapshot(YES, @"", @"all", [NSSet setWithObject:@(33)]),
                 GFRenderSetupSnapshot(NO, freshSt),
-                GFRenderSetupSnapshot(YES, readySt)
+                GFRenderSetupSnapshot(YES, readySt),
+                GFRenderBrandPreview(@[[delegate menuBarIconForState:0], [delegate menuBarIconForState:1], [delegate menuBarIconForState:2]])
             };
-            NSString *names[] = {@"changelog-light.png", @"changelog-dark-expanded.png", @"setup-first-run-light.png", @"setup-ready-dark.png"};
+            NSString *names[] = {@"changelog-light.png", @"changelog-dark-expanded.png", @"setup-first-run-light.png", @"setup-ready-dark.png",
+                                 @"brand-preview.png"};
             int bad = 0;
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 5; i++) {
                 NSData *png = [reps[i] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
                 NSString *path = [dir stringByAppendingPathComponent:names[i]];
                 if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);

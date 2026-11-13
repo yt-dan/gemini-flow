@@ -136,7 +136,7 @@ Finish setup (one time):
   1. Allow the Microphone and Speech Recognition prompts when they appear.
   2. System Settings > Privacy & Security > Accessibility: turn ON GeminiFlow (needed to paste for you).
      If asked, also turn it on under Input Monitoring.
-  3. Menu bar icon > "Set Gemini API Key..." > paste your key > Save   (skip if you used GEMINI_API_KEY=...)
+  3. Menu bar icon > "Set Gemini API Key" > paste your key > Save   (skip if you used GEMINI_API_KEY=...)
   4. System Settings > Keyboard > "Press fn key to" > "Do Nothing"   (stops the emoji picker popping up)
 
 Use it: hold Fn, speak, release. Double-tap Fn for hands-free; tap Fn again to finish. Esc cancels.

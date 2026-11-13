@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 35,
+      "scope": "mac",
+      "timestamp": "13 Nov · 10:30",
+      "title": "Brand refresh shared with GeminiFlow for iOS & cleaner windows",
+      "highlights": [
+        "Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.",
+        "Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."
+      ]
+    },
+    {
       "cycle": 34,
       "scope": "mac",
       "timestamp": "13 Nov · 09:40",
