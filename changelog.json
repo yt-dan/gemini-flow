@@ -3,6 +3,96 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 53,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:55",
+      "title": "Faster text cleanup and smoother installs on Apple M1 Macs",
+      "highlights": [
+        "Skips unnecessary text cleanup passes when a sentence has no numbers, spoken line breaks, or extra filler phrases, cutting text polish time significantly.",
+        "Fixes a self-test speed check that could block install.sh and update.sh on Apple M1 Macs under normal background load (GitHub issue #1)."
+      ]
+    },
+    {
+      "cycle": 52,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:45",
+      "title": "Learns new custom words when you fix a spelling after pasting",
+      "highlights": [
+        "When you manually fix the spelling of a name or special term right after pasting ('Shavon' to 'Siobhan' or 'Zebra' to 'Zyphra'), GeminiFlow notices the edit and offers a one-click 'Remember in Custom Words' item in the menu bar.",
+        "Ignores ordinary sentence edits and common words so it only suggests real names, brands, and technical terms."
+      ]
+    },
+    {
+      "cycle": 51,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:32",
+      "title": "Formats spoken currencies, percentages, temperatures, and question marks naturally",
+      "highlights": [
+        "Turns spoken numbers like '20 dollars and 50 cents', '$3.5 million dollars', '25.5 percent', '98.6 degrees', '1920 by 1080', and 'from 2 to 3 p.m.' into clean '$20.50', '$3.5 million', '25.5%', '98.6\u00b0', '1920x1080', and '2-3 p.m.' automatically.",
+        "Adds a question mark reliably when a question ends with 'a.m.' or 'p.m.' ('Can we meet at 3:00 p.m.?') or after a mid-sentence self-correction."
+      ]
+    },
+    {
+      "cycle": 50,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:25",
+      "title": "Say 'Scratch that' to undo your last paste and protect against window switches",
+      "highlights": [
+        "If you say 'Scratch that' or 'Undo that' right after a dictation is pasted, GeminiFlow removes the text it just typed instead of pasting the words 'Scratch that'.",
+        "If you switch to a different app before a dictation finishes, GeminiFlow copies the text safely to your clipboard instead of pasting into the wrong window."
+      ]
+    },
+    {
+      "cycle": 49,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:20",
+      "title": "Finishes dictation right away when you pause before letting go of Fn",
+      "highlights": [
+        "Watches the last fraction of a second of audio before you release the key and skips the extra 120ms wait when you have already finished speaking.",
+        "Keeps the full safety cushion whenever you are still speaking as you let go, so your last syllable is never cut off."
+      ]
+    },
+    {
+      "cycle": 48,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:15",
+      "title": "Combines both speech engines to catch small skipped words",
+      "highlights": [
+        "Cross-checks Google's cloud transcript with Apple's on-device listener at the moment you release the key, with zero extra wait.",
+        "Recovers quick connecting words like 'a', 'the', and 'to' that can get swallowed in fast speech, and prefers your Custom Words when the two engines hear a sound-alike differently."
+      ]
+    },
+    {
+      "cycle": 47,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:10",
+      "title": "Adapts formatting to the app you are typing in",
+      "highlights": [
+        "In email apps like Mail, Superhuman, Mimestream, and Outlook, greetings and sign-offs are spaced onto their own paragraphs automatically.",
+        "In chat apps like Slack, Messages, Discord, and WhatsApp, short one-sentence replies skip the trailing period, while code editors and terminals keep command names in lowercase."
+      ]
+    },
+    {
+      "cycle": 46,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:05",
+      "title": "Turns spoken lists into clean numbered and bulleted lists",
+      "highlights": [
+        "Say 'First, ... Second, ... Third, ...' or 'Number one, ... Number two, ...' and GeminiFlow formats your items as a numbered list on separate lines.",
+        "Say 'bullet point' or 'next bullet' before each item to create a clean bulleted list without touching ordinary sentences."
+      ]
+    },
+    {
+      "cycle": 45,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 21:55",
+      "title": "Clearer recognition when speaking softly or using AirPods",
+      "highlights": [
+        "Automatically boosts quiet speech on Mac and iPhone when you speak in a low voice or use AirPods and Bluetooth headsets.",
+        "Leaves normal speech, silence, and background room sounds untouched so nothing unwanted is picked up."
+      ]
+    },
+    {
       "cycle": 44,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 21:30",
