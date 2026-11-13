@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 36,
+      "scope": "engine",
+      "timestamp": "13 Nov · 11:00",
+      "title": "Repeated phrases and mid-thought restarts cleaned up",
+      "highlights": [
+        "Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').",
+        "Leaves deliberate repeats alone: emphasis after a comma ('I know, I know'), courtesy phrases, names, number runs and idioms such as 'again and again'. Runs on your Mac in well under a millisecond."
+      ]
+    },
+    {
       "cycle": 35,
       "scope": "mac",
       "timestamp": "13 Nov · 10:30",

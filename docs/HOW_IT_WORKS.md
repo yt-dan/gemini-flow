@@ -58,6 +58,7 @@ Things we got wrong first:
 - Filler removal: um, uh, and so on.
   - "kind of" / "sort of" are removed only when clearly filler: set off by commas, or next to other fillers. They're kept after a/the/what/this ("what kind of car") and as a plain hedge ("I kind of like it").
 - Stutters: collapse "the the the", but keep grammatical doubles like "had had" and "that that", and repeated names like "Bora Bora".
+  - Repeated phrases and mid-thought restarts collapse too: "happy with my with my new app" becomes "happy with my new app", and "I also want you to give some I also want you to give updates" keeps one copy. Kept as dictated: emphasis with a comma ("I know, I know"), courtesy phrases ("thank you, thank you"), idioms ("again and again and again"), names, number runs, and any repeat that is plain grammar ("we have to do what we have to do"). Nothing is collapsed across a sentence end. When unsure, the words stay.
 - Pronoun "i" → "I" only as the pronoun, never in i.e., file names or paths.
 - Auto-capitalisation skips iPhone, iOS, URLs and emails, and words after abbreviations (e.g., a.m., U.S.).
 - The final "?" or "." is decided by the **last** sentence, not the first.

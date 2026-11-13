@@ -39,6 +39,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(36), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:00", @"title": @"Repeated phrases and mid-thought restarts cleaned up", @"highlights": @[@"Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').", @"Leaves deliberate repeats alone: emphasis after a comma ('I know, I know'), courtesy phrases, names, number runs and idioms such as 'again and again'. Runs on your Mac in well under a millisecond."]},
             @{@"cycle": @(35), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 10:30", @"title": @"Brand refresh shared with GeminiFlow for iOS & cleaner windows", @"highlights": @[@"Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.", @"Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."]},
             @{@"cycle": @(34), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 09:40", @"title": @"Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync", @"highlights": @[@"Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.", @"Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."]},
             @{@"cycle": @(33), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 09:09", @"title": @"Silent-press prompt-echo guard & low-evidence silence net", @"highlights": @[@"Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').", @"Instructed the REST fallback model to return an empty result on silence or background noise and routed empty low-evidence responses cleanly to No speech."]},
@@ -1731,6 +1732,9 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) double e2eLiveLifetime;         // test hook (e2e only): every Live session is closed (1008) at this session age (s)
 @property (nonatomic, assign) NSUInteger e2eLifetimeClosedSid; // liveSessionId of the socket the lifetime hook last closed
 @property (nonatomic, assign) NSUInteger e2eLifetimeCloses;
+@property (nonatomic, copy) NSDictionary *e2eLiveSetupExtra;      // test hook (e2e only, backlog 0y-probe): deep-merged into the Live `setup` object
+@property (nonatomic, assign) NSTimeInterval e2eLiveSetupSentTime; // setup probe: when the current socket's setup message was sent
+@property (nonatomic, strong) NSMutableSet<NSString *> *e2eLiveSeenFields; // setup probe: field NAMES of this session's server messages
 
 // Gemini Live WebSocket session
 @property (nonatomic, strong) NSURLSession *liveSession;
@@ -1974,6 +1978,88 @@ static NSMutableURLRequest *GFLiveWebSocketRequest(NSString *apiKey, BOOL keyInU
     NSURLComponents *c = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
     c.queryItems = @[[NSURLQueryItem queryItemWithName:@"key" value:apiKey ?: @""]];
     return [NSMutableURLRequest requestWithURL:c.URL ?: url];
+}
+// Live setup message: the first frame on the socket (startGeminiLiveWebSocketResuming: explains why it looks like this).
+// `extra` is a TEST HOOK (e2e only: --e2e-live-setup-extra <json>, backlog 0y-probe): a JSON object deep-merged into the `setup`
+// object, so one online probe run can try setup fields the real server may or may not accept (inputAudioTranscription with
+// languageCodes / customVocabulary / mode, at any nesting) without a rebuild. Dictionaries merge key by key; anything else (arrays,
+// strings, numbers) replaces the old value; null removes the key. nil or {} gives exactly the message the app has always sent,
+// and the normal app never passes anything else (liveSetupProbeExtra).
+static id GFJSONDeepMerge(id base, id extra) {
+    if (![extra isKindOfClass:[NSDictionary class]]) return extra;
+    NSMutableDictionary *out = [base isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)base mutableCopy] : [NSMutableDictionary dictionary];
+    for (id key in (NSDictionary *)extra) {
+        id v = ((NSDictionary *)extra)[key];
+        if (v == [NSNull null]) [out removeObjectForKey:key];
+        else out[key] = GFJSONDeepMerge(out[key], v);
+    }
+    return out;
+}
+static NSDictionary *GFLiveSetupMessage(NSString *model, NSDictionary *extra) {
+    NSDictionary *setup = @{@"model": [NSString stringWithFormat:@"models/%@", model],
+                            @"generationConfig": @{@"responseModalities": @[@"TEXT"]},
+                            @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES}}};
+    if ([extra isKindOfClass:[NSDictionary class]] && extra.count > 0) setup = GFJSONDeepMerge(setup, extra);
+    return @{@"setup": setup};
+}
+// The --e2e-live-setup-extra argument as a dictionary; nil unless it is a JSON object.
+static NSDictionary *GFParseLiveSetupExtra(NSString *json) {
+    NSData *d = [json dataUsingEncoding:NSUTF8StringEncoding];
+    id obj = d.length > 0 ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+    return [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
+}
+// Field NAMES of a JSON value as dotted paths (dictionaries are followed `depth` levels down). Values are never included.
+static void GFJSONCollectKeyPaths(id obj, NSString *prefix, int depth, NSMutableSet<NSString *> *into) {
+    if (depth > 0 && [obj isKindOfClass:[NSDictionary class]] && [(NSDictionary *)obj count] > 0) {
+        for (id k in (NSDictionary *)obj)
+            GFJSONCollectKeyPaths(((NSDictionary *)obj)[k], prefix.length > 0 ? [NSString stringWithFormat:@"%@.%@", prefix, k] : [k description],
+                                  depth - 1, into);
+    } else if (prefix.length > 0) {
+        [into addObject:prefix];
+    }
+}
+// Setup probe log lines (e2e only). They carry numbers, flags, field names and the server's own close / error text: never dictated
+// text, never the key (GFLog redacts as always). One line each, in a fixed shape that .autoimprove/tests/run_tests.py parses
+// (parse_probe; checked offline against --dump-live-probe-lines).
+static NSString *GFLiveProbeClean(NSString *s, NSUInteger maxLen) {
+    NSString *t = [[(s ?: @"") componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]] componentsJoinedByString:@" "];
+    t = [t stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+    return t.length > maxLen ? [[t substringToIndex:maxLen] stringByAppendingString:@"..."] : t;
+}
+static NSString *GFLiveProbeJoinedNames(NSSet<NSString *> *names) {
+    return [[names.allObjects sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@", "];
+}
+static NSString *GFLiveProbeSetupLine(NSUInteger sid, NSDictionary *extra, NSUInteger setupBytes, BOOL keyInURL) {
+    NSMutableSet<NSString *> *paths = [NSMutableSet set];
+    if (extra.count > 0) GFJSONCollectKeyPaths(extra, @"setup", 8, paths);
+    return [NSString stringWithFormat:@"E2E: Live setup probe: session %lu sends the setup with %lu extra field(s) [%@] (%lu bytes, key via %@)",
+            (unsigned long)sid, (unsigned long)paths.count, GFLiveProbeJoinedNames(paths), (unsigned long)setupBytes, keyInURL ? @"URL" : @"header"];
+}
+static NSString *GFLiveProbeSetupCompleteLine(NSUInteger sid, BOOL viaHeader, double msSinceSetupSent) {
+    return [NSString stringWithFormat:@"E2E: Live setup probe: setupComplete=1 (session %lu, key via %@, %.0f ms after the setup was sent)",
+            (unsigned long)sid, viaHeader ? @"header" : @"URL", msSinceSetupSent];
+}
+static NSString *GFLiveProbeCloseLine(BOOL setupDone, NSUInteger sid, BOOL viaHeader, NSInteger httpStatus, NSInteger closeCode,
+                                      NSString *closeReason, NSString *errDomain, NSInteger errCode) {
+    return [NSString stringWithFormat:@"E2E: Live setup probe: socket closed %@ setupComplete (setupComplete=%d, session %lu, key via %@, HTTP %ld, "
+            @"close code %ld, error %@ %ld) close reason \"%@\"", setupDone ? @"after" : @"before", setupDone, (unsigned long)sid,
+            viaHeader ? @"header" : @"URL", (long)httpStatus, (long)closeCode,
+            errDomain.length > 0 ? [errDomain stringByReplacingOccurrencesOfString:@" " withString:@"_"] : @"none", (long)errCode,
+            GFLiveProbeClean(closeReason, 400)];
+}
+// nil unless the server message is an error frame ({"error": {...}}).
+static NSString *GFLiveProbeErrorFrameLine(NSDictionary *json, BOOL setupDone) {
+    id e = [json isKindOfClass:[NSDictionary class]] ? json[@"error"] : nil;
+    if (!e) return nil;
+    NSDictionary *err = [e isKindOfClass:[NSDictionary class]] ? e : nil;
+    id code = err[@"code"], status = err[@"status"], msg = err[@"message"];
+    return [NSString stringWithFormat:@"E2E: Live setup probe: server error frame (setupComplete=%d, code %ld, status %@) message \"%@\"", setupDone,
+            [code respondsToSelector:@selector(integerValue)] ? (long)[code integerValue] : 0L,
+            [status isKindOfClass:[NSString class]] && [status length] > 0 ? [GFLiveProbeClean(status, 60) stringByReplacingOccurrencesOfString:@" " withString:@"_"] : @"none",
+            GFLiveProbeClean([msg isKindOfClass:[NSString class]] ? msg : ([e isKindOfClass:[NSString class]] ? e : nil), 400)];
+}
+static NSString *GFLiveProbeFieldsLine(NSSet<NSString *> *names) {
+    return [NSString stringWithFormat:@"E2E: Live setup probe: server message fields seen: [%@]", GFLiveProbeJoinedNames(names)];
 }
 // Did a Live session die because the server rejected its credentials? (handshake answered 4xx instead of 101, policy-violation /
 // invalid-payload close, an auth-ish close reason, or NSURLSession's bad-response / authentication errors). Network-level
@@ -4045,6 +4131,18 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     self.liveGoAway = NO;
 }
 
+// Test hook (e2e only, --e2e-live-setup-extra <json>, backlog 0y-probe): the extra `setup` object. nil in the normal app and outside
+// e2e mode, so the setup message is the usual one and none of the "Live setup probe" log lines exist. {} = the usual message plus
+// the probe's log lines (the probe's control case).
+- (NSDictionary *)liveSetupProbeExtra { return self.e2eMode.length > 0 ? self.e2eLiveSetupExtra : nil; }
+
+// Setup probe (e2e only): remember which fields the server's messages carry (names only, never values) and log an error frame.
+- (void)e2eNoteLiveProbeMessage:(NSDictionary *)json {
+    GFJSONCollectKeyPaths(json, @"", 3, self.e2eLiveSeenFields);
+    NSString *errLine = GFLiveProbeErrorFrameLine(json, self.liveWebSocketConnected);
+    if (errLine) GFLog(@"%@", errLine);
+}
+
 - (void)startGeminiLiveWebSocketResuming:(BOOL)resume {
     NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
     NSString *model = [self currentGeminiModel];
@@ -4068,12 +4166,16 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     // Manual activity: the server's VAD misses some voices / fast speech entirely (no ACTIVITY_START, even at
     // START_SENSITIVITY_HIGH), forcing the slow REST safety net. The user already tells us exactly when they speak
     // (Fn held), so we mark the whole press as one activity: activityStart at setupComplete, activityEnd on release.
-    NSDictionary *setupMsg = @{@"setup": @{@"model": [NSString stringWithFormat:@"models/%@", model],
-                                           @"generationConfig": @{@"responseModalities": @[@"TEXT"]},
-                                           @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES}}}};
+    NSDictionary *setupExtra = [self liveSetupProbeExtra]; // test hook (e2e only); nil = the normal setup message
+    NSDictionary *setupMsg = GFLiveSetupMessage(model, setupExtra);
     NSString *setupStr = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:setupMsg options:0 error:nil] encoding:NSUTF8StringEncoding];
     __weak typeof(self) weakSelf = self;
     GFLog(@"Live: connecting (%@, key via %@)", model, keyInURL ? @"URL" : @"header");
+    if (setupExtra) { // setup probe (e2e only): which fields were added (names only), and start collecting the server's field names
+        self.e2eLiveSetupSentTime = [NSDate timeIntervalSinceReferenceDate];
+        self.e2eLiveSeenFields = [NSMutableSet set];
+        GFLog(@"%@", GFLiveProbeSetupLine(sid, setupExtra, setupStr.length, keyInURL));
+    }
     NSURLSessionWebSocketTask *task = self.liveWebSocketTask;
     [self.liveWebSocketTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:setupStr] completionHandler:^(NSError *error) {
         if (error) {
@@ -4120,11 +4222,14 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 
 - (void)handleLiveMessage:(NSDictionary *)json session:(NSUInteger)sid {
     if (![json isKindOfClass:[NSDictionary class]]) return;
+    if (self.e2eLiveSeenFields) [self e2eNoteLiveProbeMessage:json]; // setup probe (e2e only)
     if (json[@"setupComplete"]) {
         self.liveWebSocketConnected = YES;
         self.liveEverConnected = YES;
         self.liveSocketReadyTime = [NSDate timeIntervalSinceReferenceDate];
         GFLog(@"Live: setupComplete");
+        if ([self liveSetupProbeExtra]) // setup probe (e2e only): the server accepted this setup message
+            GFLog(@"%@", GFLiveProbeSetupCompleteLine(sid, self.liveAuthViaHeader, (self.liveSocketReadyTime - self.e2eLiveSetupSentTime) * 1000.0));
         if (self.liveAuthViaHeader) {
             if (self.liveAuthMode != GFLiveAuthHeaderOK) GFLog(@"Live: auth via the x-goog-api-key header works (key kept out of the URL)");
             self.liveAuthMode = GFLiveAuthHeaderOK;
@@ -4589,6 +4694,10 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 }
 
 - (void)closeLiveWebSocket {
+    if (self.e2eLiveSeenFields) { // setup probe (e2e only): the field names this session's server messages carried
+        if (self.e2eLiveSeenFields.count > 0) GFLog(@"%@", GFLiveProbeFieldsLine(self.e2eLiveSeenFields));
+        self.e2eLiveSeenFields = nil;
+    }
     self.liveWebSocketConnected = NO;
     self.liveSocketReadyTime = 0;
     if (self.liveWebSocketTask) {
@@ -4610,6 +4719,12 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 - (void)liveConnectionLost:(NSString *)reason session:(NSUInteger)sid task:(NSURLSessionWebSocketTask *)task error:(NSError *)error {
     if (self.liveSessionId != sid || self.liveFailed || self.hasCompletedGeminiTurn) return;
     BOOL ours = task != nil && task == self.liveWebSocketTask;
+    if ([self liveSetupProbeExtra]) { // setup probe (e2e only): how the socket ended (a rejected setup closes it before setupComplete)
+        NSInteger probeHTTP = [task.response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
+        NSString *probeReason = task.closeReason.length > 0 ? [[NSString alloc] initWithData:task.closeReason encoding:NSUTF8StringEncoding] : nil;
+        GFLog(@"%@", GFLiveProbeCloseLine(self.liveWebSocketConnected, sid, self.liveAuthViaHeader, probeHTTP, task.closeCode, probeReason,
+                                          error.domain, error.code));
+    }
     if (self.liveAuthViaHeader && !self.liveWebSocketConnected) { // backlog 15: header auth rejected? retry once with the key in the URL
         NSInteger http = [task.response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
         NSString *closeReason = task.closeReason.length > 0 ? [[NSString alloc] initWithData:task.closeReason encoding:NSUTF8StringEncoding] : nil;
@@ -4721,6 +4836,10 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     NSString *joined = [[self.liveSegments componentsJoinedByString:@" "] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     GFLog(@"Live: done in %.2fs after release (%@, %lu segments, %lu chars)",
           [NSDate timeIntervalSinceReferenceDate] - self.liveReleaseTime, reason, (unsigned long)self.liveSegments.count, (unsigned long)joined.length);
+    if ([self liveSetupProbeExtra]) { // setup probe (e2e only): the server's text before the app's polish. Synthetic test clips;
+        printf("E2E LIVE RAW: \"%s\"\n", GFLiveProbeClean(joined, 100000).UTF8String); // one line, stdout only (like E2E RESULT): never the log file
+        fflush(stdout);
+    }
     [self closeLiveWebSocket];
     if (joined.length > 0) {
         if (self.recognitionTask && !self.isRecording) {
@@ -5223,9 +5342,262 @@ static void GFExpandSpokenLineBreaks(NSMutableString *str) {
     replaceRegex(str, @"[ \\t]*\\uE001[ \\t]*", @"\n\n", 0);
 }
 
+// Phrase stutters and mid-thought restarts (backlog 0x, user request 2026-11-12). The single-word pass below only sees
+// "the the". People also pause mid-thought and say a few words again, and Gemini Live writes the second attempt as it hears
+// it, sometimes with a capital letter or a comma: "happy with my with my new app", "when I When I, for example".
+// A word here is ASCII letters with apostrophes inside (straight or curly), compared without case. Words join into a phrase
+// only across plain spaces, and a repeat may sit across ONE comma. Any other character between two words (. ? ! ; : - digits,
+// quotes, line-break marks, non-ASCII letters) ends the phrase, so nothing is ever collapsed across a sentence end.
+//
+// Rule A, copies back to back: a phrase of 2-8 words said two or more times in a row keeps its first copy ("with my with my
+// new" -> "with my new"). A lone contraction counts too ("it's it's broken"); the single-word pass can't see those.
+// Kept as dictated (when unsure, the words stay):
+//  - one word over and over ("no no no no": the single-word pass and its keep-list own that), number and spoken-symbol words,
+//    spelled letters ("one two one two", "dot slash dot slash", "U S A U S A");
+//  - courtesy, exclamation and rhythm phrases from the list ("thank you thank you", "oh my god, oh my god", "tick tock");
+//  - names: every word capitalized in every copy, "I" not counting, two such words or more ("New York New York");
+//  - idioms built on a connective: "X and X and" / "X or X or" ("again and again and I", "he ran and ran and fell"),
+//    "X to/on/in/for/by/after/upon/over X" for the idiom nouns ("from time to time to refresh", "one on one on Monday"),
+//    any chain a neighbour word continues ("day after day after day", "again, and again and again", "lists of lists of
+//    lists"), and "of X of X" unless X is a determiner or the like ("a hash of hashes of hashes"; "of the of the" collapses);
+//  - "a/an/the X of|to" twice ("a friend of a friend of mine", "a pointer to a pointer to"), except quantity nouns ("a lot of");
+//  - 3+ words ending in and/or ("it rained and it rained and it rained"); 3+ words STARTING with and/or collapse only when
+//    visibly unfinished, see below ("and then I and then I went" does, "and it rained and it rained" doesn't);
+//  - a repeat right after what / if / when / everything ... ("what I have I have earned", "if we lose we lose"), and a
+//    determiner phrase right after a give/show/tell verb ("show the user the user settings");
+//  - with a COMMA between the copies the repeat reads as emphasis ("I know, I know", "it's fine, it's fine") and is kept,
+//    unless the phrase is visibly unfinished: it ends in a word that can't end a thought ("with my, with my new app",
+//    "when I, when I", "I want to, I want to go", "it's, it's"), or it ends in a helper verb, a think/want/need verb or a
+//    this/some/not kind of word AND the sentence runs straight on after the last copy ("I would, I would repeat it" collapses,
+//    "I do, I do." stays).
+//
+// Rule B, a restart that drops one aborted word: P + word + P with P of 3-8 words keeps one P ("I also want you to give some
+// I also want you to give periodic updates"). Only when the dropped word can't stand on its own: a/an/the/my/your/our/their/
+// its/every (a comma may follow it), or some/any/each/another with no comma at all. Any other middle word is content or a
+// connective and everything stays ("it is too big it is too slow", "we have to do what we have to do", "compare what we
+// have to what we have now").
+#define kGFStutterMaxPhrase 8
+typedef struct {
+    NSUInteger start, end;
+    uint8_t sep; // what separates the word from the one before it: 1 = spaces, 2 = spaces and one comma, 0 = anything else
+    BOOL cap;    // written with a capital first letter
+} GFStutterToken;
+
+static NSSet<NSString *> *GFStutterWordSet(NSString *list) {
+    return [NSSet setWithArray:[list componentsSeparatedByString:@" "]];
+}
+
+// Makes ONE collapse (the leftmost; the longest phrase first) and returns YES, or returns NO when there is nothing to collapse.
+static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
+    static NSSet<NSString *> *spokenSymbols, *keepPhrases, *chainWords, *idiomChainWords, *idiomNouns, *quantityNouns, *ofFollowers,
+                             *tautologyHeads, *determiners, *giveVerbs, *sContractions, *unfinishedEnd, *unfinishedIfContinues,
+                             *helperVerbs, *beforeYou, *abortedStrong, *abortedBare;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        spokenSymbols = GFStutterWordSet(@"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+                                         @"fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy "
+                                         @"eighty ninety hundred thousand million billion oh double triple point dot dash slash "
+                                         @"backslash colon star hash plus minus equals underscore");
+        keepPhrases = [NSSet setWithArray:[@"thank you|no thank you|thank you so much|thank you very much|thanks so much|all right|"
+                                           @"come on|hold on|good morning|good night|good evening|good afternoon|oh boy|oh man|"
+                                           @"oh dear|oh my|oh no|oh yes|oh yeah|oh well|oh wow|my god|oh my god|oh my gosh|"
+                                           @"my goodness|oh my goodness|et cetera|and so on|and so forth|so on|after another|"
+                                           @"back and forth|up and down|in and out|on and off|to and fro|left and right|"
+                                           @"here and there|tick tock|ding dong|left right|up down|in out|on off|yes no"
+                                           componentsSeparatedByString:@"|"]];
+        chainWords = GFStutterWordSet(@"and or of by after upon to in on for over");
+        idiomChainWords = GFStutterWordSet(@"by after upon to in on for over");
+        idiomNouns = GFStutterWordSet(@"time face back door day night end peer point wall head heart coast bumper toe nose mouth "
+                                      @"cheek shoulder side person house place man one two week month year hour minute hand arm "
+                                      @"word dollar step little bit piece line case page inch mile layer row generation");
+        quantityNouns = GFStutterWordSet(@"lot couple bunch bit number ton kind sort rest majority variety series pair handful");
+        ofFollowers = GFStutterWordSet(@"the a an my your his her our their its this that these those each every some any course "
+                                       @"it them us you me him all what how which");
+        tautologyHeads = GFStutterWordSet(@"what whatever who whoever whom which whichever where wherever when whenever how however "
+                                          @"why if whether once because since as while until till unless though although "
+                                          @"everything anything something nothing all");
+        determiners = GFStutterWordSet(@"the a an my your his her our their its this that these those each every some any");
+        giveVerbs = GFStutterWordSet(@"give gives gave given giving show shows showed shown showing tell tells told telling send "
+                                     @"sends sent sending ask asks asked asking offer offers offered offering bring brings brought "
+                                     @"bringing hand hands handed handing teach teaches taught teaching pay pays paid paying lend "
+                                     @"lends lent lending get gets got getting buy buys bought buying make makes made making call "
+                                     @"calls called calling name names named naming email emails emailed text texts texted assign "
+                                     @"assigns assigned grant grants granted pass passes passed passing sell sells sold selling owe "
+                                     @"owes owed promise promises promised read reads write writes wrote written save saves saved "
+                                     @"find finds found leave leaves left forward forwards forwarded mail mails mailed serve serves "
+                                     @"served throw throws threw feed feeds fed cook cooks cooked pour pours poured build builds "
+                                     @"built order orders ordered book books booked wish wishes wished charge charges charged cost "
+                                     @"costs allow allows allowed deny denies denied award awards awarded");
+        sContractions = GFStutterWordSet(@"it's that's there's here's he's she's what's who's let's where's how's");
+        unfinishedEnd = GFStutterWordSet(@"a an the my your our their its every i we they he she of with for from at into onto to "
+                                         @"about and but or if because when while although unless until whether i'm we're they're "
+                                         @"you're it's that's there's here's he's she's what's let's i'll we'll you'll they'll he'll "
+                                         @"she'll it'll i've we've you've they've i'd we'd you'd they'd he'd she'd");
+        helperVerbs = GFStutterWordSet(@"is are was were am be been will would can could should shall may might must have has had do "
+                                       @"does did don't doesn't didn't won't wouldn't can't couldn't shouldn't isn't aren't wasn't "
+                                       @"weren't haven't hasn't hadn't");
+        unfinishedIfContinues = [helperVerbs setByAddingObjectsFromSet:
+                                 GFStutterWordSet(@"think thought guess mean want wanted need needed hope suppose that this these those "
+                                                  @"just also then not like going gonna wanna gotta trying some any more all no his her "
+                                                  @"so really very")];
+        beforeYou = [helperVerbs setByAddingObjectsFromSet:GFStutterWordSet(@"if when and so but that because as while once")];
+        abortedStrong = GFStutterWordSet(@"a an the my your our their its every");
+        abortedBare = GFStutterWordSet(@"some any each another");
+    });
+
+    NSUInteger len = str.length;
+    if (len < 7) return NO; // the shortest repeat is "I'm I'm"
+    unichar *low = malloc(len * sizeof(unichar));
+    GFStutterToken *tok = malloc((len / 2 + 1) * sizeof(GFStutterToken));
+    if (!low || !tok) { free(low); free(tok); return NO; }
+    [str getCharacters:low range:NSMakeRange(0, len)];
+
+    // words and what separates them
+    NSUInteger T = 0, p = 0, prevEnd = 0;
+    while (p < len) {
+        unichar c = low[p];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) { p++; continue; }
+        NSUInteger s = p;
+        BOOL cap = (c >= 'A' && c <= 'Z');
+        while (p < len) {
+            unichar d = low[p];
+            BOOL letter = (d >= 'a' && d <= 'z') || (d >= 'A' && d <= 'Z');
+            if (!letter) {
+                unichar next = (p + 1 < len) ? low[p + 1] : 0;
+                BOOL inner = (d == '\'' || d == 0x2019) && ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z'));
+                if (!inner) break;
+            }
+            p++;
+        }
+        uint8_t sep = 0;
+        if (T > 0 && s > prevEnd) {
+            NSUInteger commas = 0;
+            BOOL plain = YES;
+            for (NSUInteger q = prevEnd; q < s; q++) {
+                unichar g = low[q];
+                if (g == ',') commas++;
+                else if (g != ' ' && g != '\t' && g != 0x00A0) { plain = NO; break; }
+            }
+            if (plain && commas <= 1) sep = (commas == 0) ? 1 : 2;
+        }
+        tok[T++] = (GFStutterToken){ s, p, sep, cap };
+        prevEnd = p;
+    }
+    // compare without case, curly apostrophe = straight
+    for (NSUInteger q = 0; q < len; q++) {
+        if (low[q] >= 'A' && low[q] <= 'Z') low[q] += 32;
+        else if (low[q] == 0x2019) low[q] = '\'';
+    }
+
+    BOOL (^same)(NSUInteger, NSUInteger) = ^BOOL(NSUInteger a, NSUInteger b) {
+        NSUInteger la = tok[a].end - tok[a].start;
+        return la == tok[b].end - tok[b].start && memcmp(low + tok[a].start, low + tok[b].start, la * sizeof(unichar)) == 0;
+    };
+    // words a..a+n-1 are words b..b+n-1, each group joined by plain spaces only
+    BOOL (^sameRun)(NSUInteger, NSUInteger, NSUInteger) = ^BOOL(NSUInteger a, NSUInteger b, NSUInteger n) {
+        for (NSUInteger k = 0; k < n; k++) {
+            if (k > 0 && (tok[a + k].sep != 1 || tok[b + k].sep != 1)) return NO;
+            if (!same(a + k, b + k)) return NO;
+        }
+        return YES;
+    };
+    NSString *(^word)(NSUInteger) = ^NSString *(NSUInteger k) {
+        return [NSString stringWithCharacters:low + tok[k].start length:tok[k].end - tok[k].start];
+    };
+    // P = words i..i+n-1: one word n times, or only number/symbol words and spelled letters
+    BOOL (^sameWordOrSpoken)(NSUInteger, NSUInteger) = ^BOOL(NSUInteger i, NSUInteger n) {
+        BOOL allSame = (n >= 2), allSpoken = YES;
+        for (NSUInteger k = 0; k < n; k++) {
+            if (k > 0 && !same(i, i + k)) allSame = NO;
+            if (tok[i + k].end - tok[i + k].start > 1 && ![spokenSymbols containsObject:word(i + k)]) allSpoken = NO;
+        }
+        return allSame || allSpoken;
+    };
+
+    NSRange cut = NSMakeRange(NSNotFound, 0);
+    for (NSUInteger i = 0; i < T && cut.location == NSNotFound; i++) {
+        // Rule A: copies back to back
+        for (NSUInteger n = kGFStutterMaxPhrase; n >= 1 && cut.location == NSNotFound; n--) {
+            if (i + 2 * n > T) continue;
+            uint8_t junction = tok[i + n].sep;
+            if (junction == 0 || !sameRun(i, i + n, n)) continue;
+            NSString *first = word(i);
+            if (n == 1) { // a lone word only when it is a contraction
+                BOOL contraction = [first hasSuffix:@"n't"] || [first hasSuffix:@"'m"] || [first hasSuffix:@"'re"] ||
+                                   [first hasSuffix:@"'ll"] || [first hasSuffix:@"'ve"] || [first hasSuffix:@"'d"] ||
+                                   [sContractions containsObject:first];
+                if (!contraction) continue;
+            }
+            // the same run one word to the left was already judged, and kept
+            if (i > 0 && tok[i].sep == 1 && junction == 1 && same(i - 1, i + n - 1)) continue;
+            NSUInteger copies = 2;
+            while (i + (copies + 1) * n <= T && tok[i + copies * n].sep == junction && sameRun(i, i + copies * n, n)) copies++;
+            NSUInteger last = i + copies * n - 1;
+            NSString *end = word(i + n - 1);
+            NSString *second = (n >= 2) ? word(i + 1) : nil;
+
+            if (sameWordOrSpoken(i, n)) continue;
+            NSMutableString *phrase = [NSMutableString stringWithString:first];
+            for (NSUInteger k = 1; k < n; k++) [phrase appendFormat:@" %@", word(i + k)];
+            if ([keepPhrases containsObject:phrase]) continue;
+            NSString *before = (i > 0 && tok[i].sep == 1) ? word(i - 1) : nil; // joined by plain spaces
+            if (before && [tautologyHeads containsObject:before]) continue;
+            if (before && [determiners containsObject:first] && [giveVerbs containsObject:before]) continue;
+            if (n >= 2) { // names, places, acronyms
+                BOOL allCap = YES;
+                NSUInteger nameWords = 0;
+                for (NSUInteger k = i; k <= last; k++) if (!tok[k].cap) { allCap = NO; break; }
+                for (NSUInteger k = 0; k < n; k++) {
+                    NSString *w = word(i + k);
+                    if (!([w isEqualToString:@"i"] || [w hasPrefix:@"i'"])) nameWords++;
+                }
+                if (allCap && nameWords >= 2) continue;
+            }
+            if (n == 2) {
+                if ([end isEqualToString:@"and"] || [end isEqualToString:@"or"]) continue;
+                if ([idiomChainWords containsObject:end] && [idiomNouns containsObject:first]) continue;
+                if ([first isEqualToString:@"of"] && ![ofFollowers containsObject:end]) continue;
+                // "X c X c X" / "X, c X c X": the neighbour continues the chain
+                NSString *left = (i > 0 && tok[i].sep != 0) ? word(i - 1) : nil;
+                NSString *right = (last + 1 < T && tok[last + 1].sep != 0) ? word(last + 1) : nil;
+                BOOL chain = NO;
+                if ([chainWords containsObject:first] && ([left isEqualToString:end] || [right isEqualToString:end])) chain = YES;
+                if ([chainWords containsObject:end] && ([left isEqualToString:first] || [right isEqualToString:first])) chain = YES;
+                if (chain) continue;
+            }
+            if (n == 3 && ([first isEqualToString:@"a"] || [first isEqualToString:@"an"] || [first isEqualToString:@"the"]) &&
+                ([end isEqualToString:@"of"] || [end isEqualToString:@"to"]) && ![quantityNouns containsObject:second]) continue;
+            if (n >= 3 && ([end isEqualToString:@"and"] || [end isEqualToString:@"or"])) continue;
+            BOOL continues = (last + 1 < T && tok[last + 1].sep == 1);
+            BOOL unfinished = [unfinishedEnd containsObject:end] ||
+                              (continues && ([unfinishedIfContinues containsObject:end] ||
+                                             (n >= 2 && [end isEqualToString:@"you"] && [beforeYou containsObject:word(i + n - 2)])));
+            if (junction == 2 && !unfinished) continue;
+            if (n >= 3 && ([first isEqualToString:@"and"] || [first isEqualToString:@"or"]) && !unfinished) continue;
+            cut = NSMakeRange(tok[i + n - 1].end, tok[last].end - tok[i + n - 1].end);
+        }
+        // Rule B: P + one aborted word + P
+        for (NSUInteger n = kGFStutterMaxPhrase; n >= 3 && cut.location == NSNotFound; n--) {
+            if (i + 2 * n + 1 > T) continue;
+            NSUInteger x = i + n, again = x + 1;
+            if (tok[x].sep != 1 || tok[again].sep == 0 || !sameRun(i, again, n)) continue;
+            NSString *aborted = word(x);
+            if (!([abortedStrong containsObject:aborted] || (tok[again].sep == 1 && [abortedBare containsObject:aborted]))) continue;
+            if (sameWordOrSpoken(i, n)) continue;
+            cut = NSMakeRange(tok[i + n - 1].end, tok[again + n - 1].end - tok[i + n - 1].end);
+        }
+    }
+    free(low);
+    free(tok);
+    if (cut.location == NSNotFound) return NO;
+    [str deleteCharactersInRange:cut];
+    return YES;
+}
+
 // Stutter cleanup (backlog 17): "the the" / "I I" / "we we we" collapse to one word, but grammatical doubles stay ("had had",
 // "that that", "is is", "do do", "her her", "very very", number words in "five five five"), and so do capitalized repeats
 // that look like names ("Bora Bora", "The The"; "I I" still collapses). When unsure, the words are kept.
+// Then repeated phrases and mid-thought restarts collapse (backlog 0x, GFCollapsePhraseRepeatOnce above).
 static void GFRemoveStutterRepeats(NSMutableString *str) {
     static NSRegularExpression *re;
     static NSSet<NSString *> *keep;
@@ -5251,6 +5623,8 @@ static void GFRemoveStutterRepeats(NSMutableString *str) {
         if (lower.length == 1 && ![lower isEqualToString:@"i"] && ![lower isEqualToString:@"a"]) continue; // spelled letters
         [str deleteCharactersInRange:[m rangeAtIndex:2]];
     }
+    // phrases after single words ("I I would I would" -> "I would"); one collapse per call, the bound only stops a runaway loop
+    for (int pass = 0; pass < 64 && GFCollapsePhraseRepeatOnce(str); pass++) {}
 }
 
 // "kind of" / "sort of" from rules.json extraFillers (backlog 0i, user decision 2026-11-10): removed only when clearly filler.
@@ -5507,7 +5881,8 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
         replaceRegex(str, @"\\b(have|has|had|got|take|takes|took|cost|costs|spent|spend|wait|waited|for|in|after|within)\\s+like[,]?\\s+(?=(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|thousand|a\\s+hundred|a\\s+thousand|a\\s+couple|a\\s+few|\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
     }
 
-    // 7. Remove accidental duplicate stutter words (e.g. "the the", "I I", "we we we")
+    // 7. Remove accidental duplicate stutter words (e.g. "the the", "I I", "we we we") and repeated phrases / mid-thought
+    // restarts ("with my with my new app"; backlog 0x). After the fillers, so "with my, um, with my" collapses too.
     if (cleanStutter) GFRemoveStutterRepeats(str);
 
     // 8. Fix standalone lowercase "i" and contractions. The pronoun only: not in abbreviations ("i.e.", "i.v."), paths, URLs,
@@ -6259,6 +6634,219 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             @[@"It was very very good", @"It was very very good. "],
             @[@"Call five five five one two one two", @"Call five five five one two one two. "],
             @[@"We flew to Bora Bora last year", @"We flew to Bora Bora last year. "],
+            // --- phrase stutters collapse (backlog 0x): the user's examples ---
+            @[@"I'm so happy with my with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"It happens when I When I, for example, pause mid-thought", @"It happens when I, for example, pause mid-thought. "],
+            @[@"and then I would I would repeat the same phrase", @"And then I would repeat the same phrase. "],
+            @[@"let's say, will do will do to show up two times", @"Let's say, will do to show up two times. "],
+            @[@"I also want you to give some I also want you to give periodic updates", @"I also want you to give periodic updates. "],
+            // --- phrase stutters collapse: comma, filler or dash at the pause ---
+            @[@"I'm so happy with my, with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I'm so happy with my, um, with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I'm so happy with my uh with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I'm so happy with my, you know, with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I'm so happy with my \u2014 with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I think, I think we should go", @"I think we should go. "],
+            @[@"I would, I would repeat it", @"I would repeat it. "],
+            @[@"can you, can you send it", @"Can you send it? "],
+            @[@"and then, and then we left", @"And then we left. "],
+            @[@"we're going to, we're going to ship it", @"We're going to ship it. "],
+            @[@"I'm not, I'm not sure", @"I'm not sure. "],
+            @[@"this is a, this is a test", @"This is a test. "],
+            @[@"I'm, I'm not sure", @"I'm not sure. "],
+            // --- phrase stutters collapse: three copies, capitalized restarts, long phrases ---
+            @[@"I'm so happy with my with my with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"I'm so happy with my, with my, with my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"with my with my, with my new app", @"With my new app. "],
+            @[@"I want you to I want you to I want you to check it", @"I want you to check it. "],
+            @[@"I'm so happy with my With my new dictation app", @"I'm so happy with my new dictation app. "],
+            @[@"So I So I went home", @"So I went home. "],
+            @[@"But when I when I pause, it repeats", @"But when I pause, it repeats. "],
+            @[@"we went to the we went to the store", @"We went to the store. "],
+            @[@"so I think we should I think we should ship it", @"So I think we should ship it. "],
+            @[@"I don\u2019t know I don't know what happened", @"I don\u2019t know what happened. "],
+            @[@"it's going to it's going to work", @"It's going to work. "],
+            @[@"So what I want to say is that what I want to say is that it works", @"So what I want to say is that it works. "],
+            @[@"I was going to I was going to say something", @"I was going to say something. "],
+            // --- phrase stutters collapse: short everyday restarts ---
+            @[@"the build the build is green", @"The build is green. "],
+            @[@"the the build the build is green", @"The build is green. "],
+            @[@"I I would I would go", @"I would go. "],
+            @[@"to the to the the store", @"To the store. "],
+            @[@"and then I and then I went home", @"And then I went home. "],
+            @[@"I want to go to go to the store", @"I want to go to the store. "],
+            @[@"if you if you want", @"If you want. "],
+            @[@"so that so that we can ship", @"So that we can ship. "],
+            @[@"is that the is that the right one", @"Is that the right one? "],
+            @[@"one more one more thing", @"One more thing. "],
+            @[@"Sounds good will do will do", @"Sounds good will do. "],
+            @[@"I know I know it's late", @"I know it's late. "],
+            @[@"I know I know, I know", @"I know, I know. "],
+            @[@"I would I would I think repeat it", @"I would I think repeat it. "],
+            @[@"a lot of a lot of people came", @"A lot of people came. "],
+            @[@"one of the one of the tests failed", @"One of the tests failed. "],
+            @[@"one of one of the tests failed", @"One of the tests failed. "],
+            @[@"most of the of the tests pass", @"Most of the tests pass. "],
+            @[@"of course of course we can", @"Of course we can. "],
+            @[@"because of because of the delay", @"Because of the delay. "],
+            @[@"it was caused by caused by a bug", @"It was caused by a bug. "],
+            @[@"it is based on based on the log", @"It is based on the log. "],
+            @[@"I was looking for looking for the file", @"I was looking for the file. "],
+            // --- phrase stutters collapse: repeated contractions ---
+            @[@"I'm I'm not sure", @"I'm not sure. "],
+            @[@"we're we're done", @"We're done. "],
+            @[@"don't don't touch it", @"Don't touch it. "],
+            @[@"It's it's it's broken", @"It's broken. "],
+            // --- mid-thought restarts collapse: one aborted word between the copies ---
+            @[@"I'm going to the I'm going to a store", @"I'm going to a store. "],
+            @[@"I'm going to the, I'm going to a store", @"I'm going to a store. "],
+            @[@"we need to fix the We need to fix this bug", @"We need to fix this bug. "],
+            @[@"I want you to send my I want you to send our report", @"I want you to send our report. "],
+            @[@"we want to see every we want to see all users", @"We want to see all users. "],
+            // --- repeated phrases kept: one word many times, numbers, spelled letters, symbols, names ---
+            @[@"she said no no no no", @"She said no no no no. "],
+            @[@"it was very very very very good", @"It was very very very very good. "],
+            @[@"mic check one two one two", @"Mic check one two one two. "],
+            @[@"Count one two three one two three", @"Count one two three one two three. "],
+            @[@"It cost two thousand two thousand", @"It cost two thousand two thousand. "],
+            @[@"Spell it A B A B", @"Spell it A B A B. "],
+            @[@"They chant U S A U S A", @"They chant U S A U S A. "],
+            @[@"cd dot slash dot slash", @"Cd dot slash dot slash. "],
+            @[@"New York, New York is a song", @"New York, New York is a song. "],
+            @[@"New York New York is a hotel", @"New York New York is a hotel. "],
+            @[@"I met John Smith John Smith was there", @"I met John Smith John Smith was there. "],
+            @[@"O'Brien O'Brien called", @"O'Brien O'Brien called. "],
+            // --- repeated phrases kept: idioms built on a connective ---
+            @[@"again and again and again", @"Again and again and again. "],
+            @[@"it gets more and more and more complex", @"It gets more and more and more complex. "],
+            @[@"we did it over and over and over again", @"We did it over and over and over again. "],
+            @[@"it goes on and on and on", @"It goes on and on and on. "],
+            @[@"step by step by step", @"Step by step by step. "],
+            @[@"side by side by side", @"Side by side by side. "],
+            @[@"day after day after day", @"Day after day after day. "],
+            @[@"year after year after year", @"Year after year after year. "],
+            @[@"he ran and ran and ran", @"He ran and ran and ran. "],
+            @[@"again, and again and again", @"Again, and again and again. "],
+            @[@"back to back to back", @"Back to back to back. "],
+            @[@"two plus two plus two", @"Two plus two plus two. "],
+            @[@"you and you and you", @"You and you and you. "],
+            @[@"it rained and it rained and it rained", @"It rained and it rained and it rained. "],
+            @[@"We stayed home and it rained and it rained and it rained", @"We stayed home and it rained and it rained and it rained. "],
+            @[@"I tried and I tried and then I gave up", @"I tried and I tried and then I gave up. "],
+            @[@"and so on and so on", @"And so on and so on. "],
+            @[@"et cetera et cetera", @"Et cetera et cetera. "],
+            @[@"back and forth back and forth", @"Back and forth back and forth. "],
+            @[@"tick tock tick tock", @"Tick tock tick tock. "],
+            @[@"one after another after another", @"One after another after another. "],
+            @[@"I read it from time to time to refresh my memory", @"I read it from time to time to refresh my memory. "],
+            @[@"we met face to face to discuss it", @"We met face to face to discuss it. "],
+            @[@"we talk one on one on Mondays", @"We talk one on one on Mondays. "],
+            @[@"they sat side by side by the river", @"They sat side by side by the river. "],
+            @[@"Just do it step by step by following the guide", @"Just do it step by step by following the guide. "],
+            @[@"I tried again and again and I failed", @"I tried again and again and I failed. "],
+            @[@"he ran and ran and fell", @"He ran and ran and fell. "],
+            @[@"it grows more and more and it never stops", @"It grows more and more and it never stops. "],
+            @[@"milk and milk and eggs", @"Milk and milk and eggs. "],
+            @[@"a pointer to a pointer to the struct", @"A pointer to a pointer to the struct. "],
+            @[@"she is a friend of a friend of mine", @"She is a friend of a friend of mine. "],
+            @[@"it is a copy of a copy of the file", @"It is a copy of a copy of the file. "],
+            @[@"store it in a hash of hashes of hashes", @"Store it in a hash of hashes of hashes. "],
+            @[@"a list of lists of lists", @"A list of lists of lists. "],
+            // --- repeated phrases kept: emphasis and courtesy ---
+            @[@"I know, I know", @"I know, I know. "],
+            @[@"I know, I know, but it's late", @"I know, I know, but it's late. "],
+            @[@"I know, I know it's late", @"I know, I know it's late. "],
+            @[@"it's fine, it's fine", @"It's fine, it's fine. "],
+            @[@"come here, come here", @"Come here, come here. "],
+            @[@"thank you, thank you", @"Thank you, thank you. "],
+            @[@"thank you thank you so much", @"Thank you thank you so much. "],
+            @[@"no thank you, no thank you", @"No thank you, no thank you. "],
+            @[@"all right, all right", @"All right, all right. "],
+            @[@"come on, come on", @"Come on, come on. "],
+            @[@"hold on, hold on", @"Hold on, hold on. "],
+            @[@"good morning, good morning", @"Good morning, good morning. "],
+            @[@"oh my god, oh my god", @"Oh my god, oh my god. "],
+            @[@"oh my, oh my", @"Oh my, oh my. "],
+            @[@"I don't know, I don't know", @"I don't know, I don't know. "],
+            @[@"I love you, I love you", @"I love you, I love you. "],
+            @[@"let it go, let it go", @"Let it go, let it go. "],
+            @[@"wait a minute, wait a minute", @"Wait a minute, wait a minute. "],
+            @[@"yes we can, yes we can", @"Yes we can, yes we can. "],
+            @[@"I do, I do", @"I do, I do. "],
+            @[@"we will, we will", @"We will, we will. "],
+            @[@"I think so, I think so", @"I think so, I think so. "],
+            @[@"not now, not now", @"Not now, not now. "],
+            @[@"very good, very good", @"Very good, very good. "],
+            @[@"it's okay, it's okay", @"It's okay, it's okay. "],
+            @[@"no way, no way", @"No way, no way. "],
+            @[@"that's right, that's right", @"That's right, that's right. "],
+            @[@"here we go, here we go", @"Here we go, here we go. "],
+            @[@"I told you, I told you", @"I told you, I told you. "],
+            @[@"I'm going, I'm going", @"I'm going, I'm going. "],
+            @[@"come in, come in", @"Come in, come in. "],
+            @[@"go on, go on", @"Go on, go on. "],
+            @[@"yes sir, yes sir", @"Yes sir, yes sir. "],
+            @[@"yes, sir, yes, sir", @"Yes, sir, yes, sir. "],
+            @[@"back and forth, back and forth", @"Back and forth, back and forth. "],
+            @[@"again and again, again and again", @"Again and again, again and again. "],
+            @[@"Don't, don't", @"Don't, don't. "],
+            // --- repeated phrases kept: the repeat is grammar, not a stutter ---
+            @[@"We have to do what we have to do", @"We have to do what we have to do. "],
+            @[@"I want to know what I want to know", @"I want to know what I want to know. "],
+            @[@"I am going where I am going", @"I am going where I am going. "],
+            @[@"It is what it is", @"It is what it is. "],
+            @[@"I said what I said", @"I said what I said. "],
+            @[@"I know what I know", @"I know what I know. "],
+            @[@"But what I'm saying is what I'm saying", @"But what I'm saying is what I'm saying. "],
+            @[@"a deal is a deal", @"A deal is a deal. "],
+            @[@"enough is enough", @"Enough is enough. "],
+            @[@"boys will be boys", @"Boys will be boys. "],
+            @[@"to be or not to be", @"To be or not to be. "],
+            @[@"a rose is a rose", @"A rose is a rose. "],
+            @[@"I'll do it when I can do it", @"I'll do it when I can do it. "],
+            @[@"Just do it because you want to do it", @"Just do it because you want to do it. "],
+            @[@"And what I have I have earned", @"And what I have I have earned. "],
+            @[@"And what I have, I have earned", @"And what I have, I have earned. "],
+            @[@"Everything I do, I do it for you", @"Everything I do, I do it for you. "],
+            @[@"if we lose we lose", @"If we lose we lose. "],
+            @[@"Honestly if it works it works", @"Honestly if it works it works. "],
+            @[@"I did what you said you said it was fine", @"I did what you said you said it was fine. "],
+            @[@"I did what you said, you said it was fine", @"I did what you said, you said it was fine. "],
+            @[@"show the user the user settings", @"Show the user the user settings. "],
+            @[@"I gave the dog the dog food", @"I gave the dog the dog food. "],
+            @[@"She told the team the team lead quit", @"She told the team the team lead quit. "],
+            @[@"send the new client the new client report", @"Send the new client the new client report. "],
+            @[@"compare what we have to what we have now", @"Compare what we have to what we have now. "],
+            @[@"go from where we are to where we are going", @"Go from where we are to where we are going. "],
+            @[@"the more you learn the more you earn", @"The more you learn the more you earn. "],
+            @[@"the sooner we start the sooner we finish", @"The sooner we start the sooner we finish. "],
+            @[@"out of sight out of mind", @"Out of sight out of mind. "],
+            @[@"he said she said", @"He said she said. "],
+            @[@"garbage in garbage out", @"Garbage in garbage out. "],
+            @[@"equal to, not equal to, less than, less than or equal to", @"Equal to, not equal to, less than, less than or equal to. "],
+            // --- repeated phrases kept: same opening, different thought (the middle word is content) ---
+            @[@"it is too big it is too slow", @"It is too big it is too slow. "],
+            @[@"it is too big, it is too slow", @"It is too big, it is too slow. "],
+            @[@"I want to go home I want to go to bed", @"I want to go home I want to go to bed. "],
+            @[@"I want to go home, I want to go to bed", @"I want to go home, I want to go to bed. "],
+            @[@"I don't want to do this, I don't want to do that", @"I don't want to do this, I don't want to do that. "],
+            @[@"I don't want to do this I don't want to do that", @"I don't want to do this I don't want to do that. "],
+            @[@"we need to ship fast we need to ship clean", @"We need to ship fast we need to ship clean. "],
+            @[@"I think we should go I think we should leave now", @"I think we should go I think we should leave now. "],
+            @[@"I love you John I love you", @"I love you John I love you. "],
+            @[@"I think so, yes, I think so", @"I think so, yes, I think so. "],
+            @[@"thank you so much, John, thank you so much", @"Thank you so much, John, thank you so much. "],
+            @[@"we should go, yes we should go", @"We should go, yes we should go. "],
+            @[@"I want to try some, I want to try them all", @"I want to try some, I want to try them all. "],
+            @[@"what are you looking at, what are you looking for", @"What are you looking at, what are you looking for? "],
+            // --- repeated phrases kept: never across a sentence end, a line break or other punctuation ---
+            @[@"I'm happy with my. With my new app", @"I'm happy with my. With my new app. "],
+            @[@"I know. I know it works", @"I know. I know it works. "],
+            @[@"Is it done? Is it done yet", @"Is it done? Is it done yet? "],
+            @[@"it works with my... with my setup", @"It works with my... With my setup. "],
+            @[@"the app works with my; with my setup", @"The app works with my; with my setup. "],
+            @[@"wi-fi wi-fi works", @"Wi-fi wi-fi works. "],
+            @[@"first point new line first point again", @"First point\nFirst point again. "],
         ];
         // "kind of" / "sort of" (backlog 0i, user decision 2026-11-10): removed only when clearly filler. Exact output.
         NSArray *hedgeCases = @[
@@ -6360,6 +6948,31 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (ok) printf("PASS: polish: \"%s\" -> \"%s\"\n", [esc(tc[0]) UTF8String], [esc(actual) UTF8String]);
             else printf("FAIL: polish: \"%s\"\n  Expected: \"%s\"\n  Actual:   \"%s\"\n", [esc(tc[0]) UTF8String],
                         [esc(tc[1]) UTF8String], [esc(actual) UTF8String]);
+        }
+        {
+            // The stutter pass (single words + phrases, backlog 0x) on a two-minute dictation, about 300 words with two repeats
+            // in it, must stay well under a millisecond. Best of 20 runs, so a busy Mac doesn't fail it.
+            NSMutableString *longText = [NSMutableString string];
+            for (int k = 0; k < 10; k++) {
+                [longText appendString:@"The quick brown fox jumps over the lazy dog while the build finishes and we wait for the "
+                                       @"tests to pass before shipping the release to everyone on the team today. "];
+            }
+            [longText appendString:@"I'm so happy with my with my new dictation app and then I would I would repeat it"];
+            double bestMs = 1e9;
+            NSString *collapsed = nil;
+            for (int run = 0; run < 20; run++) {
+                NSMutableString *work = [longText mutableCopy];
+                CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent();
+                GFRemoveStutterRepeats(work);
+                double ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0;
+                if (ms < bestMs) bestMs = ms;
+                collapsed = work;
+            }
+            BOOL ok = bestMs < 1.0 && [collapsed hasSuffix:@"so happy with my new dictation app and then I would repeat it"] &&
+                      collapsed.length == longText.length - [@" with my I would" length];
+            if (ok) passed++; else failed++;
+            printf("%s: stutter pass on %lu characters took %.3f ms (limit 1 ms) and collapsed both repeats\n", ok ? "PASS" : "FAIL",
+                   (unsigned long)longText.length, bestMs);
         }
         {
             // A press that was only "new line" ("\n" after polish) is delivered, not ended as "No speech"; blank text still is.
@@ -7868,6 +8481,114 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             [us4 invalidateAndCancel];
             if (okC4) passed++; else failed++;
             printf("%s: offline header-auth connect failure falls back as before (no key-in-URL retry)\n", okC4 ? "PASS" : "FAIL");
+
+            // Live setup message + the e2e-only setup probe hook (backlog 0y-probe, --e2e-live-setup-extra <json>)
+            NSString *sm = kDefaultLiveModel;
+            NSData *(^ser)(id, NSJSONWritingOptions) = ^NSData *(id o, NSJSONWritingOptions opt) {
+                return [NSJSONSerialization dataWithJSONObject:o options:opt error:nil];
+            };
+            // exactly what startGeminiLiveWebSocketResuming: built inline before the probe hook existed
+            NSDictionary *todaySetup = @{@"setup": @{@"model": [NSString stringWithFormat:@"models/%@", sm],
+                                                     @"generationConfig": @{@"responseModalities": @[@"TEXT"]},
+                                                     @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES}}}};
+            NSString *todaySorted = @"{\"setup\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\"]},\"model\":\"models\\/gemini-3.5-transcribe-live\","
+                                    @"\"realtimeInputConfig\":{\"automaticActivityDetection\":{\"disabled\":true}}}}";
+            BOOL okToday = YES;
+            for (NSDictionary *noExtra in @[[NSNull null], @{}]) {
+                NSDictionary *m = GFLiveSetupMessage(sm, [noExtra isKindOfClass:[NSDictionary class]] ? noExtra : nil);
+                okToday = okToday && [m isEqual:todaySetup] && [ser(m, 0) isEqualToData:ser(todaySetup, 0)] && ser(m, 0).length > 0
+                          && [[[NSString alloc] initWithData:ser(m, NSJSONWritingSortedKeys) encoding:NSUTF8StringEncoding] isEqualToString:todaySorted];
+            }
+            if (okToday) passed++; else failed++;
+            printf("%s: Live setup message without the probe hook (nil or {}) = today's message, byte for byte (%lu bytes)\n",
+                   okToday ? "PASS" : "FAIL", (unsigned long)ser(GFLiveSetupMessage(sm, nil), 0).length);
+            NSDictionary *px = GFParseLiveSetupExtra(@"{\"inputAudioTranscription\":{\"languageCodes\":[\"en-US\"],\"customVocabulary\":[\"Siobhan\",\"Zyphra\"],\"mode\":\"SMART\"},"
+                                                     @"\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"languageCode\":\"en-US\"}},"
+                                                     @"\"realtimeInputConfig\":{\"automaticActivityDetection\":{\"startOfSpeechSensitivity\":\"START_SENSITIVITY_HIGH\"}}}");
+            NSDictionary *wantMerged = @{@"setup": @{
+                @"model": [NSString stringWithFormat:@"models/%@", sm],
+                @"generationConfig": @{@"responseModalities": @[@"AUDIO"], @"speechConfig": @{@"languageCode": @"en-US"}},
+                @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES, @"startOfSpeechSensitivity": @"START_SENSITIVITY_HIGH"}},
+                @"inputAudioTranscription": @{@"languageCodes": @[@"en-US"], @"customVocabulary": @[@"Siobhan", @"Zyphra"], @"mode": @"SMART"}}};
+            NSDictionary *merged = GFLiveSetupMessage(sm, px);
+            BOOL okMerge = px != nil && [merged isEqual:wantMerged] && [NSJSONSerialization isValidJSONObject:merged]
+                           && [GFParseLiveSetupExtra([[NSString alloc] initWithData:ser(merged, 0) encoding:NSUTF8StringEncoding]) isEqual:wantMerged]
+                           && [GFLiveSetupMessage(sm, nil) isEqual:todaySetup]; // the base is not mutated by a merge
+            if (okMerge) passed++; else failed++;
+            printf("%s: Live setup probe extra is deep-merged into setup (nested dictionaries merge, arrays are replaced, new keys added)\n",
+                   okMerge ? "PASS" : "FAIL");
+            NSDictionary *pn = GFParseLiveSetupExtra(@"{\"realtimeInputConfig\":null,\"model\":\"models/other\","
+                                                     @"\"generationConfig\":{\"responseModalities\":null,\"x\":{\"y\":null,\"z\":1}},\"absent\":null}");
+            NSDictionary *wantNull = @{@"setup": @{@"model": @"models/other", @"generationConfig": @{@"x": @{@"z": @1}}}};
+            BOOL okNull = pn != nil && [GFLiveSetupMessage(sm, pn) isEqual:wantNull]
+                          && [GFJSONDeepMerge(@{@"a": @"text"}, @{@"a": @{@"b": @2}}) isEqual:@{@"a": @{@"b": @2}}]
+                          && [GFJSONDeepMerge(@{@"a": @{@"b": @2}}, @{@"a": @"text"}) isEqual:@{@"a": @"text"}];
+            if (okNull) passed++; else failed++;
+            printf("%s: Live setup probe extra: null removes a key, scalars and objects replace each other\n", okNull ? "PASS" : "FAIL");
+            BOOL okParse = [GFParseLiveSetupExtra(@"{}") isEqual:@{}] && [GFParseLiveSetupExtra(@"{\"a\":{\"b\":[1,2]}}") isEqual:@{@"a": @{@"b": @[@1, @2]}}]
+                           && GFParseLiveSetupExtra(@"[1,2]") == nil && GFParseLiveSetupExtra(@"\"text\"") == nil && GFParseLiveSetupExtra(@"{not json") == nil
+                           && GFParseLiveSetupExtra(@"") == nil && GFParseLiveSetupExtra(nil) == nil;
+            if (okParse) passed++; else failed++;
+            printf("%s: --e2e-live-setup-extra accepts only a JSON object\n", okParse ? "PASS" : "FAIL");
+            // The hook is honoured only in e2e mode: outside it the app sends today's message whatever the property holds
+            AppDelegate *pd = [[AppDelegate alloc] init];
+            pd.unitTestMode = YES;
+            pd.e2eLiveSetupExtra = px;
+            BOOL okGuardOff = [pd liveSetupProbeExtra] == nil && [GFLiveSetupMessage(sm, [pd liveSetupProbeExtra]) isEqual:todaySetup]
+                              && [ser(GFLiveSetupMessage(sm, [pd liveSetupProbeExtra]), 0) isEqualToData:ser(todaySetup, 0)];
+            [pd handleLiveMessage:@{@"voiceActivity": @{@"type": @"ACTIVITY_START"}} session:0]; // no probe state outside e2e mode
+            okGuardOff = okGuardOff && pd.e2eLiveSeenFields == nil;
+            pd.e2eMode = @"file";
+            BOOL okGuardOn = [pd liveSetupProbeExtra] == px && [GFLiveSetupMessage(sm, [pd liveSetupProbeExtra]) isEqual:wantMerged];
+            pd.e2eLiveSetupExtra = nil;
+            okGuardOn = okGuardOn && [pd liveSetupProbeExtra] == nil; // e2e mode without the flag: nothing either
+            if (okGuardOff && okGuardOn) passed++; else failed++;
+            printf("%s: the setup probe extra is ignored outside e2e mode (and absent in e2e mode without the flag)\n",
+                   okGuardOff && okGuardOn ? "PASS" : "FAIL");
+            // Probe log lines: fixed shapes (parsed by run_tests.py), names and numbers only
+            pd.e2eLiveSeenFields = [NSMutableSet set];
+            [pd e2eNoteLiveProbeMessage:@{@"serverContent": @{@"inputTranscription": @{@"text": @"secret words", @"extra": @{@"deep": @"x"}}}}];
+            [pd e2eNoteLiveProbeMessage:@{@"serverContent": @{@"generationComplete": @YES}, @"usageMetadata": @{}}];
+            NSString *fieldsLine = GFLiveProbeFieldsLine(pd.e2eLiveSeenFields);
+            BOOL okLines = [fieldsLine isEqualToString:@"E2E: Live setup probe: server message fields seen: [serverContent.generationComplete, "
+                                                       @"serverContent.inputTranscription.extra, serverContent.inputTranscription.text, usageMetadata]"]
+                && [GFLiveProbeSetupLine(1, @{}, 150, NO) isEqualToString:@"E2E: Live setup probe: session 1 sends the setup with 0 extra field(s) [] (150 bytes, key via header)"]
+                && [GFLiveProbeSetupLine(2, px, 400, YES) isEqualToString:@"E2E: Live setup probe: session 2 sends the setup with 6 extra field(s) "
+                    @"[setup.generationConfig.responseModalities, setup.generationConfig.speechConfig.languageCode, setup.inputAudioTranscription.customVocabulary, "
+                    @"setup.inputAudioTranscription.languageCodes, setup.inputAudioTranscription.mode, "
+                    @"setup.realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity] (400 bytes, key via URL)"]
+                && [GFLiveProbeSetupCompleteLine(1, YES, 183.4) isEqualToString:@"E2E: Live setup probe: setupComplete=1 (session 1, key via header, 183 ms after the setup was sent)"]
+                && [GFLiveProbeCloseLine(NO, 1, YES, 0, 1007, @"Unknown name \"mode\"\nat 'setup'", NSPOSIXErrorDomain, 57)
+                    isEqualToString:@"E2E: Live setup probe: socket closed before setupComplete (setupComplete=0, session 1, key via header, HTTP 0, close code 1007, "
+                                    @"error NSPOSIXErrorDomain 57) close reason \"Unknown name 'mode' at 'setup'\""]
+                && [GFLiveProbeCloseLine(YES, 3, NO, 101, 1011, nil, nil, 0)
+                    isEqualToString:@"E2E: Live setup probe: socket closed after setupComplete (setupComplete=1, session 3, key via URL, HTTP 101, close code 1011, "
+                                    @"error none 0) close reason \"\""]
+                && [GFLiveProbeErrorFrameLine(@{@"error": @{@"code": @400, @"status": @"INVALID_ARGUMENT", @"message": @"Bad \"mode\"."}}, NO)
+                    isEqualToString:@"E2E: Live setup probe: server error frame (setupComplete=0, code 400, status INVALID_ARGUMENT) message \"Bad 'mode'.\""]
+                && [GFLiveProbeErrorFrameLine(@{@"error": @"boom"}, YES)
+                    isEqualToString:@"E2E: Live setup probe: server error frame (setupComplete=1, code 0, status none) message \"boom\""]
+                && GFLiveProbeErrorFrameLine(@{@"serverContent": @{@"error": @"not top level"}}, YES) == nil
+                && [fieldsLine rangeOfString:@"secret"].location == NSNotFound
+                && GFLiveProbeClean([@"" stringByPaddingToLength:500 withString:@"r" startingAtIndex:0], 400).length == 403;
+            if (okLines) passed++; else failed++;
+            printf("%s: setup probe log lines: setup fields, setupComplete, close before/after setupComplete, error frame, server field names (no values)\n",
+                   okLines ? "PASS" : "FAIL");
+            // In a probe run a socket failure takes the same decisions as always (the probe only adds its log line): an offline
+            // failure before setupComplete fails the Live session, with no key-in-URL retry and no reconnect.
+            NSURLSession *us5 = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration]];
+            AppDelegate *c5 = [[AppDelegate alloc] init];
+            c5.unitTestMode = YES; c5.e2eMode = @"file"; c5.e2eLiveSetupExtra = px;
+            c5.isRecording = YES; c5.liveSessionId = 7; c5.liveAuthViaHeader = YES;
+            c5.liveWebSocketTask = [us5 webSocketTaskWithRequest:GFLiveWebSocketRequest(k, NO)];
+            c5.e2eLiveSeenFields = [NSMutableSet setWithObject:@"setupComplete"];
+            [c5 liveConnectionLost:@"receive: offline" session:7 task:c5.liveWebSocketTask
+                             error:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNotConnectedToInternet userInfo:nil]];
+            BOOL okC5 = c5.liveFailed && !c5.liveNextConnectKeyInURL && c5.liveSessionId == 7 && c5.liveReconnects == 0
+                        && c5.liveWebSocketTask == nil && c5.e2eLiveSeenFields == nil;
+            [us5 invalidateAndCancel];
+            if (okC5) passed++; else failed++;
+            printf("%s: a socket failure in a setup probe run falls back exactly as a normal one (probe adds log lines only)\n", okC5 ? "PASS" : "FAIL");
         }
         // Changelog data & filter invariants (Foundation-only; also runs in GFEngine --test on iOS)
         {
@@ -8254,6 +8975,31 @@ int main(int argc, const char * argv[]) {
                        [[rq[i] valueForHTTPHeaderField:@"x-goog-api-key"] isEqualToString:dk] ? "set" : "missing");
             return 0;
         }
+        if (argc > 1 && strcmp(argv[1], "--dump-live-probe-lines") == 0) {
+            // Test hook (offline, backlog 0y-probe): sample "Live setup probe" log lines from the real formatters, so the test
+            // runner's parser is checked against the app's exact wording without a network (run_tests.py: T28 selection).
+            NSDictionary *ex = GFParseLiveSetupExtra(@"{\"inputAudioTranscription\":{\"languageCodes\":[\"en-US\"],\"customVocabulary\":[\"Siobhan\"]},"
+                                                     @"\"generationConfig\":{\"speechConfig\":{}}}");
+            NSString *setupStr = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:GFLiveSetupMessage(kDefaultLiveModel, ex)
+                                                                                                options:0 error:nil] encoding:NSUTF8StringEncoding];
+            NSMutableSet<NSString *> *seen = [NSMutableSet set];
+            GFJSONCollectKeyPaths(@{@"setupComplete": @{}}, @"", 3, seen);
+            GFJSONCollectKeyPaths(@{@"serverContent": @{@"inputTranscription": @{@"text": @"never shown"}}}, @"", 3, seen);
+            GFJSONCollectKeyPaths(@{@"serverContent": @{@"generationComplete": @YES}}, @"", 3, seen);
+            NSArray<NSString *> *lines = @[
+                GFLiveProbeSetupLine(1, @{}, 150, NO),
+                GFLiveProbeSetupLine(2, ex, setupStr.length, YES),
+                GFLiveProbeSetupCompleteLine(1, YES, 183.4),
+                GFLiveProbeCloseLine(NO, 1, YES, 0, 1007, @"Invalid JSON payload received. Unknown name \"customVocabulary\" at 'setup.input_audio_transcription': Cannot find field.",
+                                     NSPOSIXErrorDomain, 57),
+                GFLiveProbeCloseLine(NO, 2, NO, 400, 0, nil, NSURLErrorDomain, NSURLErrorBadServerResponse),
+                GFLiveProbeCloseLine(YES, 3, YES, 101, 1011, @"Internal error\nencountered.", nil, 0),
+                GFLiveProbeErrorFrameLine(@{@"error": @{@"code": @400, @"status": @"INVALID_ARGUMENT", @"message": @"Unsupported \"mode\" value."}}, NO),
+                GFLiveProbeFieldsLine(seen)];
+            for (NSString *l in lines) printf("%s\n", l.UTF8String);
+            printf("E2E LIVE RAW: \"%s\"\n", "sample raw text");
+            return 0;
+        }
         if (argc > 2 && strcmp(argv[1], "--replay") == 0) {
             return [delegate runReplayOfTrace:@(argv[2]) expected:(argc > 3 ? @(argv[3]) : nil)];
         }
@@ -8311,6 +9057,16 @@ int main(int argc, const char * argv[]) {
                 // optional, test-only (backlog 0p): every Live session is closed at <seconds> of session age, see e2eMaybeSimulateLifetimeClose
                 if (strcmp(argv[i], "--e2e-live-lifetime") == 0 && i + 1 < argc) {
                     delegate.e2eLiveLifetime = atof(argv[i + 1]);
+                    i += 1;
+                    continue;
+                }
+                // optional, test-only (backlog 0y-probe): a JSON object deep-merged into the Live `setup` object, see GFLiveSetupMessage
+                if (strcmp(argv[i], "--e2e-live-setup-extra") == 0 && i + 1 < argc) {
+                    delegate.e2eLiveSetupExtra = GFParseLiveSetupExtra(@(argv[i + 1]));
+                    if (!delegate.e2eLiveSetupExtra) {
+                        printf("E2E: --e2e-live-setup-extra needs a JSON object, e.g. '{\"inputAudioTranscription\":{}}'\n");
+                        return 2;
+                    }
                     i += 1;
                     continue;
                 }
