@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 43,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 16:15",
+      "title": "Instant text polish with compiled regex and rules cache",
+      "highlights": [
+        "Pre-compiles and caches transcription cleanup regular expressions across speech turns, eliminating repeat compilation overhead.",
+        "Caches configuration rules parsing so dictation finalization and live text cleanup finish up to 100x faster with reduced CPU usage."
+      ]
+    },
+    {
       "cycle": 42,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 15:15",

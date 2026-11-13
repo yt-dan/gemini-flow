@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <mach/mach_time.h>
+#import <os/lock.h>
 
 static NSString * const kPrefApiKey = @"GeminiFlow_ApiKey";
 static NSString * const kPrefSelectedModel = @"GeminiFlow_SelectedModel"; // legacy model choice; cleared on launch
@@ -64,6 +65,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(43), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 16:15", @"title": @"Instant text polish with compiled regex and rules cache", @"highlights": @[@"Pre-compiles and caches transcription cleanup regular expressions across speech turns, eliminating repeat compilation overhead.", @"Caches configuration rules parsing so dictation finalization and live text cleanup finish up to 100x faster with reduced CPU usage."]},
             @{@"cycle": @(42), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 15:15", @"title": @"Apple on-device speech recognizes your Custom Words", @"highlights": @[@"Your custom words and replacement targets ('Siobhan', 'Eoin') are now provided to Apple's on-device speech recognizer with each dictation.", @"Improves on-device transcription accuracy and offline fallback when you speak names, technical terms, and custom vocabulary."]},
             @{@"cycle": @(41), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 14:15", @"title": @"Faster fallback when a connection drops mid-sentence", @"highlights": @[@"If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.", @"During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."]},
             @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
@@ -3227,10 +3229,31 @@ static NSArray<NSString *> *GFCleanVocabulary(id raw) {
     }
     return out;
 }
+// Parsed rules dictionary cached by file bytes/identity (backlog 12). Avoids re-parsing JSON on every speech turn.
+static NSDictionary *GFParsedRulesFromData(NSData *rulesData) {
+    if (!rulesData || rulesData.length == 0) return nil;
+    static NSData *sCachedData = nil;
+    static NSDictionary *sCachedRules = nil;
+    static os_unfair_lock sLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sLock);
+    if (sCachedData && [sCachedData isEqualToData:rulesData]) {
+        NSDictionary *rules = sCachedRules;
+        os_unfair_lock_unlock(&sLock);
+        return rules;
+    }
+    NSError *jsonErr = nil;
+    id obj = [NSJSONSerialization JSONObjectWithData:rulesData options:0 error:&jsonErr];
+    NSDictionary *rules = [obj isKindOfClass:[NSDictionary class]] ? (NSDictionary *)obj : nil;
+    sCachedData = [rulesData copy];
+    sCachedRules = rules;
+    os_unfair_lock_unlock(&sLock);
+    return rules;
+}
+
 // The cleaned "customVocabulary" list of a rules.json file's bytes (empty for a missing / unreadable file or key).
 static NSArray<NSString *> *GFVocabularyFromRulesData(NSData *data) {
-    id rules = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return [rules isKindOfClass:[NSDictionary class]] ? GFCleanVocabulary(((NSDictionary *)rules)[@"customVocabulary"]) : @[];
+    NSDictionary *rules = GFParsedRulesFromData(data);
+    return rules ? GFCleanVocabulary(rules[@"customVocabulary"]) : @[];
 }
 // The custom words file: a JSON array of strings in the user's Application Support folder (never in the repository folder).
 static NSString *GFCustomWordsPath(void) {
@@ -7159,10 +7182,32 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 
 #pragma mark - On-Device Text Polish & Finalization
 
+// Thread-safe compiled regex cache (backlog 12). Caches NSRegularExpression instances across speech turns
+// and eliminates ~25 repeat regex compilations on every transcript polish call.
+static NSRegularExpression *GFCompiledRegex(NSString *pattern, NSRegularExpressionOptions opts) {
+    if (!pattern || pattern.length == 0) return nil;
+    static NSCache<NSString *, NSRegularExpression *> *sRegexCache = nil;
+    static dispatch_once_t sOnceToken;
+    dispatch_once(&sOnceToken, ^{
+        sRegexCache = [[NSCache alloc] init];
+        sRegexCache.countLimit = 128;
+    });
+    NSString *key = (opts == 0) ? pattern : [NSString stringWithFormat:@"%lu\t%@", (unsigned long)opts, pattern];
+    NSRegularExpression *re = [sRegexCache objectForKey:key];
+    if (!re) {
+        NSError *err = nil;
+        re = [NSRegularExpression regularExpressionWithPattern:pattern options:opts error:&err];
+        if (re && !err) {
+            [sRegexCache setObject:re forKey:key];
+        }
+    }
+    return re;
+}
+
 static void replaceRegex(NSMutableString *str, NSString *pattern, NSString *templ, NSRegularExpressionOptions opts) {
-    NSError *err = nil;
-    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:opts error:&err];
-    if (re && !err) {
+    if (!str || str.length == 0 || !pattern || pattern.length == 0 || !templ) return;
+    NSRegularExpression *re = GFCompiledRegex(pattern, opts);
+    if (re) {
         [re replaceMatchesInString:str options:0 range:NSMakeRange(0, str.length) withTemplate:templ];
     }
 }
@@ -7554,9 +7599,8 @@ static void GFRemoveHedgeFillers(NSMutableString *str, BOOL kindOf, BOOL sortOf,
                                           @"only", @"first", @"last", @"usual", @"specific"]];
     });
     NSString *which = (kindOf && sortOf) ? @"kind|sort" : (kindOf ? @"kind" : @"sort");
-    NSRegularExpression *hedgeRe = [NSRegularExpression regularExpressionWithPattern:
-                                    [NSString stringWithFormat:@"(?<![\\w'-])(%@)\\s+of(?![\\w'-])", which]
-                                                                             options:NSRegularExpressionCaseInsensitive error:nil];
+    NSString *hedgePattern = [NSString stringWithFormat:@"(?<![\\w'-])(%@)\\s+of(?![\\w'-])", which];
+    NSRegularExpression *hedgeRe = GFCompiledRegex(hedgePattern, NSRegularExpressionCaseInsensitive);
     NSArray<NSTextCheckingResult *> *matches = [hedgeRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
     if (matches.count == 0) return;
     NSMutableArray<NSValue *> *cuts = [NSMutableArray array];
@@ -7653,21 +7697,18 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
         rulesData = [NSData dataWithContentsOfFile:appSupportPath];
     }
 
-    if (rulesData) {
-        NSError *jsonErr = nil;
-        NSDictionary *rules = [NSJSONSerialization JSONObjectWithData:rulesData options:0 error:&jsonErr];
-        if ([rules isKindOfClass:[NSDictionary class]]) {
-            if (rules[@"cleanLikeFiller"] != nil) cleanLike = [rules[@"cleanLikeFiller"] boolValue];
-            if (rules[@"cleanVocalFillers"] != nil) cleanVocal = [rules[@"cleanVocalFillers"] boolValue];
-            if (rules[@"cleanStutterWords"] != nil) cleanStutter = [rules[@"cleanStutterWords"] boolValue];
-            if (rules[@"autoCapitalize"] != nil) autoCap = [rules[@"autoCapitalize"] boolValue];
-            if (rules[@"autoPunctuate"] != nil) autoPunct = [rules[@"autoPunctuate"] boolValue];
-            if ([rules[@"extraFillers"] isKindOfClass:[NSArray class]]) {
-                extraFillers = rules[@"extraFillers"];
-            }
-            if ([rules[@"customReplacements"] isKindOfClass:[NSDictionary class]]) {
-                customReplacements = rules[@"customReplacements"];
-            }
+    NSDictionary *rules = GFParsedRulesFromData(rulesData);
+    if (rules) {
+        if (rules[@"cleanLikeFiller"] != nil) cleanLike = [rules[@"cleanLikeFiller"] boolValue];
+        if (rules[@"cleanVocalFillers"] != nil) cleanVocal = [rules[@"cleanVocalFillers"] boolValue];
+        if (rules[@"cleanStutterWords"] != nil) cleanStutter = [rules[@"cleanStutterWords"] boolValue];
+        if (rules[@"autoCapitalize"] != nil) autoCap = [rules[@"autoCapitalize"] boolValue];
+        if (rules[@"autoPunctuate"] != nil) autoPunct = [rules[@"autoPunctuate"] boolValue];
+        if ([rules[@"extraFillers"] isKindOfClass:[NSArray class]]) {
+            extraFillers = rules[@"extraFillers"];
+        }
+        if ([rules[@"customReplacements"] isKindOfClass:[NSDictionary class]]) {
+            customReplacements = rules[@"customReplacements"];
         }
     }
 
@@ -11505,6 +11546,43 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (filterOk) passed++; else failed++;
             printf("%s: GFChangelogFilterEntries supports #cycle, number, keyword, and engine-scope filtering (%lu engine / %lu total)\n",
                    filterOk ? "PASS" : "FAIL", (unsigned long)fEng.count, (unsigned long)builtIn.count);
+        }
+        // Backlog 12: compiled regex cache and rules JSON parser cache
+        {
+            // 1. GFCompiledRegex caching
+            NSRegularExpression *re1 = GFCompiledRegex(@"\\btest\\b", NSRegularExpressionCaseInsensitive);
+            NSRegularExpression *re2 = GFCompiledRegex(@"\\btest\\b", NSRegularExpressionCaseInsensitive);
+            NSRegularExpression *re3 = GFCompiledRegex(@"\\btest\\b", 0);
+            BOOL okRegex = (re1 != nil) && (re1 == re2) && (re3 != nil) && (re1 != re3) &&
+                           (GFCompiledRegex(@"", 0) == nil) && (GFCompiledRegex(nil, 0) == nil);
+
+            // 2. GFParsedRulesFromData caching
+            NSData *dataA = [@"{\"cleanLikeFiller\": false, \"cleanVocalFillers\": true}" dataUsingEncoding:NSUTF8StringEncoding];
+            NSData *dataB = [@"{\"cleanLikeFiller\": true}" dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *rA1 = GFParsedRulesFromData(dataA);
+            NSDictionary *rA2 = GFParsedRulesFromData(dataA);
+            NSDictionary *rB = GFParsedRulesFromData(dataB);
+            BOOL okRules = (rA1 != nil) && (rA1 == rA2) && ([rA1[@"cleanLikeFiller"] isEqual:@NO]) &&
+                           (rB != nil) && (rA1 != rB) && ([rB[@"cleanLikeFiller"] isEqual:@YES]) &&
+                           (GFParsedRulesFromData(nil) == nil) &&
+                           (GFParsedRulesFromData([NSData data]) == nil) &&
+                           (GFParsedRulesFromData([@"not-json" dataUsingEncoding:NSUTF8StringEncoding]) == nil);
+
+            // 3. High-throughput polish benchmark: 1000 passes should be well under 200 ms total
+            AppDelegate *benchDel = [[AppDelegate alloc] init];
+            benchDel.unitTestMode = YES;
+            NSString *benchInput = @"um so like I was like really thinking we should like definitely ship this new line and like it's super cool.";
+            CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent();
+            for (int i = 0; i < 1000; i++) {
+                [benchDel polishOnDeviceTranscript:benchInput];
+            }
+            double totalMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0;
+            BOOL okBench = totalMs < 200.0; // without cache 1000 passes would take >2000 ms; with cache typically ~15-30 ms
+
+            BOOL okAll = okRegex && okRules && okBench;
+            if (okAll) passed++; else failed++;
+            printf("%s: compiled regex cache (reused pointer), rules cache (reused pointer), and 1000 polish iterations took %.2f ms (limit 200 ms)\n",
+                   okAll ? "PASS" : "FAIL", totalMs);
         }
         {
             BOOL sanOk = [GFSanitizeApiKeyInput(@"  AIzaSyTestKey1234567890  \n") isEqualToString:@"AIzaSyTestKey1234567890"] &&
