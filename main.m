@@ -460,6 +460,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) BOOL e2eRestFaultOnce;   // test hook (e2e only): first REST attempt fails with a fast HTTP 503
 @property (nonatomic, assign) double e2eRestFaultDelay; // test hook (e2e only): seconds before that injected 503 arrives (0 = 0.15 s)
 @property (nonatomic, assign) double e2eRestFakeOkDelay; // test hook (e2e only): first REST call answers a canned HTTP 200 after s (no network)
+@property (nonatomic, copy) NSString *e2eRestFakeText;    // test hook (e2e only): overrides canned REST text for --e2e-rest-fake-ok
 @property (nonatomic, assign) double e2eRestDelay;       // test hook (e2e only): first real REST call is held s before it is sent
 @property (nonatomic, assign) BOOL e2eLiveDropOutput;  // test hook (e2e only): ignore Live serverContent (final turn closes empty)
 @property (nonatomic, assign) NSTimeInterval e2ePressTime;
@@ -827,9 +828,38 @@ static BOOL GFNoLoudSpeech(double peakRMS, double evidenceSeconds) {
 // (quiet_long, -26 dB). Decided on numbers only; nothing about the text is logged.
 static const double kRestCharsBase = 10.0;
 static const double kRestCharsPerSpeechSecond = 40.0;
-typedef NS_ENUM(NSInteger, GFRestPlausibility) { GFRestPlausible = 0, GFRestImplausibleTimestamp, GFRestImplausibleLength };
+static const NSUInteger kRestPlausibilityMaxNoiseOnDeviceChars = 4; // room noise can coax 1-3 stray chars out of SFSpeechRecognizer
+typedef NS_ENUM(NSInteger, GFRestPlausibility) {
+    GFRestPlausible = 0, GFRestImplausibleTimestamp, GFRestImplausibleLength, GFRestImplausiblePromptEcho
+};
 static BOOL GFRestPlausibilityNetApplies(NSUInteger liveSegments, BOOL onDeviceSaidNoSpeech, NSUInteger onDeviceChars) {
     return liveSegments == 0 && onDeviceSaidNoSpeech && onDeviceChars == 0;
+}
+// Also check plausibility when the audio has no loud speech and on-device heard at most a tiny noise blip (<= 4 chars), even if
+// on-device didn't report 1110 (seen 2026-11-12 21:39: max RMS 118, evidence 0.00 s, ondevice_chars 2 -> REST echoed the prompt).
+static BOOL GFRestShouldCheckPlausibility(NSUInteger liveSegments, BOOL onDeviceSaidNoSpeech, NSUInteger onDeviceChars, BOOL noLoudSpeech) {
+    if (liveSegments > 0) return NO;
+    if (GFRestPlausibilityNetApplies(liveSegments, onDeviceSaidNoSpeech, onDeviceChars)) return YES;
+    return noLoudSpeech && onDeviceChars <= kRestPlausibilityMaxNoiseOnDeviceChars;
+}
+// Rejects REST echoing our own prompt ("Transcribe and clean up this audio dictation." / "...this text." / system prompt text)
+// when neither Live nor on-device corroborated the word "transcribe".
+static BOOL GFRestIsPromptEcho(NSString *text) {
+    if (text.length == 0) return NO;
+    NSString *norm = [[text lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    norm = [norm stringByTrimmingCharactersInSet:[NSCharacterSet punctuationCharacterSet]];
+    while ([norm containsString:@"  "]) norm = [norm stringByReplacingOccurrencesOfString:@"  " withString:@" "];
+    if ([norm hasPrefix:@"transcribe and clean up this"]) return YES;
+    if ([norm isEqualToString:@"transcribe this audio dictation"] || [norm isEqualToString:@"transcribe audio dictation"]) return YES;
+    if ([norm hasPrefix:@"you are a voice dictation and transcription engine"]) return YES;
+    if ([norm containsString:@"output only the clean, punctuated transcript"]
+        || [norm containsString:@"output only the final text with no commentary"]) return YES;
+    return NO;
+}
+static BOOL GFRestEchoRejected(NSString *restText, NSUInteger liveSegments, NSString *onDeviceText) {
+    if (liveSegments > 0 || !GFRestIsPromptEcho(restText)) return NO;
+    if (onDeviceText.length > 0 && [[onDeviceText lowercaseString] containsString:@"transcribe"]) return NO;
+    return YES;
 }
 static NSUInteger GFRestCharBudget(BOOL noLoudSpeech, double evidenceSeconds, double loudSeconds) {
     double speech = noLoudSpeech ? 0.0 : MAX(0.0, MAX(evidenceSeconds, loudSeconds));
@@ -847,8 +877,10 @@ static GFRestPlausibility GFRestOutputPlausibility(NSString *text, NSUInteger ch
     return GFRestPlausible;
 }
 static const char *GFRestPlausibilityName(GFRestPlausibility p) {
-    return p == GFRestPlausible ? "kept" : (p == GFRestImplausibleTimestamp ? "rejected (zero-timestamp prefix), no speech"
-                                                                             : "rejected (too long for the audio), no speech");
+    if (p == GFRestPlausible) return "kept";
+    if (p == GFRestImplausibleTimestamp) return "rejected (zero-timestamp prefix), no speech";
+    if (p == GFRestImplausiblePromptEcho) return "rejected (prompt echo), no speech";
+    return "rejected (too long for the audio), no speech";
 }
 // Backlog 27 (MEASUREMENT ONLY, since cycle 25): the release waits a fixed 120 ms cushion after Fn up before it stops the press.
 // To size it from real data, each release logs (numbers only, never text) how far past Fn up the captured audio reaches at the
@@ -3625,31 +3657,43 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     if (!self.pasteInFlight) [self setClipboardText:text];
 }
 
-// Backlog 0u (4): REST's output for a press where Live produced no text and on-device explicitly heard nothing must fit the audio
-// (GFRestOutputPlausibility). Main thread. Logs numbers only, never the text.
+// Backlog 0u (4) + prompt-echo fix (2026-11-12): reject REST prompt echoes when Live was empty and on-device didn't hear
+// "transcribe", and check timestamp/char-budget plausibility whenever on-device heard nothing OR the audio had no loud speech
+// with at most a tiny on-device noise blip (<= 4 chars). Main thread. Logs numbers only, never text.
 - (BOOL)restOutputPlausible:(NSString *)text dictation:(GFDictation *)d {
     NSUInteger segs, odChars;
     BOOL odNoSpeech;
+    NSString *odText;
     if (d.superseded) {
         segs = d.liveHadTextAtSupersede ? 1 : 0;
         odNoSpeech = d.onDeviceNoSpeechAtSupersede;
-        odChars = [d.onDeviceText ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length;
+        odText = [d.onDeviceText ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     } else {
         segs = self.liveSegments.count;
         odNoSpeech = self.onDeviceReportedNoSpeech;
-        odChars = [self.latestOnDeviceTranscript ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length;
+        odText = [self.latestOnDeviceTranscript ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     }
-    if (!GFRestPlausibilityNetApplies(segs, odNoSpeech, odChars)) return YES;
+    odChars = odText.length;
+    if (GFRestEchoRejected(text, segs, odText)) {
+        if (!self.unitTestMode) {
+            GFLog(@"REST plausibility (dictation #%lu): Live no text, ondevice_chars=%lu; %lu chars -> %s",
+                  (unsigned long)d.serial, (unsigned long)odChars, (unsigned long)text.length,
+                  GFRestPlausibilityName(GFRestImplausiblePromptEcho));
+        }
+        return NO;
+    }
+    if (segs > 0) return YES;
     NSData *pcm = [self pcmForDictation:d];
     GFSpeechEvidence ev = GFMeasureSpeechEvidence((const int16_t *)pcm.bytes, pcm.length / 2);
     BOOL noLoud = GFNoLoudSpeech(ev.peakRMS, ev.evidenceSeconds);
+    if (!GFRestShouldCheckPlausibility(segs, odNoSpeech, odChars, noLoud)) return YES;
     NSUInteger budget = GFRestCharBudget(noLoud, ev.evidenceSeconds, ev.loudSeconds);
     GFRestPlausibility verdict = GFRestOutputPlausibility(text, budget);
     if (!self.unitTestMode) {
-        GFLog(@"REST plausibility (dictation #%lu): Live no text, on-device no speech; %lu chars vs limit %lu (max RMS %.0f, "
-              @"evidence %.2fs, loud %.2fs, no_loud_speech=%d, %.2fs audio) -> %s", (unsigned long)d.serial, (unsigned long)text.length,
-              (unsigned long)budget, ev.peakRMS, ev.evidenceSeconds, ev.loudSeconds, noLoud, pcm.length / 32000.0,
-              GFRestPlausibilityName(verdict));
+        GFLog(@"REST plausibility (dictation #%lu): Live no text, ondevice_no_speech=%d, ondevice_chars=%lu; %lu chars vs limit %lu "
+              @"(max RMS %.0f, evidence %.2fs, loud %.2fs, no_loud_speech=%d, %.2fs audio) -> %s", (unsigned long)d.serial,
+              odNoSpeech, (unsigned long)odChars, (unsigned long)text.length, (unsigned long)budget, ev.peakRMS, ev.evidenceSeconds,
+              ev.loudSeconds, noLoud, pcm.length / 32000.0, GFRestPlausibilityName(verdict));
     }
     return verdict == GFRestPlausible;
 }
@@ -3707,7 +3751,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
         body = @{@"contents": @[@{@"parts": @[audioPart]}],
                  @"generationConfig": @{@"temperature": @(0.0), @"maxOutputTokens": @(kRestMaxOutputTokens)}};
     } else {
-        NSString *systemPrompt = @"You are a voice dictation and transcription engine. Output ONLY the clean, punctuated transcript of what the user dictated. Remove filler words (um, uh, like, you know) while preserving legitimate words and comparisons. Fix punctuation, capitalization, and resolve spoken self-corrections (for example, 'meet at 2 wait no 3pm' becomes 'meet at 3:00 PM'). Do not add line breaks, greetings formatting, or anything the user did not say. Output only the final text with no commentary or quotes.";
+        NSString *systemPrompt = @"You are a voice dictation and transcription engine. Output ONLY the clean, punctuated transcript of what the user dictated. Remove filler words (um, uh, like, you know) while preserving legitimate words and comparisons. Fix punctuation, capitalization, and resolve spoken self-corrections (for example, 'meet at 2 wait no 3pm' becomes 'meet at 3:00 PM'). Do not add line breaks, greetings formatting, or anything the user did not say. If the audio contains only silence or background noise with no intelligible speech, output an empty string (never repeat instructions). Output only the final text with no commentary or quotes.";
         NSMutableDictionary *genConfig = [@{@"temperature": @(0.0), @"maxOutputTokens": @(kRestMaxOutputTokens)} mutableCopy];
         if ([model containsString:@"3.8"]) {
             genConfig[@"thinkingConfig"] = @{@"thinkingLevel": @"LOW"};
@@ -3791,6 +3835,18 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
                 }
                 [weakSelf applyFinalTranscript:[weakSelf polishOnDeviceTranscript:cleaned] dictation:dictation];
             } else {
+                if (!dictation.earlyText && [weakSelf restOutputPlausible:@"." dictation:dictation]) {
+                    // Note: empty REST output on no-loud-speech audio with <= 4 on-device noise chars shouldn't paste a stray noise syllable.
+                    NSData *epcm = [weakSelf pcmForDictation:dictation];
+                    GFSpeechEvidence eev = GFMeasureSpeechEvidence((const int16_t *)epcm.bytes, epcm.length / 2);
+                    NSUInteger segs = dictation.superseded ? (dictation.liveHadTextAtSupersede ? 1 : 0) : weakSelf.liveSegments.count;
+                    NSString *odt = dictation.superseded ? dictation.onDeviceText : weakSelf.latestOnDeviceTranscript;
+                    NSUInteger odc = [odt ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length;
+                    if (segs == 0 && GFNoLoudSpeech(eev.peakRMS, eev.evidenceSeconds) && odc <= kRestPlausibilityMaxNoiseOnDeviceChars) {
+                        [weakSelf showNoSpeechDetectedForDictation:dictation];
+                        return;
+                    }
+                }
                 [weakSelf finishWithOnDeviceTranscriptForDictation:dictation];
             }
         });
@@ -3816,7 +3872,8 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
         // transcript after <s> seconds without touching the network, so a slow-but-successful REST can be tested offline.
         double fakeDelay = MIN(self.e2eRestFakeOkDelay, 30.0);
         GFLog(@"E2E: answering the first REST call with a canned transcript after %.2fs (no network)", fakeDelay);
-        NSDictionary *fakeBody = @{@"candidates": @[@{@"finishReason": @"STOP", @"content": @{@"parts": @[@{@"text": kGFE2ECannedRestText}]}}]};
+        NSString *fakeText = self.e2eRestFakeText ?: kGFE2ECannedRestText;
+        NSDictionary *fakeBody = @{@"candidates": @[@{@"finishReason": @"STOP", @"content": @{@"parts": @[@{@"text": fakeText}]}}]};
         NSData *fakeData = [NSJSONSerialization dataWithJSONObject:fakeBody options:0 error:nil];
         NSHTTPURLResponse *ok = [[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:@"https://generativelanguage.googleapis.com/"]
                                                             statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil];
@@ -4373,8 +4430,8 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
         [self applyFinalTranscript:[self polishOnDeviceTranscript:text] dictation:d];
         return;
     }
-    double loud = GFSecondsAboveRMS((const int16_t *)d.pcm.bytes, d.pcm.length / 2, kNoSpeechFrameRMS, NULL);
-    if (loud <= kNoSpeechMaxLoudSeconds) {
+    GFSpeechEvidence ev = GFMeasureSpeechEvidence((const int16_t *)d.pcm.bytes, d.pcm.length / 2);
+    if (ev.loudSeconds <= kNoSpeechMaxLoudSeconds || GFNoLoudSpeech(ev.peakRMS, ev.evidenceSeconds)) {
         [self showNoSpeechDetectedForDictation:d];
         return;
     }
@@ -5826,6 +5883,67 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
                 printf("%s: 0u REST plausibility, %s (limit %lu) = %s\n", ok ? "PASS" : "FAIL", rp[i].what,
                        (unsigned long)budget, GFRestPlausibilityName(got));
             }
+            // Prompt-echo + noisy-ondevice-blip regressions (2026-11-12 21:39: max RMS 118, evidence 0.00 s, ondevice_chars 2 -> prompt echoed)
+            struct { NSString *text; NSUInteger segs; NSString *od; BOOL wantReject; const char *what; } pe[] = {
+                {@"Transcribe and clean up this audio dictation.", 0, @"Uh", YES, "prompt echo with 2-char noise"},
+                {@"Transcribe and clean up this text.", 0, @"", YES, "prompt echo variant"},
+                {@"  transcribe and clean up this... ", 0, @"hello world", YES, "prompt echo even when on-device heard unrelated words"},
+                {@"Output only the clean, punctuated transcript of what the user dictated.", 0, @"", YES, "system prompt leak"},
+                {@"Transcribe and clean up this audio dictation.", 1, @"", NO, "Live already had segments (skipped)"},
+                {@"Transcribe and clean up this audio dictation.", 0, @"transcribe and clean up this audio", NO, "user genuinely spoke it"},
+                {@"Please clean up this document.", 0, @"", NO, "ordinary sentence with clean up"},
+                {@"Transcribe the meeting notes.", 0, @"", NO, "ordinary sentence starting with transcribe"},
+            };
+            for (size_t i = 0; i < sizeof(pe) / sizeof(pe[0]); i++) {
+                BOOL got = GFRestEchoRejected(pe[i].text, pe[i].segs, pe[i].od);
+                BOOL ok = got == pe[i].wantReject;
+                if (ok) passed++; else failed++;
+                printf("%s: prompt echo, %s = %s\n", ok ? "PASS" : "FAIL", pe[i].what, got ? "rejected" : "kept");
+            }
+            struct { NSUInteger segs; BOOL odNoSpeech; NSUInteger odChars; BOOL noLoud; BOOL want; const char *what; } sc[] = {
+                {0, NO,  2, YES, YES, "21:39 real log: no loud speech + 2-char on-device noise blip"},
+                {0, NO,  0, YES, YES, "no loud speech + on-device gave no verdict yet"},
+                {0, YES, 0, NO,  YES, "explicit on-device no speech + 0 chars"},
+                {0, NO,  5, YES, NO,  "no loud speech but 5+ on-device chars"},
+                {0, NO,  2, NO,  NO,  "loud speech present + 2 on-device chars"},
+                {1, NO,  0, YES, NO,  "Live had segments"},
+            };
+            for (size_t i = 0; i < sizeof(sc) / sizeof(sc[0]); i++) {
+                BOOL got = GFRestShouldCheckPlausibility(sc[i].segs, sc[i].odNoSpeech, sc[i].odChars, sc[i].noLoud);
+                BOOL ok = got == sc[i].want;
+                if (ok) passed++; else failed++;
+                printf("%s: REST plausibility gate, %s = %d\n", ok ? "PASS" : "FAIL", sc[i].what, got);
+            }
+            // End-to-end restOutputPlausible:dictation: on a fresh AppDelegate with quiet room noise (1.6 s, peak 118, evidence 0)
+            NSMutableData *room16 = [NSMutableData dataWithLength:(NSUInteger)(1.6 * 32000)];
+            int16_t *rs16 = (int16_t *)room16.mutableBytes;
+            for (NSUInteger i = 0; i < (NSUInteger)(1.6 * 16000); i++) rs16[i] = (int16_t)(160.0 * sin(i * 0.13)); // ~113 RMS
+            AppDelegate *(^makeRestCheck)(NSString *, BOOL, BOOL, NSData *) = ^AppDelegate *(NSString *odText, BOOL odNoSp, BOOL sup, NSData *pcmBuf) {
+                AppDelegate *d = [[AppDelegate alloc] init]; d.unitTestMode = YES;
+                d.recordedPCMData = [pcmBuf mutableCopy];
+                if (!sup) { d.latestOnDeviceTranscript = odText; d.onDeviceReportedNoSpeech = odNoSp; }
+                return d;
+            };
+            GFDictation *dActive = [[GFDictation alloc] init]; dActive.serial = 1;
+            AppDelegate *a1 = makeRestCheck(@"Uh", NO, NO, room16);
+            BOOL p1 = ![a1 restOutputPlausible:@"Transcribe and clean up this audio dictation." dictation:dActive];
+            BOOL p2 = ![a1 restOutputPlausible:@"Send the quarterly report to Sarah." dictation:dActive];
+            BOOL p3 = [a1 restOutputPlausible:@"Yes." dictation:dActive];
+            GFDictation *dSup = [[GFDictation alloc] init]; dSup.serial = 2; dSup.superseded = YES;
+            dSup.pcm = room16; dSup.onDeviceText = @"Uh"; dSup.onDeviceNoSpeechAtSupersede = NO;
+            AppDelegate *a2 = makeRestCheck(@"", NO, YES, [NSMutableData data]);
+            BOOL p4 = ![a2 restOutputPlausible:@"Transcribe and clean up this audio dictation." dictation:dSup];
+            NSMutableData *loud16 = [NSMutableData dataWithLength:(NSUInteger)(1.6 * 32000)];
+            int16_t *ls16 = (int16_t *)loud16.mutableBytes;
+            for (NSUInteger i = 0; i < (NSUInteger)(1.6 * 16000); i++) ls16[i] = (int16_t)(3000.0 * sin(i * 0.13));
+            AppDelegate *a3 = makeRestCheck(@"Hello world", NO, NO, loud16);
+            BOOL p5 = ![a3 restOutputPlausible:@"Transcribe and clean up this text." dictation:dActive];
+            AppDelegate *a4 = makeRestCheck(@"Transcribe and clean up this audio dictation", NO, NO, loud16);
+            BOOL p6 = [a4 restOutputPlausible:@"Transcribe and clean up this audio dictation." dictation:dActive];
+            BOOL rpAll = p1 && p2 && p3 && p4 && p5 && p6;
+            if (rpAll) passed++; else failed++;
+            printf("%s: restOutputPlausible integration (21:39 echo+noise, superseded, loud echo vs spoken) = %d/%d/%d/%d/%d/%d\n",
+                   rpAll ? "PASS" : "FAIL", p1, p2, p3, p4, p5, p6);
         }
         // HUD / menu-state transitions (no windows: hudPanel and statusItem stay nil in fresh delegates, so these exercise the
         // state logic only). Each case is one terminal path of a dictation.
@@ -6726,6 +6844,11 @@ int main(int argc, const char * argv[]) {
                 // optional, test-only: the first REST call answers HTTP 200 with a canned transcript after <seconds> (no network)
                 if (strcmp(argv[i], "--e2e-rest-fake-ok") == 0 && i + 1 < argc) {
                     delegate.e2eRestFakeOkDelay = atof(argv[i + 1]);
+                    i += 1;
+                    continue;
+                }
+                if (strcmp(argv[i], "--e2e-rest-fake-text") == 0 && i + 1 < argc) {
+                    delegate.e2eRestFakeText = [NSString stringWithUTF8String:argv[i + 1]];
                     i += 1;
                     continue;
                 }

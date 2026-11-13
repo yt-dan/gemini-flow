@@ -671,13 +671,15 @@ def main():
     gate("T15 bounded-wait/no-speech", ok, f"early={r['early']!r} not_used_logged={r['early_not_used']} -> {r['result']!r}"
          + ("" if ok else f"\n      tail: {r['tail']}"))
 
-    # T27 REST plausibility (backlog 0u): a silent quiet-room press on the REST engine, REST answering a canned sentence (test-only,
-    # no network). On-device hears nothing and the audio has no loud speech, so the canned text must be rejected -> <NO SPEECH>.
-    r = run_e2e(a.bin, room_noise_wav("room_hold", 2.30), model="gemini-3.5-flash-lite", timeout=60, extra=["--e2e-rest-fake-ok", "1"])
-    res = (r["result"] or "")
-    ok = r["exit"] == 0 and res.strip() == "<NO SPEECH>" and r["rest_net_rejected"] and r["early"] is None
-    gate("T27 rest-plausibility/room-noise", ok, f"net_rejected={r['rest_net_rejected']} early={r['early']!r} -> {res[:60]!r}"
-         + ("" if ok else f"\n      tail: {r['tail']}"))
+    # T27 REST plausibility (backlog 0u): a silent quiet-room press on the REST engine, REST answering a canned sentence or echoing the
+    # REST prompt (test-only, no network). Must be rejected -> <NO SPEECH>.
+    for sub, extra in (("room-noise", ["--e2e-rest-fake-ok", "1"]),
+                       ("prompt-echo", ["--e2e-rest-fake-ok", "1", "--e2e-rest-fake-text", "Transcribe and clean up this audio dictation."])):
+        r = run_e2e(a.bin, room_noise_wav("room_hold", 2.30), model="gemini-3.5-flash-lite", timeout=60, extra=extra)
+        res = (r["result"] or "")
+        ok = r["exit"] == 0 and res.strip() == "<NO SPEECH>" and r["rest_net_rejected"] and r["early"] is None
+        gate(f"T27 rest-plausibility/{sub}", ok, f"net_rejected={r['rest_net_rejected']} early={r['early']!r} -> {res[:60]!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
 
     # T16 mic unavailable (backlog 7): a press whose microphone can't be used ends at once with a clear marker/notice; it never
     # opens Live (start failure / denied permission are known before Live starts) and never calls REST. A mic that sends nothing
