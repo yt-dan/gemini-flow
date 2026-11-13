@@ -64,7 +64,8 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
-                        @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
+            @{@"cycle": @(41), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 14:15", @"title": @"Faster fallback when a connection drops mid-sentence", @"highlights": @[@"If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.", @"During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."]},
+            @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
             @{@"cycle": @(39), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 12:15", @"title": @"Custom Words: names and unusual terms spelled your way", @"highlights": @[@"A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.", @"On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."]},
             @{@"cycle": @(38), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 12:10", @"title": @"Sturdier Setup, Changelog and API key windows", @"highlights": @[@"First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.", @"Buttons need a press and release on the same spot, the search box clears with its X or Esc, long changelog titles no longer overlap, VoiceOver can read both windows, and test runs no longer flash extra icons in the menu bar.", @"An update no longer restarts the app while you are dictating: it waits until your text has been delivered."]},
             @{@"cycle": @(37), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:35", @"title": @"Long dictations stay on Live when the last sound is only a click or a breath", @"highlights": @[@"After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.", @"The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."]},
@@ -6224,6 +6225,9 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     // 1 s messages (normal ~100 ms pumps are one message).
     NSUInteger maxChunk = 32000;
     if (self.e2eLiveSeenFields && self.e2eLiveFirstAudioTime == 0) self.e2eLiveFirstAudioTime = [NSDate timeIntervalSinceReferenceDate]; // setup probe (e2e only)
+    NSUInteger sid = self.liveSessionId;
+    NSURLSessionWebSocketTask *sendTask = self.liveWebSocketTask;
+    __weak typeof(self) weakSelf = self;
     while (self.liveSentBytes < total) {
         NSUInteger pending = MIN(maxChunk, total - self.liveSentBytes);
         NSData *chunk = [self.recordedPCMData subdataWithRange:NSMakeRange(self.liveSentBytes, pending)];
@@ -6232,7 +6236,13 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
                                                              @"data": [chunk base64EncodedStringWithOptions:0]}}};
         NSString *str = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:msg options:0 error:nil] encoding:NSUTF8StringEncoding];
         [self.liveWebSocketTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:str] completionHandler:^(NSError *error) {
-            if (error) GFLog(@"Live: audio send failed: %@", error.localizedDescription);
+            if (error) {
+                GFLog(@"Live: audio send failed: %@", error.localizedDescription);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf liveConnectionLost:[NSString stringWithFormat:@"audio send: %@", error.localizedDescription]
+                                         session:sid task:sendTask error:error];
+                });
+            }
         }];
     }
     [self e2eMaybeDropLiveSocket];
@@ -6327,8 +6337,19 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     self.liveActivityCount += 1;
     self.liveSpeechActive = YES;
     if (self.liveActivityCount > 1) GFLog(@"Live: activityStart #%lu at %.2fs", (unsigned long)self.liveActivityCount, self.liveSentBytes / 32000.0);
+    NSUInteger sid = self.liveSessionId;
+    NSURLSessionWebSocketTask *sendTask = self.liveWebSocketTask;
+    __weak typeof(self) weakSelf = self;
     [self.liveWebSocketTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:@"{\"realtimeInput\":{\"activityStart\":{}}}"]
-                      completionHandler:^(NSError *error) { if (error) GFLog(@"Live: activityStart send failed: %@", error.localizedDescription); }];
+                      completionHandler:^(NSError *error) {
+        if (error) {
+            GFLog(@"Live: activityStart send failed: %@", error.localizedDescription);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf liveConnectionLost:[NSString stringWithFormat:@"activityStart send: %@", error.localizedDescription]
+                                     session:sid task:sendTask error:error];
+            });
+        }
+    }];
 }
 
 // Closes the open activity; its turnComplete will cover the audio sent so far.
@@ -6337,8 +6358,19 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     self.liveActivityEndsSent += 1;
     self.liveLastActivityEndByte = self.liveSentBytes;
     [self.livePendingActivityEnds addObject:@(self.liveSentBytes)];
+    NSUInteger sid = self.liveSessionId;
+    NSURLSessionWebSocketTask *sendTask = self.liveWebSocketTask;
+    __weak typeof(self) weakSelf = self;
     [self.liveWebSocketTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:@"{\"realtimeInput\":{\"activityEnd\":{}}}"]
-                      completionHandler:^(NSError *error) {}];
+                      completionHandler:^(NSError *error) {
+        if (error) {
+            GFLog(@"Live: activityEnd send failed: %@", error.localizedDescription);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf liveConnectionLost:[NSString stringWithFormat:@"activityEnd send: %@", error.localizedDescription]
+                                     session:sid task:sendTask error:error];
+            });
+        }
+    }];
 }
 
 // Local voice scan for activity splitting. Fixed threshold (150 RMS) is never above the adaptive threshold of
@@ -11101,10 +11133,46 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             v6.liveEverConnected = YES;
             [v6 startGeminiLiveWebSocketResuming:YES];
             BOOL okV6 = v6.liveSessionId == 2 && [v6.liveSentVocabulary isEqual:vv] && [v6.liveTestLastSetup isEqual:wantVocabSetup];
-            [us6 invalidateAndCancel];
             if (okV4 && okV5 && okV6) passed++; else failed++;
             printf("%s: vocabulary sessions: a network failure fails as before, a late rejection is remembered, reconnects and rotations resend the list\n",
                    okV4 && okV5 && okV6 ? "PASS" : "FAIL");
+
+            // Backlog 11: WebSocket audio and activity send errors fail fast
+            {
+                // (1) Mid-press send error reconnects if budget allows
+                AppDelegate *sendRec = vocabDelegate(@[]);
+                sendRec.liveEverConnected = YES;
+                [sendRec liveConnectionLost:@"audio send: Broken pipe" session:sendRec.liveSessionId task:sendRec.liveWebSocketTask
+                                      error:[NSError errorWithDomain:NSPOSIXErrorDomain code:32 userInfo:nil]];
+                BOOL okSendRec = sendRec.liveSessionId == 2 && sendRec.liveReconnects == 1 && !sendRec.liveFailed;
+
+                // (2) Released/finalizing send error fails fast to REST without waiting
+                AppDelegate *sendFin = vocabDelegate(@[]);
+                NSMutableArray *restCalls = [NSMutableArray array];
+                sendFin.liveFinalizing = YES;
+                sendFin.activeDictation = [[GFDictation alloc] init];
+                sendFin.restFallbackSink = ^(GFDictation *d) { [restCalls addObject:@"REST"]; };
+                [sendFin liveConnectionLost:@"audio send: Socket is not connected" session:sendFin.liveSessionId task:sendFin.liveWebSocketTask
+                                      error:[NSError errorWithDomain:NSPOSIXErrorDomain code:57 userInfo:nil]];
+                BOOL okSendFin = sendFin.liveFailed && sendFin.hasCompletedGeminiTurn && [restCalls isEqual:@[@"REST"]];
+
+                // (3) ActivityEnd send error during finalization also fails fast to REST
+                AppDelegate *endFin = vocabDelegate(@[]);
+                NSMutableArray *restCalls2 = [NSMutableArray array];
+                endFin.liveFinalizing = YES;
+                endFin.activeDictation = [[GFDictation alloc] init];
+                endFin.restFallbackSink = ^(GFDictation *d) { [restCalls2 addObject:@"REST"]; };
+                [endFin liveConnectionLost:@"activityEnd send: Broken pipe" session:endFin.liveSessionId task:endFin.liveWebSocketTask
+                                     error:[NSError errorWithDomain:NSPOSIXErrorDomain code:32 userInfo:nil]];
+                BOOL okEndFin = endFin.liveFailed && endFin.hasCompletedGeminiTurn && [restCalls2 isEqual:@[@"REST"]];
+
+                BOOL okSendFailFast = okSendRec && okSendFin && okEndFin;
+                if (okSendFailFast) passed++; else failed++;
+                printf("%s: WebSocket send failures trigger mid-press reconnect or fail fast to REST without delay\n",
+                       okSendFailFast ? "PASS" : "FAIL");
+            }
+
+            [us6 invalidateAndCancel];
 
             // Custom words file (GFCustomWordsPath), exercised in a temp folder: never the user's real file
             NSFileManager *cwfm = [NSFileManager defaultManager];

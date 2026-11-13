@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 41,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 14:15",
+      "title": "Faster fallback when a connection drops mid-sentence",
+      "highlights": [
+        "If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.",
+        "During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."
+      ]
+    },
+    {
       "cycle": 40,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 13:20",
