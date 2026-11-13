@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 42,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 15:15",
+      "title": "Apple on-device speech recognizes your Custom Words",
+      "highlights": [
+        "Your custom words and replacement targets ('Siobhan', 'Eoin') are now provided to Apple's on-device speech recognizer with each dictation.",
+        "Improves on-device transcription accuracy and offline fallback when you speak names, technical terms, and custom vocabulary."
+      ]
+    },
+    {
       "cycle": 41,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 14:15",

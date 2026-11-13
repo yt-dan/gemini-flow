@@ -64,6 +64,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(42), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 15:15", @"title": @"Apple on-device speech recognizes your Custom Words", @"highlights": @[@"Your custom words and replacement targets ('Siobhan', 'Eoin') are now provided to Apple's on-device speech recognizer with each dictation.", @"Improves on-device transcription accuracy and offline fallback when you speak names, technical terms, and custom vocabulary."]},
             @{@"cycle": @(41), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 14:15", @"title": @"Faster fallback when a connection drops mid-sentence", @"highlights": @[@"If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.", @"During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."]},
             @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
             @{@"cycle": @(39), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 12:15", @"title": @"Custom Words: names and unusual terms spelled your way", @"highlights": @[@"A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.", @"On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."]},
@@ -2917,6 +2918,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) NSUInteger e2eLifetimeCloses;
 @property (nonatomic, copy) NSDictionary *e2eLiveSetupExtra;      // test hook (e2e only, backlog 0y-probe): deep-merged into the Live `setup` object
 @property (nonatomic, copy) NSArray<NSString *> *e2eVocabulary;   // test hook (e2e / --test only): the ONLY vocabulary in tests (the user's lists are never read there)
+- (NSArray<NSString *> *)customVocabularyForDictation;
 @property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *e2eReplacements; // test hook (e2e / --test only): the ONLY "hear -> write" pairs in tests
 @property (nonatomic, assign) BOOL e2eLiveVocabReject;            // test hook (e2e only): the first session that sends a vocabulary is "rejected" (close 1007)
 @property (nonatomic, assign) BOOL e2eLiveVocabRejectFired;
@@ -5421,6 +5423,10 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     if (@available(macOS 13.0, *)) {
         self.recognitionRequest.addsPunctuation = YES;
     }
+    NSArray<NSString *> *onDeviceVocab = [self customVocabularyForDictation];
+    if (onDeviceVocab.count > 0) {
+        self.recognitionRequest.contextualStrings = onDeviceVocab;
+    }
     if (self.speechRecognizer.supportsOnDeviceRecognition) {
         self.recognitionRequest.requiresOnDeviceRecognition = YES;
     }
@@ -5845,18 +5851,24 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     });
 }
 
+// The custom vocabulary for this dictation: the user's custom words file plus rules.json "customVocabulary",
+// followed by the target spellings of custom-words replacement pairs (e.g. "Eoin" for "Owen -> Eoin").
+// In e2e and unit tests only injected terms/replacements are used; user files are never touched.
+- (NSArray<NSString *> *)customVocabularyForDictation {
+    NSArray *injected = [(self.e2eVocabulary ?: @[]) arrayByAddingObjectsFromArray:GFVocabularyFromCustomWordEntries(self.e2eReplacements)];
+    return GFVocabularyForConnect([self customWordsTestSourcesOnly], injected, ^NSArray<NSString *> *{
+        NSString *home = NSHomeDirectory();
+        return GFUserVocabularyFromFiles(GFCustomWordsPath(), @[[home stringByAppendingPathComponent:@"GeminiFlow/rules.json"],
+                                                                [home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/rules.json"]]);
+    });
+}
+
 // The custom vocabulary for the next Live connect: the user's custom words file plus rules.json "customVocabulary", read from disk
 // here (a small file; every press connects), so an edit applies to the next dictation without a relaunch. In e2e mode and in
 // --test only --e2e-vocabulary / e2eVocabulary counts and the user's files are not read (GFVocabularyForConnect). A list the
 // server rejected this run is not sent again (an edited list is tried once more). Empty = the setup message is today's.
 - (NSArray<NSString *> *)liveVocabularyForConnect {
-    // tests: the injected terms, then the targets of the injected pairs (as the app does with the user's entries)
-    NSArray *injected = [(self.e2eVocabulary ?: @[]) arrayByAddingObjectsFromArray:GFVocabularyFromCustomWordEntries(self.e2eReplacements)];
-    NSArray<NSString *> *list = GFVocabularyForConnect([self customWordsTestSourcesOnly], injected, ^NSArray<NSString *> *{
-        NSString *home = NSHomeDirectory();
-        return GFUserVocabularyFromFiles(GFCustomWordsPath(), @[[home stringByAppendingPathComponent:@"GeminiFlow/rules.json"],
-                                                                [home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/rules.json"]]);
-    });
+    NSArray<NSString *> *list = [self customVocabularyForDictation];
     if (list.count > 0 && self.liveRejectedVocabulary && [list isEqualToArray:self.liveRejectedVocabulary]) return @[];
     return list;
 }
@@ -7966,6 +7978,10 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
     }
     if (self.speechRecognizer.supportsOnDeviceRecognition) {
         urlReq.requiresOnDeviceRecognition = YES;
+    }
+    NSArray<NSString *> *wavVocab = [self customVocabularyForDictation];
+    if (wavVocab.count > 0) {
+        urlReq.contextualStrings = wavVocab;
     }
 
     __weak typeof(self) weakSelf = self;
@@ -11170,6 +11186,29 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
                 if (okSendFailFast) passed++; else failed++;
                 printf("%s: WebSocket send failures trigger mid-press reconnect or fail fast to REST without delay\n",
                        okSendFailFast ? "PASS" : "FAIL");
+            }
+
+            // Cycle 42: custom words contextualStrings on SFSpeechRecognitionRequest
+            {
+                AppDelegate *odD = [[AppDelegate alloc] init];
+                odD.unitTestMode = YES;
+                odD.e2eVocabulary = @[@"Siobhan", @"Zyphra"];
+                odD.e2eReplacements = @[@{@"hear": @"Owen", @"write": @"Eoin"}];
+                NSArray<NSString *> *odVocab = [odD customVocabularyForDictation];
+                BOOL okOdVocab = [odVocab isEqual:(@[@"Siobhan", @"Zyphra", @"Eoin"])];
+
+                SFSpeechAudioBufferRecognitionRequest *bufReq = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
+                bufReq.contextualStrings = odVocab;
+                BOOL okBufReq = [bufReq.contextualStrings isEqual:(@[@"Siobhan", @"Zyphra", @"Eoin"])];
+
+                SFSpeechURLRecognitionRequest *urlReq = [[SFSpeechURLRecognitionRequest alloc] initWithURL:[NSURL fileURLWithPath:@"/dev/null"]];
+                urlReq.contextualStrings = odVocab;
+                BOOL okUrlReq = [urlReq.contextualStrings isEqual:(@[@"Siobhan", @"Zyphra", @"Eoin"])];
+
+                BOOL okContextual = okOdVocab && okBufReq && okUrlReq;
+                if (okContextual) passed++; else failed++;
+                printf("%s: Apple on-device recognition requests receive custom vocabulary contextualStrings (%lu terms)\n",
+                       okContextual ? "PASS" : "FAIL", (unsigned long)odVocab.count);
             }
 
             [us6 invalidateAndCancel];
