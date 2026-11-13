@@ -3,9 +3,19 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 40,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 13:20",
+      "title": "Custom Words: replacement pairs ('Owen -> Eoin')",
+      "highlights": [
+        "Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).",
+        "Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."
+      ]
+    },
+    {
       "cycle": 39,
       "scope": "engine",
-      "timestamp": "13 Nov · 12:15",
+      "timestamp": "13 Nov \u00b7 12:15",
       "title": "Custom Words: names and unusual terms spelled your way",
       "highlights": [
         "A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.",
@@ -15,7 +25,7 @@
     {
       "cycle": 38,
       "scope": "mac",
-      "timestamp": "13 Nov · 12:10",
+      "timestamp": "13 Nov \u00b7 12:10",
       "title": "Sturdier Setup, Changelog and API key windows",
       "highlights": [
         "First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.",
@@ -26,7 +36,7 @@
     {
       "cycle": 37,
       "scope": "engine",
-      "timestamp": "13 Nov · 11:35",
+      "timestamp": "13 Nov \u00b7 11:35",
       "title": "Long dictations stay on Live when the last sound is only a click or a breath",
       "highlights": [
         "After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.",
@@ -36,7 +46,7 @@
     {
       "cycle": 36,
       "scope": "engine",
-      "timestamp": "13 Nov · 11:00",
+      "timestamp": "13 Nov \u00b7 11:00",
       "title": "Repeated phrases and mid-thought restarts cleaned up",
       "highlights": [
         "Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').",
@@ -46,7 +56,7 @@
     {
       "cycle": 35,
       "scope": "mac",
-      "timestamp": "13 Nov · 10:30",
+      "timestamp": "13 Nov \u00b7 10:30",
       "title": "Brand refresh shared with GeminiFlow for iOS & cleaner windows",
       "highlights": [
         "Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.",
@@ -56,7 +66,7 @@
     {
       "cycle": 34,
       "scope": "mac",
-      "timestamp": "13 Nov · 09:40",
+      "timestamp": "13 Nov \u00b7 09:40",
       "title": "Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync",
       "highlights": [
         "Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.",
@@ -66,7 +76,7 @@
     {
       "cycle": 33,
       "scope": "engine",
-      "timestamp": "13 Nov · 09:09",
+      "timestamp": "13 Nov \u00b7 09:09",
       "title": "Silent-press prompt-echo guard & low-evidence silence net",
       "highlights": [
         "Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').",
@@ -76,7 +86,7 @@
     {
       "cycle": 32,
       "scope": "engine",
-      "timestamp": "12 Nov · 16:46",
+      "timestamp": "12 Nov \u00b7 16:46",
       "title": "Noise-relative silence detection & REST plausibility safety net",
       "highlights": [
         "Measured speech evidence relative to each press's 20th-percentile room noise floor so quiet-room taps and holds end immediately as No speech instead of calling REST.",
@@ -86,7 +96,7 @@
     {
       "cycle": 31,
       "scope": "engine",
-      "timestamp": "12 Nov · 15:16",
+      "timestamp": "12 Nov \u00b7 15:16",
       "title": "Zero word loss across slow split turns",
       "highlights": [
         "Held voiced audio (with 0.3s pre-roll) behind any in-flight split turn until generationComplete arrives instead of reopening early after 1.5s, eliminating dropped seam words.",
@@ -96,7 +106,7 @@
     {
       "cycle": 30,
       "scope": "mac",
-      "timestamp": "12 Nov · 13:16",
+      "timestamp": "12 Nov \u00b7 13:16",
       "title": "Hands-free HUD indicator redesign",
       "highlights": [
         "Replaced the outer mint rim and glow in locked hands-free mode with a crisp 7px green indicator dot on a soft inner halo and solid green waveform bars inside the pill.",
@@ -106,7 +116,7 @@
     {
       "cycle": 29,
       "scope": "engine",
-      "timestamp": "12 Nov · 12:01",
+      "timestamp": "12 Nov \u00b7 12:01",
       "title": "Planned Live session rotation before the 10-minute server cap",
       "highlights": [
         "Proactively rotates the Gemini Live WebSocket at the first quiet split point after 8.5 minutes with zero resent audio and zero seam duplicates.",
@@ -116,7 +126,7 @@
     {
       "cycle": 28,
       "scope": "mac",
-      "timestamp": "12 Nov · 09:10",
+      "timestamp": "12 Nov \u00b7 09:10",
       "title": "Accurate 4-gram duplicate-phrase test gate",
       "highlights": [
         "Updated duplicated_phrases() in the test runner to flag 4-grams only when they appear at least twice in the output and more often than in expected text, eliminating false positives on minor recognizer phrasing variants."
@@ -125,7 +135,7 @@
     {
       "cycle": 27,
       "scope": "engine",
-      "timestamp": "11 Nov · 19:57",
+      "timestamp": "11 Nov \u00b7 19:57",
       "title": "5- and 10-minute marathon dictation suite & privacy-safe press stats",
       "highlights": [
         "Added opt-in 5-minute and 10-minute continuous Live dictation gates (T23) and scaled the e2e watchdog for multi-minute sessions.",
@@ -135,7 +145,7 @@
     {
       "cycle": 26,
       "scope": "mac",
-      "timestamp": "11 Nov · 17:35",
+      "timestamp": "11 Nov \u00b7 17:35",
       "title": "Visual distinction for locked hands-free HUD & offscreen PNG renderer",
       "highlights": [
         "Added visual differentiation between hold-to-talk and double-tap locked hands-free mode on the floating HUD pill.",
@@ -145,7 +155,7 @@
     {
       "cycle": 25,
       "scope": "engine",
-      "timestamp": "11 Nov · 15:37",
+      "timestamp": "11 Nov \u00b7 15:37",
       "title": "Release-cushion telemetry & atomic test audio cache",
       "highlights": [
         "Logged numbers-only Fn-up release cushion coverage (hostTime reach past key release and post-release RMS) to measure real hardware buffer lag.",
@@ -155,7 +165,7 @@
     {
       "cycle": 24,
       "scope": "engine",
-      "timestamp": "11 Nov · 13:47",
+      "timestamp": "11 Nov \u00b7 13:47",
       "title": "Instant completion when releasing Fn between Live turns",
       "highlights": [
         "Finished Live dictations immediately on key release (~135ms instead of ~570ms) when all prior speech was already finalized at a pause split and no uncovered speech remains."
@@ -164,7 +174,7 @@
     {
       "cycle": 23,
       "scope": "engine",
-      "timestamp": "11 Nov · 11:55",
+      "timestamp": "11 Nov \u00b7 11:55",
       "title": "Last-sentence question punctuation & filler-like cleanup",
       "highlights": [
         "Judged trailing '?' vs '.' from the final sentence rather than earlier clauses in multi-sentence dictations.",
@@ -174,7 +184,7 @@
     {
       "cycle": 22,
       "scope": "engine",
-      "timestamp": "11 Nov · 09:56",
+      "timestamp": "11 Nov \u00b7 09:56",
       "title": "Context-aware 'kind of' and 'sort of' filler removal",
       "highlights": [
         "Stripped 'kind of' and 'sort of' only when set off as spoken pauses or adjacent to vocal fillers, preserving meaningful uses like 'what kind of car' and 'sort of works'."
@@ -183,7 +193,7 @@
     {
       "cycle": 21,
       "scope": "engine",
-      "timestamp": "10 Nov · 19:36",
+      "timestamp": "10 Nov \u00b7 19:36",
       "title": "Pronoun capitalization, mixed-case brands & grammatical doubles",
       "highlights": [
         "Protected 'i.e.', dotfiles ('.env'), URLs, and mixed-case names ('iPhone', 'macOS') during capitalization and punctuation cleanup.",
@@ -193,7 +203,7 @@
     {
       "cycle": 20,
       "scope": "engine",
-      "timestamp": "10 Nov · 17:59",
+      "timestamp": "10 Nov \u00b7 17:59",
       "title": "Header-only API key auth & automatic log redaction",
       "highlights": [
         "Moved Gemini API key authentication from query URLs into the x-goog-api-key request header across Live WebSocket and REST calls.",

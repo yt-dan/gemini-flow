@@ -55,6 +55,7 @@ If GeminiFlow keeps misspelling a name or a product term, add it to your custom 
 - Up to 100 terms of up to 64 characters each. Longer or extra entries are ignored.
 - Your words stay in that file on your Mac and are sent to Gemini Live with each dictation. Because the file is not in the GeminiFlow folder, the names in it are never committed or published with the code. They are never written to the log; only the number of terms is.
 - It works with Gemini Live, the main engine. The two backup engines don't use it.
+- **Replacements.** If you say one thing and mean another spelling, write it as a pair in the same file: `{"hear": "Owen", "write": "Eoin"}`. GeminiFlow then writes "Eoin" wherever "Owen" comes back as a whole word ("Owen's" becomes "Eoin's"; "Owens" and "Bowen" are left alone), whichever engine produced the text. Example file: `["Siobhan", {"hear": "Owen", "write": "Eoin"}]`.
 - Advanced: `rules.json` also accepts a `"customVocabulary": [...]` list, which is added after the words from the file. `rules.json` is part of the GeminiFlow folder, so keep private names out of it if you share that folder.
 
 ## Troubleshooting

@@ -27,6 +27,31 @@ typedef NS_ENUM(NSInteger, GFLiveAuthMode) {
     GFLiveAuthKeyInURL = 2,   // header auth was rejected and the key-in-URL retry worked: keep using it this run
 };
 
+// Custom Words (the user's list in custom-words.json): plain terms to spell exactly, and pairs "when you hear X, write Y".
+// An entry is a dictionary: @{kGFCustomWordWrite: term} for a plain term, @{kGFCustomWordHear: heard, kGFCustomWordWrite: term}
+// for a pair. The functions are Foundation-only engine code defined with the vocabulary code further down; they are declared
+// here so that the Custom Words window (defined before them) can use them.
+static NSString * const kGFCustomWordHear = @"hear";    // a pair only: what is heard; replaced as a whole word or phrase
+static NSString * const kGFCustomWordWrite = @"write";  // the term to write (sent to Live as vocabulary; a pair's replacement)
+typedef NS_ENUM(NSInteger, GFCustomWordLineProblem) {   // why GFParseCustomWordLine returned nil
+    GFCustomWordLineOK = 0,
+    GFCustomWordLineEmpty = 1,      // nothing typed
+    GFCustomWordLineEmptySide = 2,  // "Owen ->" or "-> Eoin": one side of the pair is missing
+    GFCustomWordLineTooLong = 3,    // a side is longer than kVocabularyMaxTermLength characters
+};
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFCleanCustomWordEntries(id raw);
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFLoadCustomWordEntriesFromPath(NSString *path);
+static BOOL GFSaveCustomWordEntriesToPath(NSArray *entries, NSString *path, NSError **err);
+static NSDictionary<NSString *, NSString *> *GFParseCustomWordLine(NSString *line, GFCustomWordLineProblem *problem);
+static NSArray<NSString *> *GFVocabularyFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries);
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFReplacementPairsFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries);
+static NSString *GFDisplayStringForCustomWordEntry(NSDictionary<NSString *, NSString *> *entry);
+static NSArray<NSString *> *GFDisplayWordsFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries);
+
+static NSUInteger GFApplyUserReplacements(NSMutableString *str, NSArray<NSDictionary<NSString *, NSString *> *> *pairs);
+// --test sets this first thing: from then on no code path reads the user's own lists (custom-words.json, rules.json vocabulary).
+static BOOL gGFRunningUnitTests = NO;
+
 #pragma mark - Structured Changelog Data (Foundation-only; synced one-way to iOS via changelog.json)
 
 static BOOL GFStringHasForbiddenDash(NSString *s) {
@@ -39,6 +64,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+                        @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
             @{@"cycle": @(39), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 12:15", @"title": @"Custom Words: names and unusual terms spelled your way", @"highlights": @[@"A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.", @"On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."]},
             @{@"cycle": @(38), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 12:10", @"title": @"Sturdier Setup, Changelog and API key windows", @"highlights": @[@"First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.", @"Buttons need a press and release on the same spot, the search box clears with its X or Esc, long changelog titles no longer overlap, VoiceOver can read both windows, and test runs no longer flash extra icons in the menu bar.", @"An update no longer restarts the app while you are dictating: it waits until your text has been delivered."]},
             @{@"cycle": @(37), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:35", @"title": @"Long dictations stay on Live when the last sound is only a click or a breath", @"highlights": @[@"After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.", @"The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."]},
@@ -1823,57 +1849,90 @@ static NSString *GFCustomWordsSkipNotice(NSUInteger pieces, NSUInteger duplicate
 - (BOOL)removeWord:(NSString *)word;
 @end
 
+static NSString *GFDisplayStringForCustomWordEntry(NSDictionary<NSString *, NSString *> *entry) {
+    if (![entry isKindOfClass:[NSDictionary class]]) return @"";
+    NSString *hear = entry[kGFCustomWordHear], *write = entry[kGFCustomWordWrite];
+    if (hear.length > 0 && write.length > 0) {
+        return [NSString stringWithFormat:@"%@ -> %@", hear, write];
+    }
+    return write ?: @"";
+}
+
+static NSArray<NSString *> *GFDisplayWordsFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
+    NSMutableArray<NSString *> *list = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *e in entries) {
+        NSString *s = GFDisplayStringForCustomWordEntry(e);
+        if (s.length > 0) [list addObject:s];
+    }
+    return list;
+}
+
 @implementation GFCustomWordsStore
 - (instancetype)initWithPath:(NSString *)path {
     self = [super init];
     if (self) {
         _path = [path copy];
-        _words = GFLoadCustomWordsFromPath(_path);
+        _words = GFDisplayWordsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(_path));
         _notice = @"";
     }
     return self;
 }
 
 - (void)reload {
-    _words = GFLoadCustomWordsFromPath(_path);
+    _words = GFDisplayWordsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(_path));
     _notice = @"";
 }
 
 - (NSUInteger)addFromInput:(NSString *)input {
-    NSArray<NSString *> *current = GFLoadCustomWordsFromPath(_path); // from the file, not from memory: it may have been edited by hand
+    NSArray<NSDictionary<NSString *, NSString *> *> *current = GFLoadCustomWordEntriesFromPath(_path);
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
-    for (NSString *w in current) [seen addObject:w.lowercaseString];
-    NSMutableArray<NSString *> *added = [NSMutableArray array];
-    NSUInteger pieces = 0, duplicates = 0, tooLong = 0, noRoom = 0;
+    for (NSDictionary<NSString *, NSString *> *e in current) {
+        NSString *key = (e[kGFCustomWordHear] ?: e[kGFCustomWordWrite]).lowercaseString;
+        if (key.length > 0) [seen addObject:key];
+    }
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *added = [NSMutableArray array];
+    NSUInteger pieces = 0, duplicates = 0, tooLong = 0, noRoom = 0, badPair = 0;
     NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@",\n\r"];
     for (NSString *piece in [(input ?: @"") componentsSeparatedByCharactersInSet:separators]) {
         if ([piece stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0) continue;
         pieces++;
-        NSString *term = GFCleanVocabulary(@[piece]).firstObject; // the engine's cleaning; a non-empty piece is dropped only for its length
-        if (!term) { tooLong++; continue; }
-        if ([seen containsObject:term.lowercaseString]) { duplicates++; continue; }
+        GFCustomWordLineProblem problem = GFCustomWordLineOK;
+        NSDictionary<NSString *, NSString *> *entry = GFParseCustomWordLine(piece, &problem);
+        if (problem == GFCustomWordLineTooLong) { tooLong++; continue; }
+        if (problem == GFCustomWordLineEmptySide) { badPair++; continue; }
+        if (!entry) continue;
+        NSString *key = (entry[kGFCustomWordHear] ?: entry[kGFCustomWordWrite]).lowercaseString;
+        if ([seen containsObject:key]) { duplicates++; continue; }
         if (current.count + added.count >= kVocabularyMaxTerms) { noRoom++; continue; }
-        [seen addObject:term.lowercaseString];
-        [added addObject:term];
+        [seen addObject:key];
+        [added addObject:entry];
     }
-    NSString *notice = GFCustomWordsSkipNotice(pieces, duplicates, tooLong, noRoom);
-    if (added.count > 0 && !GFSaveCustomWordsToPath([added arrayByAddingObjectsFromArray:current], _path, NULL)) {
+    NSString *notice = nil;
+    if (badPair > 0 && pieces <= 1) {
+        notice = @"Enter both sides of the pair (e.g. Owen -> Eoin).";
+    } else {
+        notice = GFCustomWordsSkipNotice(pieces, duplicates, tooLong + badPair, noRoom);
+    }
+    if (added.count > 0 && !GFSaveCustomWordEntriesToPath([added arrayByAddingObjectsFromArray:current], _path, NULL)) {
         [added removeAllObjects];
         notice = @"Could not save the list.";
     }
-    _words = GFLoadCustomWordsFromPath(_path); // what the file holds now, saved or not
-    _notice = notice;
+    _words = GFDisplayWordsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(_path));
+    _notice = notice ?: @"";
     return added.count;
 }
 
 - (BOOL)removeWord:(NSString *)word {
-    NSArray<NSString *> *current = GFLoadCustomWordsFromPath(_path);
-    NSMutableArray<NSString *> *kept = [NSMutableArray array];
-    for (NSString *w in current) {
-        if (![w.lowercaseString isEqualToString:(word ?: @"").lowercaseString]) [kept addObject:w];
+    NSArray<NSDictionary<NSString *, NSString *> *> *current = GFLoadCustomWordEntriesFromPath(_path);
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *kept = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *e in current) {
+        NSString *display = GFDisplayStringForCustomWordEntry(e);
+        if (![display.lowercaseString isEqualToString:(word ?: @"").lowercaseString]) {
+            [kept addObject:e];
+        }
     }
-    BOOL ok = kept.count == current.count || GFSaveCustomWordsToPath(kept, _path, NULL);
-    _words = GFLoadCustomWordsFromPath(_path);
+    BOOL ok = kept.count == current.count || GFSaveCustomWordEntriesToPath(kept, _path, NULL);
+    _words = GFDisplayWordsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(_path));
     _notice = ok ? @"" : @"Could not save the list.";
     return ok;
 }
@@ -2857,6 +2916,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) NSUInteger e2eLifetimeCloses;
 @property (nonatomic, copy) NSDictionary *e2eLiveSetupExtra;      // test hook (e2e only, backlog 0y-probe): deep-merged into the Live `setup` object
 @property (nonatomic, copy) NSArray<NSString *> *e2eVocabulary;   // test hook (e2e / --test only): the ONLY vocabulary in tests (the user's lists are never read there)
+@property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *e2eReplacements; // test hook (e2e / --test only): the ONLY "hear -> write" pairs in tests
 @property (nonatomic, assign) BOOL e2eLiveVocabReject;            // test hook (e2e only): the first session that sends a vocabulary is "rejected" (close 1007)
 @property (nonatomic, assign) BOOL e2eLiveVocabRejectFired;
 @property (nonatomic, assign) NSTimeInterval e2eLiveSetupSentTime; // setup probe: when the current socket's setup message was sent
@@ -3173,21 +3233,190 @@ static NSArray<NSString *> *GFVocabularyFromRulesData(NSData *data) {
 static NSString *GFCustomWordsPath(void) {
     return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/custom-words.json"];
 }
-// The CLEANED list stored at `path` (GFCleanVocabulary); empty for a missing, unreadable or malformed file.
-static NSArray<NSString *> *GFLoadCustomWordsFromPath(NSString *path) {
+// ---- Custom Words entries: plain terms and "hear -> write" pairs -------------------------------------------------------------------
+// File format (custom-words.json): a JSON array whose elements are a string (a plain term) or an object {"hear": "...",
+// "write": "..."} (a pair). A file of strings only (the first format) is still valid. Cleaned entries, in file order:
+//   - both sides are trimmed, inner whitespace collapses to one space, text is normalised to Unicode NFC;
+//   - a side longer than 64 characters drops the entry; an entry with nothing to write is dropped;
+//   - a pair whose two sides are equal ignoring case is a plain term (there is nothing to replace);
+//   - duplicates are dropped by key, ignoring case (the first one wins): the key is "hear" for a pair, "write" for a plain term;
+//   - at most 100 entries.
+// ASCII fast path; otherwise Unicode NFC, so a decomposed "Sea\u0301n" equals the precomposed "Se\u00E1n".
+static NSString *GFNFCIfNeeded(NSString *s) {
+    for (NSUInteger i = 0, n = s.length; i < n; i++)
+        if ([s characterAtIndex:i] >= 0x80) return s.precomposedStringWithCanonicalMapping;
+    return s;
+}
+// One side of an entry: trimmed, inner whitespace collapsed, NFC; nil when it is not a string or is empty.
+static NSString *GFCleanCustomWordSide(id raw) {
+    if (![raw isKindOfClass:[NSString class]]) return nil;
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *part in [GFNFCIfNeeded((NSString *)raw) componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]])
+        if (part.length > 0) [parts addObject:part];
+    return parts.count > 0 ? [parts componentsJoinedByString:@" "] : nil;
+}
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFCleanCustomWordEntries(id raw) {
+    if (![raw isKindOfClass:[NSArray class]]) return @[];
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *out = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (id item in (NSArray *)raw) {
+        NSString *hear = nil, *write = nil;
+        if ([item isKindOfClass:[NSString class]]) {
+            write = GFCleanCustomWordSide(item);
+        } else if ([item isKindOfClass:[NSDictionary class]]) {
+            write = GFCleanCustomWordSide(((NSDictionary *)item)[kGFCustomWordWrite]);
+            hear = GFCleanCustomWordSide(((NSDictionary *)item)[kGFCustomWordHear]);
+        }
+        if (!write || write.length > kVocabularyMaxTermLength || hear.length > kVocabularyMaxTermLength) continue;
+        if (hear && [hear.lowercaseString isEqualToString:write.lowercaseString]) hear = nil; // nothing to replace: a plain term
+        NSString *key = (hear ?: write).lowercaseString;
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
+        [out addObject:hear ? @{kGFCustomWordHear: hear, kGFCustomWordWrite: write} : @{kGFCustomWordWrite: write}];
+        if (out.count >= kVocabularyMaxTerms) break;
+    }
+    return out;
+}
+// The CLEANED entries stored at `path`; empty for a missing, unreadable or malformed file.
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFLoadCustomWordEntriesFromPath(NSString *path) {
     NSData *data = path.length > 0 ? [NSData dataWithContentsOfFile:path] : nil;
     id obj = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return GFCleanVocabulary(obj);
+    return GFCleanCustomWordEntries(obj);
 }
-// The user's vocabulary from its two sources: the custom words file first, then rules.json "customVocabulary" (the first readable
-// of `rulesPaths`), cleaned together (so duplicates across the two collapse and the 100-term limit applies to the whole list).
+// What Live is told to prefer: every entry's "write" (plain terms AND the targets of pairs), cleaned and de-duplicated.
+static NSArray<NSString *> *GFVocabularyFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
+    NSMutableArray *writes = [NSMutableArray array];
+    for (id e in entries)
+        if ([e isKindOfClass:[NSDictionary class]] && ((NSDictionary *)e)[kGFCustomWordWrite]) [writes addObject:((NSDictionary *)e)[kGFCustomWordWrite]];
+    return GFCleanVocabulary(writes);
+}
+// The pairs among the entries (those with a "hear" side), in order: the input of GFApplyUserReplacements.
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFReplacementPairsFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *pairs = [NSMutableArray array];
+    for (id e in entries)
+        if ([e isKindOfClass:[NSDictionary class]] && [((NSDictionary *)e)[kGFCustomWordHear] isKindOfClass:[NSString class]]
+            && [((NSDictionary *)e)[kGFCustomWordWrite] isKindOfClass:[NSString class]]) [pairs addObject:e];
+    return pairs;
+}
+// ONE line typed by the user. "Owen -> Eoin", "Owen → Eoin", "Owen => Eoin", "Owen > Eoin" and "Owen = Eoin" give a pair;
+// anything else is a plain term. Returns the cleaned entry, or nil with *problem set when the line can't be used (nothing typed,
+// a side of the pair missing, a side too long). A pair whose two sides are equal ignoring case comes back as a plain term.
+static NSDictionary<NSString *, NSString *> *GFParseCustomWordLine(NSString *line, GFCustomWordLineProblem *problem) {
+    GFCustomWordLineProblem unused;
+    if (!problem) problem = &unused;
+    *problem = GFCustomWordLineOK;
+    NSString *text = [line isKindOfClass:[NSString class]] ? line : @"";
+    NSRange split = NSMakeRange(NSNotFound, 0); // the first separator; "=>" wins over "=" at the same place
+    for (NSString *sep in @[@"->", @"=>", @"\u2192", @">", @"="]) {
+        NSRange r = [text rangeOfString:sep];
+        if (r.location != NSNotFound && (split.location == NSNotFound || r.location < split.location
+                                         || (r.location == split.location && r.length > split.length))) split = r;
+    }
+    NSString *hear = nil, *write = nil;
+    if (split.location == NSNotFound) {
+        write = GFCleanCustomWordSide(text);
+        if (!write) { *problem = GFCustomWordLineEmpty; return nil; }
+    } else {
+        hear = GFCleanCustomWordSide([text substringToIndex:split.location]);
+        write = GFCleanCustomWordSide([text substringFromIndex:NSMaxRange(split)]);
+        if (!hear && !write) { *problem = GFCustomWordLineEmpty; return nil; }
+        if (!hear || !write) { *problem = GFCustomWordLineEmptySide; return nil; }
+    }
+    if (write.length > kVocabularyMaxTermLength || hear.length > kVocabularyMaxTermLength) { *problem = GFCustomWordLineTooLong; return nil; }
+    return GFCleanCustomWordEntries(@[hear ? @{kGFCustomWordHear: hear, kGFCustomWordWrite: write} : (id)write]).firstObject;
+}
+// The replacement pass for pairs: the guarantee that "hear" never reaches the pasted text, whichever engine produced it (Live
+// usually writes the listed spelling already; REST and Apple on-device know nothing about the list). Ported from the iOS
+// engine's whole-word replacement (GFEngineDivergences.inc), under different names because that file is linked with this code:
+//   - `hear` matches only as a whole word or phrase: not directly next to a letter, digit, combining mark or underscore, and
+//     not as one part of a hyphenated word ("Owen", "owen," and "Owen's" change; "Owens", "Bowen" and "co-owen" do not);
+//   - the match ignores case; the replacement is inserted exactly as written (no template characters);
+//   - a space in `hear` matches any run of whitespace; a straight or a typographic apostrophe matches either kind;
+//   - all pairs are applied in ONE pass, longest `hear` first: the output of one pair is never rewritten by another, and of two
+//     pairs where one begins the other the longer wins where it fits;
+//   - the text is normalised to Unicode NFC first (only when something is replaced is the string changed at all).
+// Returns the number of replacements made; no pairs or an empty string return 0 at once.
+static NSUInteger GFApplyUserReplacements(NSMutableString *str, NSArray<NSDictionary<NSString *, NSString *> *> *pairs) {
+    if (str.length == 0 || ![pairs isKindOfClass:[NSArray class]] || pairs.count == 0) return 0;
+    NSMutableArray<NSArray<NSString *> *> *entries = [NSMutableArray array]; // [hear with single spaces (NFC), write (NFC)]
+    for (id pair in pairs) {
+        if (![pair isKindOfClass:[NSDictionary class]]) continue;
+        NSString *hear = GFCleanCustomWordSide(((NSDictionary *)pair)[kGFCustomWordHear]);
+        id write = ((NSDictionary *)pair)[kGFCustomWordWrite];
+        if (!hear || ![write isKindOfClass:[NSString class]]) continue;
+        [entries addObject:@[hear, GFNFCIfNeeded((NSString *)write)]];
+    }
+    if (entries.count == 0) return 0;
+    // Longest first, so the longer of two overlapping triggers is tried first; ties in a fixed (code point) order
+    [entries sortUsingComparator:^NSComparisonResult(NSArray<NSString *> *a, NSArray<NSString *> *b) {
+        if (a[0].length != b[0].length) return a[0].length > b[0].length ? NSOrderedAscending : NSOrderedDescending;
+        NSComparisonResult byHear = [a[0] compare:b[0] options:NSLiteralSearch];
+        return byHear != NSOrderedSame ? byHear : [a[1] compare:b[1] options:NSLiteralSearch];
+    }];
+    // One pattern, one capture group per pair: (not after a word character or "letter-")(?:(hear 1)|(hear 2)|...)(not before a word character or "-letter")
+    NSCharacterSet *apostrophes = [NSCharacterSet characterSetWithCharactersInString:@"'\u2019"];
+    NSMutableArray<NSString *> *alternatives = [NSMutableArray arrayWithCapacity:entries.count];
+    for (NSArray<NSString *> *entry in entries) {
+        NSMutableArray<NSString *> *wordPatterns = [NSMutableArray array];
+        for (NSString *word in [entry[0] componentsSeparatedByString:@" "]) {
+            NSMutableArray<NSString *> *pieces = [NSMutableArray array];
+            for (NSString *piece in [word componentsSeparatedByCharactersInSet:apostrophes])
+                [pieces addObject:[NSRegularExpression escapedPatternForString:piece]];
+            [wordPatterns addObject:[pieces componentsJoinedByString:@"['\\u2019]"]];
+        }
+        [alternatives addObject:[NSString stringWithFormat:@"(%@)", [wordPatterns componentsJoinedByString:@"\\s+"]]];
+    }
+    NSString *pattern = [NSString stringWithFormat:@"(?<![\\p{L}\\p{M}\\p{N}_])(?<![\\p{L}\\p{M}\\p{N}][-\\u2010\\u2011])(?:%@)"
+                                                   @"(?![\\p{L}\\p{M}\\p{N}_])(?![-\\u2010\\u2011][\\p{L}\\p{N}])",
+                         [alternatives componentsJoinedByString:@"|"]];
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil];
+    if (!re) return 0; // cannot happen for escaped triggers; if it ever does, leave the text alone rather than guess
+    NSString *source = [GFNFCIfNeeded(str) copy];
+    NSMutableString *result = [NSMutableString stringWithCapacity:source.length];
+    __block NSUInteger copiedUpTo = 0, replaced = 0;
+    [re enumerateMatchesInString:source options:0 range:NSMakeRange(0, source.length)
+                      usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
+        if (!match || match.range.length == 0) return;
+        for (NSUInteger i = 0; i < entries.count; i++) {
+            if ([match rangeAtIndex:i + 1].location == NSNotFound) continue;
+            [result appendString:[source substringWithRange:NSMakeRange(copiedUpTo, match.range.location - copiedUpTo)]];
+            [result appendString:entries[i][1]];
+            copiedUpTo = NSMaxRange(match.range);
+            replaced++;
+            break;
+        }
+    }];
+    if (replaced == 0) return 0;
+    [result appendString:[source substringFromIndex:copiedUpTo]];
+    [str setString:result];
+    return replaced;
+}
+// Which pairs the replacement pass uses. Test isolation as for the vocabulary: in --test and in e2e mode ONLY the injected
+// pairs (--e2e-replacements) count and the user's file is never read (`loadUser` is not called).
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFReplacementPairsForRun(BOOL testMode, NSArray *injected,
+                                                                                 NSArray<NSDictionary<NSString *, NSString *> *> *(^loadUser)(void)) {
+    if (testMode) return GFReplacementPairsFromCustomWordEntries(GFCleanCustomWordEntries(injected ?: @[]));
+    return (loadUser ? loadUser() : nil) ?: @[];
+}
+// The plain terms stored at `path` (the first API of the Custom Words window, kept for it): the "write" of every entry that
+// is not a pair. Empty for a missing, unreadable or malformed file.
+static NSArray<NSString *> *GFLoadCustomWordsFromPath(NSString *path) {
+    NSMutableArray<NSString *> *terms = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *e in GFLoadCustomWordEntriesFromPath(path))
+        if (!e[kGFCustomWordHear]) [terms addObject:e[kGFCustomWordWrite]];
+    return terms;
+}
+// The user's vocabulary from its two sources: the custom words file first (every entry's "write": plain terms and the targets of
+// pairs), then rules.json "customVocabulary" (the first readable of `rulesPaths`), cleaned together (so duplicates across the two
+// collapse and the 100-term limit applies to the whole list).
 static NSArray<NSString *> *GFUserVocabularyFromFiles(NSString *customWordsPath, NSArray<NSString *> *rulesPaths) {
     NSData *rules = nil;
     for (NSString *path in rulesPaths) {
         rules = [NSData dataWithContentsOfFile:path];
         if (rules) break;
     }
-    return GFCleanVocabulary([GFLoadCustomWordsFromPath(customWordsPath) arrayByAddingObjectsFromArray:GFVocabularyFromRulesData(rules)]);
+    return GFCleanVocabulary([GFVocabularyFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(customWordsPath))
+                              arrayByAddingObjectsFromArray:GFVocabularyFromRulesData(rules)]);
 }
 // Which list a Live connect sends. Test isolation: in --test and in e2e mode ONLY the injected list (--e2e-vocabulary) is used
 // and the user's files are never read (`loadUser` is not called), so the user's real words are never sent by an automated test
@@ -3765,12 +3994,16 @@ static BOOL GFWritePrivateFile(NSData *data, NSString *path) {
     return ok;
 }
 
-// Saves the custom words list (see GFCustomWordsPath): cleans it (GFCleanVocabulary), creates the folder if needed, and replaces
-// the file atomically (a private 0600 temp file in the same folder, then rename), so a reader never sees a half-written list and
-// the words are readable only by the user. Returns NO and sets *err when the list can't be written (the old file stays).
-static BOOL GFSaveCustomWordsToPath(NSArray<NSString *> *words, NSString *path, NSError **err) {
+// Saves the custom words entries (see GFCustomWordsPath): cleans them (GFCleanCustomWordEntries), creates the folder if needed,
+// and replaces the file atomically (a private 0600 temp file in the same folder, then rename), so a reader never sees a
+// half-written list and the words are readable only by the user. A plain term is written as a string, a pair as
+// {"hear": ..., "write": ...}. Returns NO and sets *err when the list can't be written (the old file stays).
+static BOOL GFSaveCustomWordEntriesToPath(NSArray *entries, NSString *path, NSError **err) {
     NSError *e = nil;
-    NSData *data = path.length > 0 ? [NSJSONSerialization dataWithJSONObject:GFCleanVocabulary(words) options:NSJSONWritingPrettyPrinted error:&e] : nil;
+    NSMutableArray *fileObjects = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *entry in GFCleanCustomWordEntries(entries))
+        [fileObjects addObject:entry[kGFCustomWordHear] ? (id)entry : (id)entry[kGFCustomWordWrite]];
+    NSData *data = path.length > 0 ? [NSJSONSerialization dataWithJSONObject:fileObjects options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&e] : nil;
     NSString *dir = path.stringByDeletingLastPathComponent;
     BOOL ok = data != nil && [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES
                                                                          attributes:@{NSFilePosixPermissions: @(0700)} error:&e];
@@ -3785,6 +4018,13 @@ static BOOL GFSaveCustomWordsToPath(NSArray<NSString *> *words, NSString *path, 
     }
     if (!ok && err) *err = e ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError userInfo:nil];
     return ok;
+}
+// The first API of the Custom Words window, kept for it: replaces the PLAIN TERMS of the file with `words` and keeps every pair
+// the file already holds (the pairs first, so the 100-entry limit can never push a pair out through this call).
+static BOOL GFSaveCustomWordsToPath(NSArray<NSString *> *words, NSString *path, NSError **err) {
+    NSMutableArray *entries = [NSMutableArray arrayWithArray:GFReplacementPairsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(path))];
+    [entries addObjectsFromArray:GFCleanVocabulary(words)];
+    return GFSaveCustomWordEntriesToPath(entries, path, err);
 }
 
 // Writes wav to a private temp file and calls start(path, done). done() deletes the file: call it once the recognition that
@@ -5592,12 +5832,26 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     if (errLine) GFLog(@"%@", errLine);
 }
 
+// --test, e2e mode and unit-test delegates use only test-supplied custom words (--e2e-vocabulary, --e2e-replacements): the user's
+// custom-words.json and rules.json vocabulary are never read there.
+- (BOOL)customWordsTestSourcesOnly { return gGFRunningUnitTests || self.e2eMode.length > 0 || self.unitTestMode; }
+
+// The "hear -> write" pairs for a text that is about to be polished: the pairs of the user's custom words file, read from disk
+// here (a small file), so an edit applies to the next dictation. In tests only --e2e-replacements / e2eReplacements counts.
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)userReplacementPairs {
+    return GFReplacementPairsForRun([self customWordsTestSourcesOnly], self.e2eReplacements, ^NSArray<NSDictionary<NSString *, NSString *> *> *{
+        return GFReplacementPairsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(GFCustomWordsPath()));
+    });
+}
+
 // The custom vocabulary for the next Live connect: the user's custom words file plus rules.json "customVocabulary", read from disk
 // here (a small file; every press connects), so an edit applies to the next dictation without a relaunch. In e2e mode and in
 // --test only --e2e-vocabulary / e2eVocabulary counts and the user's files are not read (GFVocabularyForConnect). A list the
 // server rejected this run is not sent again (an edited list is tried once more). Empty = the setup message is today's.
 - (NSArray<NSString *> *)liveVocabularyForConnect {
-    NSArray<NSString *> *list = GFVocabularyForConnect(self.e2eMode.length > 0 || self.unitTestMode, self.e2eVocabulary, ^NSArray<NSString *> *{
+    // tests: the injected terms, then the targets of the injected pairs (as the app does with the user's entries)
+    NSArray *injected = [(self.e2eVocabulary ?: @[]) arrayByAddingObjectsFromArray:GFVocabularyFromCustomWordEntries(self.e2eReplacements)];
+    NSArray<NSString *> *list = GFVocabularyForConnect([self customWordsTestSourcesOnly], injected, ^NSArray<NSString *> *{
         NSString *home = NSHomeDirectory();
         return GFUserVocabularyFromFiles(GFCustomWordsPath(), @[[home stringByAppendingPathComponent:@"GeminiFlow/rules.json"],
                                                                 [home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/rules.json"]]);
@@ -5676,7 +5930,8 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     if (vocabulary.count > 0) // the COUNT only: the terms can be people's names
         GFLog(@"Live: setup carries a custom vocabulary of %lu terms (session %lu)", (unsigned long)vocabulary.count, (unsigned long)sid);
     if (self.e2eMode.length > 0) // test isolation, made visible: e2e runs never read the user's custom-words.json or rules.json list
-        GFLog(@"E2E: custom vocabulary: %lu terms from --e2e-vocabulary (the user's own lists are not read in e2e mode)", (unsigned long)vocabulary.count);
+        GFLog(@"E2E: custom vocabulary: %lu terms from --e2e-vocabulary and the targets of --e2e-replacements (the user's own lists are not read in e2e mode)",
+              (unsigned long)vocabulary.count);
     if (setupExtra) { // setup probe (e2e only): which fields were added (names only), and start collecting the server's field names
         self.e2eLiveSetupSentTime = [NSDate timeIntervalSinceReferenceDate];
         self.e2eLiveSeenFields = [NSMutableSet set];
@@ -7385,6 +7640,12 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             }
         }
     }
+    // 2a. Custom Words pairs ("when you hear X, write Y"): whole words or phrases only, all pairs in one pass (GFApplyUserReplacements).
+    // Every engine's text passes through here (Live, REST, on-device, the WAV fallback, the early paste), so a pair holds for all.
+    NSArray<NSDictionary<NSString *, NSString *> *> *userPairs = [self userReplacementPairs];
+    NSUInteger userReplaced = GFApplyUserReplacements(str, userPairs);
+    if (userPairs.count > 0 && !self.unitTestMode && !gGFRunningUnitTests) // counts only: the words are people's names
+        GFLog(@"Custom words: %lu pair(s), %lu replacement(s) applied to this text", (unsigned long)userPairs.count, (unsigned long)userReplaced);
 
     // 2b. "kind of" / "sort of" in rules.json extraFillers: removed only when clearly filler (backlog 0i), by the dedicated
     // pass, not the blind extraFillers regex (step 5 skips them). It runs before steps 3-5 remove the fillers/commas it reads.
@@ -8039,6 +8300,7 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
 }
 
 - (int)runBuiltInTestSuite {
+    gGFRunningUnitTests = YES; // from here on nothing reads the user's custom words
     @autoreleasepool {
         NSArray *cases = @[
             // --- SHOULD REMOVE "LIKE" (FILLERS) ---
@@ -10904,6 +11166,186 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (okCwSources && okCwIsolated) passed++; else failed++;
             printf("%s: vocabulary sources: custom words file then rules.json, cleaned together; --test and e2e mode never read the user's lists\n",
                    okCwSources && okCwIsolated ? "PASS" : "FAIL");
+
+            // Custom Words pairs ("hear -> write"): the line parser, the cleaner, the derived vocabulary, the replacement pass, the file
+            NSDictionary *(^cwTerm)(NSString *) = ^NSDictionary *(NSString *w) { return @{kGFCustomWordWrite: w}; };
+            NSDictionary *(^cwPair)(NSString *, NSString *) = ^NSDictionary *(NSString *h, NSString *w) { return @{kGFCustomWordHear: h, kGFCustomWordWrite: w}; };
+            NSArray *(^cwPairs)(NSArray *) = ^NSArray *(NSArray *flat) { // @[hear, write, hear, write, ...]
+                NSMutableArray *a = [NSMutableArray array];
+                for (NSUInteger i = 0; i + 1 < flat.count; i += 2) [a addObject:@{kGFCustomWordHear: flat[i], kGFCustomWordWrite: flat[i + 1]}];
+                return a;
+            };
+            struct { NSString *line; NSString *hear; NSString *write; GFCustomWordLineProblem problem; } pl[] = {
+                {@"Owen -> Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"Owen \u2192 Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"Owen => Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"Owen > Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"Owen = Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"Owen->Eoin", @"Owen", @"Eoin", GFCustomWordLineOK},
+                {@"  Jon   Smith  ->  John\tSmyth ", @"Jon Smith", @"John Smyth", GFCustomWordLineOK},
+                {@"Jean-Luc -> Jon Luke", @"Jean-Luc", @"Jon Luke", GFCustomWordLineOK},
+                {@"a = b -> c", @"a", @"b -> c", GFCustomWordLineOK},          // the first separator splits the line
+                {@"jay son => JSON", @"jay son", @"JSON", GFCustomWordLineOK},
+                {@"Siobhan", nil, @"Siobhan", GFCustomWordLineOK},             // no separator: a plain term
+                {@"  Mary   Anne ", nil, @"Mary Anne", GFCustomWordLineOK},
+                {@"Jean-Luc", nil, @"Jean-Luc", GFCustomWordLineOK},           // a hyphen alone is not a separator
+                {@"O'Neil", nil, @"O'Neil", GFCustomWordLineOK},
+                {@"owen -> Owen", nil, @"Owen", GFCustomWordLineOK},           // equal ignoring case: a plain term
+                {t64, nil, t64, GFCustomWordLineOK},
+                {@"", nil, nil, GFCustomWordLineEmpty},
+                {@"   \t ", nil, nil, GFCustomWordLineEmpty},
+                {@"->", nil, nil, GFCustomWordLineEmpty},
+                {@" = ", nil, nil, GFCustomWordLineEmpty},
+                {@"Owen ->", nil, nil, GFCustomWordLineEmptySide},
+                {@"-> Eoin", nil, nil, GFCustomWordLineEmptySide},
+                {@"Owen =   ", nil, nil, GFCustomWordLineEmptySide},
+                {t65, nil, nil, GFCustomWordLineTooLong},
+                {[t65 stringByAppendingString:@" -> Eoin"], nil, nil, GFCustomWordLineTooLong},
+                {[@"Owen -> " stringByAppendingString:t65], nil, nil, GFCustomWordLineTooLong},
+            };
+            int plBad = 0;
+            for (size_t i = 0; i < sizeof(pl) / sizeof(pl[0]); i++) {
+                GFCustomWordLineProblem why = (GFCustomWordLineProblem)99;
+                NSDictionary *got = GFParseCustomWordLine(pl[i].line, &why);
+                NSDictionary *want = pl[i].write ? (pl[i].hear ? cwPair(pl[i].hear, pl[i].write) : cwTerm(pl[i].write)) : nil;
+                if (why != pl[i].problem || !((got == nil && want == nil) || [got isEqual:want])) { plBad++; printf("  custom word line case %zu wrong\n", i + 1); }
+            }
+            GFCustomWordLineProblem nilWhy = GFCustomWordLineOK;
+            BOOL okLineNil = GFParseCustomWordLine(nil, &nilWhy) == nil && nilWhy == GFCustomWordLineEmpty
+                             && [GFParseCustomWordLine(@"Owen -> Eoin", NULL) isEqual:cwPair(@"Owen", @"Eoin")] && GFParseCustomWordLine(@"", NULL) == nil;
+            if (plBad == 0 && okLineNil) passed++; else failed++;
+            printf("%s: custom word line parser: ->, \u2192, =>, >, = give a pair; anything else a plain term; empty, empty side, too long are refused with a reason\n",
+                   plBad == 0 && okLineNil ? "PASS" : "FAIL");
+            NSArray *cwRaw = @[@"Siobhan", @{@"hear": @"  Owen ", @"write": @"Eoin"}, @{@"hear": @"owen", @"write": @"Other"}, @"siobhan",
+                               @{@"write": @"Zyphra"}, @{@"hear": @"Kristoffer", @"write": @"kristoffer"}, @{@"hear": @"x"},
+                               @{@"hear": @"", @"write": @"Niamh"}, @{@"hear": @5, @"write": @"Aoife"}, @{@"hear": @"Jon  Smith", @"write": @"John\nSmyth"},
+                               @{@"hear": t65, @"write": @"Long"}, @{@"hear": @"Short", @"write": t65}, @42, [NSNull null], @[@"nested"], @"Eoin",
+                               @{@"hear": @"Siobhan", @"write": @"Shivaun"}, @{@"hear": @"Sea\u0301n", @"write": @"Shawn"}, @{@"hear": @"Se\u00E1n", @"write": @"Sean"}];
+            NSArray *cwWant = @[cwTerm(@"Siobhan"), cwPair(@"Owen", @"Eoin"), cwTerm(@"Zyphra"), cwTerm(@"kristoffer"), cwTerm(@"Niamh"), cwTerm(@"Aoife"),
+                                cwPair(@"Jon Smith", @"John Smyth"), cwTerm(@"Eoin"), cwPair(@"Se\u00E1n", @"Shawn")];
+            NSMutableArray *cwMany = [NSMutableArray array];
+            for (int i = 0; i < 150; i++) [cwMany addObject:i % 2 ? (id)@{@"hear": [NSString stringWithFormat:@"Heard%03d", i], @"write": [NSString stringWithFormat:@"Term%03d", i]}
+                                                                  : (id)[NSString stringWithFormat:@"Term%03d", i]];
+            NSArray *cwOld = @[@"Siobhan", @" Zyphra ", @"siobhan", @"Mary\n Anne"];   // the first file format: strings only
+            NSArray *cwCleanMany = GFCleanCustomWordEntries(cwMany);
+            BOOL okCwEntries = [GFCleanCustomWordEntries(cwRaw) isEqual:cwWant] && [GFCleanCustomWordEntries(cwWant) isEqual:cwWant]
+                && [GFCleanCustomWordEntries(cwOld) isEqual:(@[cwTerm(@"Siobhan"), cwTerm(@"Zyphra"), cwTerm(@"Mary Anne")])]
+                && cwCleanMany.count == 100 && [cwCleanMany.firstObject isEqual:cwTerm(@"Term000")] && [cwCleanMany[99] isEqual:cwPair(@"Heard099", @"Term099")]
+                && [GFCleanCustomWordEntries(nil) isEqual:@[]] && [GFCleanCustomWordEntries(@"Siobhan") isEqual:@[]] && [GFCleanCustomWordEntries(@{@"hear": @"a", @"write": @"b"}) isEqual:@[]]
+                && [GFVocabularyFromCustomWordEntries(cwWant) isEqual:(@[@"Siobhan", @"Eoin", @"Zyphra", @"kristoffer", @"Niamh", @"Aoife", @"John Smyth", @"Shawn"])]
+                && [GFReplacementPairsFromCustomWordEntries(cwWant) isEqual:(@[cwPair(@"Owen", @"Eoin"), cwPair(@"Jon Smith", @"John Smyth"), cwPair(@"Se\u00E1n", @"Shawn")])]
+                && [GFVocabularyFromCustomWordEntries(@[]) isEqual:@[]] && [GFReplacementPairsFromCustomWordEntries(nil) isEqual:@[]]
+                && [GFVocabularyFromCustomWordEntries(GFCleanCustomWordEntries(cwOld)) isEqual:GFCleanVocabulary(cwOld)];   // the old format gives the old vocabulary
+            if (okCwEntries) passed++; else failed++;
+            printf("%s: custom word entries: old format, mixed, limits, duplicates by hear / write, hear == write is a plain term; vocabulary = every write\n",
+                   okCwEntries ? "PASS" : "FAIL");
+            NSArray *owenP = cwPairs(@[@"Owen", @"Eoin"]);
+            NSArray *jsonP = cwPairs(@[@"jay son", @"JSON"]);
+            NSArray<NSArray *> *rpRows = @[   // what, input, pairs, expected, replacements
+                @[@"a whole word is replaced", @"Owen said hello", owenP, @"Eoin said hello", @1],
+                @[@"a longer word that starts with it is untouched (Owens)", @"the Owens family", owenP, @"the Owens family", @0],
+                @[@"a word that contains it is untouched (Bowen, Rowena)", @"Bowen and Rowena", owenP, @"Bowen and Rowena", @0],
+                @[@"one part of a hyphenated word is untouched (co-owen, Owen-Smith)", @"the co-owen and Owen-Smith", owenP, @"the co-owen and Owen-Smith", @0],
+                @[@"a spaced dash is not a hyphenated word", @"Owen - hello - owen", owenP, @"Eoin - hello - Eoin", @2],
+                @[@"possessive: Owen's -> Eoin's", @"Owen's car", owenP, @"Eoin's car", @1],
+                @[@"possessive with a typographic apostrophe", @"Owen\u2019s car", owenP, @"Eoin\u2019s car", @1],
+                @[@"the match ignores case; the replacement keeps its own casing", @"OWEN, owen and oWeN", cwPairs(@[@"owen", @"Eoin"]), @"Eoin, Eoin and Eoin", @3],
+                @[@"next to punctuation", @"Owen, (Owen) \"Owen\" and Owen.", owenP, @"Eoin, (Eoin) \"Eoin\" and Eoin.", @4],
+                @[@"the whole text is the word", @"owen", owenP, @"Eoin", @1],
+                @[@"a phrase", @"parse the jay son file", jsonP, @"parse the JSON file", @1],
+                @[@"a space in a phrase matches any run of whitespace", @"parse the jay \t  son file", jsonP, @"parse the JSON file", @1],
+                @[@"a phrase does not match inside longer words", @"the jay sons file", jsonP, @"the jay sons file", @0],
+                @[@"an apostrophe in hear matches the typographic one", @"I don\u2019t know", cwPairs(@[@"don't", @"do not"]), @"I do not know", @1],
+                @[@"a typographic apostrophe in hear matches the straight one", @"O'Neal called", cwPairs(@[@"O\u2019Neal", @"O'Neil"]), @"O'Neil called", @1],
+                @[@"longest first: the longer of two that begin alike wins", @"New York is new", cwPairs(@[@"New", @"Old", @"New York", @"NYC"]), @"NYC is Old", @2],
+                @[@"the shorter still applies where the longer does not fit", @"a New Yorker", cwPairs(@[@"New", @"Old", @"New York", @"NYC"]), @"a Old Yorker", @1],
+                @[@"no cascade: A -> B is not rewritten by B -> C", @"call Owen and Eoin", cwPairs(@[@"Owen", @"Eoin", @"Eoin", @"Ian"]), @"call Eoin and Ian", @2],
+                @[@"a swap swaps", @"cat chases dog", cwPairs(@[@"cat", @"dog", @"dog", @"cat"]), @"dog chases cat", @2],
+                @[@"a replacement that contains its own hear is applied once", @"Owen called Owen", cwPairs(@[@"Owen", @"Owen Smith"]), @"Owen Smith called Owen Smith", @2],
+                @[@"a replacement is not rewritten by a pair that matches part of it", @"call Owen", cwPairs(@[@"Owen", @"Eoin Murphy", @"Murphy", @"Smith"]), @"call Eoin Murphy", @1],
+                @[@"digits and underscores are part of a word", @"file Owen2, 2Owen and owen_file", owenP, @"file Owen2, 2Owen and owen_file", @0],
+                @[@"an accented letter is part of a word", @"Owen\u00e9 and Owene\u0301", owenP, @"Owen\u00e9 and Owene\u0301", @0],
+                @[@"hear with other characters (C++), still a whole word", @"I like C++ but not C++11", cwPairs(@[@"C++", @"C plus plus"]), @"I like C plus plus but not C++11", @1],
+                @[@"template characters in write are literal", @"the price is right", cwPairs(@[@"price", @"$1 \\0 cost"]), @"the $1 \\0 cost is right", @1],
+                @[@"NFD text matches an NFC hear", @"Sea\u0301n said hello", cwPairs(@[@"Se\u00E1n", @"Shawn"]), @"Shawn said hello", @1],
+                @[@"NFC text matches an NFD hear", @"Se\u00E1n said hello", cwPairs(@[@"Sea\u0301n", @"Shawn"]), @"Shawn said hello", @1],
+                @[@"a trailing space survives", @"ask Owen ", owenP, @"ask Eoin ", @1],
+                @[@"no match: the text is untouched", @"nobody is here", owenP, @"nobody is here", @0],
+                @[@"no pairs: the text is untouched", @"Owen is here", @[], @"Owen is here", @0],
+                @[@"plain terms are not pairs", @"Owen is here", @[@{@"write": @"Eoin"}], @"Owen is here", @0],
+                @[@"unusable pairs are ignored", @"Owen is here", @[@{@"hear": @"", @"write": @"X"}, @{@"hear": @"here", @"write": @7}, @"junk", @{@"hear": @"Owen", @"write": @"Eoin"}], @"Eoin is here", @1],
+            ];
+            int rpBad = 0;
+            for (NSArray *row in rpRows) {
+                NSMutableString *ms = [row[1] mutableCopy];
+                NSUInteger n = GFApplyUserReplacements(ms, row[2]);
+                if (![ms isEqualToString:row[3]] || n != [row[4] unsignedIntegerValue]) { rpBad++; printf("  user replacement: %s: wrong\n", [row[0] UTF8String]); }
+            }
+            NSMutableString *rpLong = [NSMutableString string];
+            for (int i = 0; i < 200; i++) [rpLong appendString:@"Owen met the team and Heard051 said hello. "];
+            NSTimeInterval rpT0 = [NSDate timeIntervalSinceReferenceDate];
+            NSUInteger rpNone = 0;
+            for (int i = 0; i < 100000; i++) rpNone += GFApplyUserReplacements(rpLong, @[]) + GFApplyUserReplacements(rpLong, nil);
+            NSTimeInterval rpEmptySeconds = [NSDate timeIntervalSinceReferenceDate] - rpT0;
+            NSMutableString *rpNil = nil;
+            rpT0 = [NSDate timeIntervalSinceReferenceDate];
+            NSUInteger rpHundred = GFApplyUserReplacements(rpLong, GFReplacementPairsFromCustomWordEntries(cwCleanMany)); // 50 pairs on 8,600 characters
+            NSTimeInterval rpFullSeconds = [NSDate timeIntervalSinceReferenceDate] - rpT0;
+            BOOL okRp = rpBad == 0 && rpNone == 0 && rpEmptySeconds < 0.5 && GFApplyUserReplacements(rpNil, owenP) == 0
+                        && GFApplyUserReplacements([NSMutableString string], owenP) == 0 && rpHundred == 200 && [rpLong containsString:@"Term051 said hello"];
+            if (okRp) passed++; else failed++;
+            printf("%s: user replacements: %lu rows (whole words, case, possessive, phrases, apostrophes, longest first, no cascade, NFC); "
+                   "an empty list returns at once (200,000 calls in %.0f ms; 50 pairs on 8,600 chars in %.1f ms)\n", okRp ? "PASS" : "FAIL",
+                   (unsigned long)rpRows.count, rpEmptySeconds * 1000.0, rpFullSeconds * 1000.0);
+            // The file with pairs (a temp folder; never the user's real file) and the two older calls of the Custom Words window
+            NSString *cw2Dir = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"gf-custom-words-test-%@", [NSUUID UUID].UUIDString]];
+            NSString *cw2Path = [cw2Dir stringByAppendingPathComponent:@"custom-words.json"];
+            id (^cw2JSON)(void) = ^id { return [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:cw2Path] ?: [NSData data] options:0 error:nil]; };
+            NSUInteger (^cw2Mode)(void) = ^NSUInteger { return [[cwfm attributesOfItemAtPath:cw2Path error:nil][NSFilePosixPermissions] unsignedIntegerValue] & 0777; };
+            NSError *cw2Err = nil;
+            BOOL okCwFile = GFSaveCustomWordEntriesToPath(cwRaw, cw2Path, &cw2Err) && cw2Err == nil && cw2Mode() == 0600
+                && [cw2JSON() isEqual:(@[@"Siobhan", @{@"hear": @"Owen", @"write": @"Eoin"}, @"Zyphra", @"kristoffer", @"Niamh", @"Aoife",
+                                         @{@"hear": @"Jon Smith", @"write": @"John Smyth"}, @"Eoin", @{@"hear": @"Se\u00E1n", @"write": @"Shawn"}])]
+                && [GFLoadCustomWordEntriesFromPath(cw2Path) isEqual:cwWant]
+                && [[cwfm contentsOfDirectoryAtPath:cw2Dir error:nil] isEqual:(@[@"custom-words.json"])]
+                // the older calls: the loader gives the plain terms only; the saver replaces the plain terms and keeps the pairs
+                && [GFLoadCustomWordsFromPath(cw2Path) isEqual:(@[@"Siobhan", @"Zyphra", @"kristoffer", @"Niamh", @"Aoife", @"Eoin"])]
+                && GFSaveCustomWordsToPath(@[@"Caoimhe", @"Siobhan"], cw2Path, NULL)
+                && [GFLoadCustomWordEntriesFromPath(cw2Path) isEqual:(@[cwPair(@"Owen", @"Eoin"), cwPair(@"Jon Smith", @"John Smyth"), cwPair(@"Se\u00E1n", @"Shawn"),
+                                                                        cwTerm(@"Caoimhe"), cwTerm(@"Siobhan")])]
+                && [GFLoadCustomWordsFromPath(cw2Path) isEqual:(@[@"Caoimhe", @"Siobhan"])] && cw2Mode() == 0600
+                // what Live gets from this file: every write, the pair targets too
+                && [GFUserVocabularyFromFiles(cw2Path, @[]) isEqual:(@[@"Eoin", @"John Smyth", @"Shawn", @"Caoimhe", @"Siobhan"])]
+                && !GFSaveCustomWordEntriesToPath(cwWant, @"", NULL) && !GFSaveCustomWordEntriesToPath(cwWant, [cw2Path stringByAppendingPathComponent:@"x.json"], &cw2Err) && cw2Err != nil;
+            [utf8(@"[\"Siobhan\", \"Zyphra\"]") writeToFile:cw2Path atomically:YES];   // a file in the first format still loads
+            okCwFile = okCwFile && [GFLoadCustomWordEntriesFromPath(cw2Path) isEqual:(@[cwTerm(@"Siobhan"), cwTerm(@"Zyphra")])]
+                && [GFLoadCustomWordsFromPath(cw2Path) isEqual:(@[@"Siobhan", @"Zyphra"])]
+                && [GFLoadCustomWordEntriesFromPath([cw2Dir stringByAppendingPathComponent:@"missing.json"]) isEqual:@[]] && [GFLoadCustomWordEntriesFromPath(nil) isEqual:@[]];
+            [utf8(@"{\"hear\":\"Owen\",\"write\":\"Eoin\"}") writeToFile:cw2Path atomically:YES];   // not an array: empty
+            okCwFile = okCwFile && [GFLoadCustomWordEntriesFromPath(cw2Path) isEqual:@[]];
+            // Sources in tests: only what a test injects; the pass runs inside polishOnDeviceTranscript: (every engine's text goes through it)
+            GFSaveCustomWordEntriesToPath(@[cwPair(@"Owen", @"WRONG")], cw2Path, NULL);
+            __block int cw2Loads = 0;
+            NSArray *(^cw2LoadUser)(void) = ^NSArray * { cw2Loads++; return GFReplacementPairsFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(cw2Path)); };
+            BOOL okCwRun = [GFReplacementPairsForRun(YES, nil, cw2LoadUser) isEqual:@[]] && [GFReplacementPairsForRun(YES, owenP, cw2LoadUser) isEqual:owenP]
+                && [GFReplacementPairsForRun(YES, @[@"Siobhan", cwPair(@"a", @"b")], cw2LoadUser) isEqual:(@[cwPair(@"a", @"b")])] && cw2Loads == 0
+                && [GFReplacementPairsForRun(NO, owenP, cw2LoadUser) isEqual:(@[cwPair(@"Owen", @"WRONG")])] && cw2Loads == 1
+                && [GFReplacementPairsForRun(NO, owenP, nil) isEqual:@[]];
+            [cwfm removeItemAtPath:cw2Dir error:nil];
+            AppDelegate *rp1 = [[AppDelegate alloc] init]; rp1.unitTestMode = YES;
+            rp1.e2eReplacements = cwPairs(@[@"Owen", @"Eoin", @"jay son", @"JSON"]);
+            rp1.e2eVocabulary = @[@"Siobhan"];
+            AppDelegate *rp0 = [[AppDelegate alloc] init]; rp0.unitTestMode = YES;
+            NSString *rpIn = @"um so owen said the jay son file is ready and Bowen agrees";
+            NSString *rpOut = [rp1 polishOnDeviceTranscript:rpIn];
+            okCwRun = okCwRun && [rpOut isEqualToString:[rp0 polishOnDeviceTranscript:@"um so Eoin said the JSON file is ready and Bowen agrees"]]
+                && [rpOut containsString:@"Eoin said the JSON file"] && [rpOut containsString:@"Bowen"] && [rpOut.lowercaseString rangeOfString:@"owen said"].location == NSNotFound
+                && [[rp0 polishOnDeviceTranscript:rpIn].lowercaseString containsString:@"owen said the jay son file"]   // no pairs: untouched
+                && [[rp1 liveVocabularyForConnect] isEqual:(@[@"Siobhan", @"Eoin", @"JSON"])]                             // pair targets are vocabulary too
+                && [self userReplacementPairs].count == 0 && [self customWordsTestSourcesOnly];                           // this suite's own delegate: nothing of the user's
+            if (okCwFile && okCwRun) passed++; else failed++;
+            printf("%s: custom words file with pairs (old format loads, older calls keep the pairs, 0600); polish applies injected pairs; tests never read the user's file\n",
+                   okCwFile && okCwRun ? "PASS" : "FAIL");
         }
         // Changelog data & filter invariants (Foundation-only; also runs in GFEngine --test on iOS)
         {
@@ -11961,6 +12403,19 @@ int main(int argc, const char * argv[]) {
                 // optional, test-only (custom vocabulary): the list ("a|b|c") this run sends; without it an e2e run sends none (the user's lists are never read in e2e mode)
                 if (strcmp(argv[i], "--e2e-vocabulary") == 0 && i + 1 < argc) {
                     delegate.e2eVocabulary = GFCleanVocabulary([@(argv[i + 1]) componentsSeparatedByString:@"|"]);
+                    i += 1;
+                    continue;
+                }
+                // optional, test-only (custom words pairs): "Owen=Eoin|Jon Smith=John Smyth" = the pairs of this run (hear=write); the
+                // targets are also sent to Live as vocabulary, as the app does with the user's pairs
+                if (strcmp(argv[i], "--e2e-replacements") == 0 && i + 1 < argc) {
+                    NSMutableArray *pairs = [NSMutableArray array];
+                    for (NSString *piece in [@(argv[i + 1]) componentsSeparatedByString:@"|"]) {
+                        NSRange eq = [piece rangeOfString:@"="];
+                        if (eq.location != NSNotFound)
+                            [pairs addObject:@{kGFCustomWordHear: [piece substringToIndex:eq.location], kGFCustomWordWrite: [piece substringFromIndex:NSMaxRange(eq)]}];
+                    }
+                    delegate.e2eReplacements = GFReplacementPairsFromCustomWordEntries(GFCleanCustomWordEntries(pairs));
                     i += 1;
                     continue;
                 }

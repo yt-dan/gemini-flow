@@ -123,6 +123,18 @@ Runs offline and unattended against a candidate binary BEFORE it is installed:
                   --e2e-live-vocab-reject: close 1007 "Invalid JSON payload" before setupComplete): the app must reconnect once
                   WITHOUT the list (not the key-in-URL auth retry), log the rejection with counts and codes only, and still
                   deliver the dictation.
+  T32 custom-words replacement pairs ("when you hear Owen, write Eoin"; the user's custom-words.json; test-only pairs come from
+                  --e2e-replacements, the user's file is never read in e2e mode):
+                  - online (regular suite), T32 live-replacement/owen: the clip "Please ask Owen to review the document" with the
+                    pair Owen=Eoin must come back ON LIVE with "Eoin" and without "Owen", recall >= 0.85, within the T8 limit; the
+                    pair's target is sent to Live as vocabulary (1 term); the log holds counts only.
+                  - offline, T32 replacement/offline-ondevice: the fillers clip through the real on-device pipeline with the pairs
+                    "Friday=Freitag|the review=the retro": both replaced as whole words / phrases in the final text.
+                  - offline, T32 replacement/offline-rest: the REST path with a canned answer (test-only) "Please ask Owen and
+                    the Owens family to review Owen's document." and the pair Owen=Eoin: exactly "Please ask Eoin and the Owens
+                    family to review Eoin's document."
+                  - offline, T32 replacement gate self-test: the online gate run with canned results passes for the expected
+                    outcome and fails for each outcome it guards against.
   T30 live-vocabulary/offline-isolated (offline) - test isolation: an e2e press WITHOUT --e2e-vocabulary sends no vocabulary
                   and logs "0 terms" (the user's custom-words.json and rules.json list are never read in e2e mode).
   Offline T28 probe-mode selection - the probe cases are selected only with the flag, RUN_PROBE is gitignored, every probed clip
@@ -418,6 +430,9 @@ def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
         "auth_retry": "Live: header auth rejected before setupComplete" in out,
         "live_connects": len(re.findall(r"Live: connecting \(", out)),
         "vocab_leak": _vocab_terms_in_log(out, extra),
+        # custom words pairs: per polished text, (pairs in force, replacements applied); counts only
+        "user_replacements": [(int(a), int(b)) for a, b in
+                              re.findall(r"Custom words: (\d+) pair\(s\), (\d+) replacement\(s\) applied to this text", out)],
     }
     if PROBE_LOG_MARK in out:  # backlog 0y-probe: only runs with --e2e-live-setup-extra log these lines; other runs are unchanged
         res["probe"] = parse_probe(out)
@@ -428,13 +443,21 @@ PROBE_LOG_MARK = "E2E: Live setup probe:"
 VOCAB_FLAG = "--e2e-vocabulary"
 
 
+REPLACEMENTS_FLAG = "--e2e-replacements"
+
+
 def _vocab_terms_in_log(out, extra):
-    """Terms of the run's --e2e-vocabulary list that appear in the app's LOG lines (NSLog lines; the E2E RESULT / E2E LIVE RAW
-    lines on stdout are the test clip's text and may contain them). Must be empty: only the number of terms may be logged."""
+    """Custom words of the run (the --e2e-vocabulary terms and both sides of the --e2e-replacements pairs) that appear in the
+    app's LOG lines (NSLog lines; the E2E RESULT / E2E LIVE RAW lines on stdout are the test clip's text and may contain them).
+    Must be empty: only counts may be logged."""
     extra = list(extra or [])
-    if VOCAB_FLAG not in extra or extra.index(VOCAB_FLAG) + 1 >= len(extra):
+    terms = []
+    for flag in (VOCAB_FLAG, REPLACEMENTS_FLAG):
+        if flag in extra and extra.index(flag) + 1 < len(extra):
+            for piece in extra[extra.index(flag) + 1].split("|"):
+                terms += [t.strip() for t in (piece.split("=", 1) if flag == REPLACEMENTS_FLAG else [piece]) if t.strip()]
+    if not terms:
         return []
-    terms = [t.strip() for t in extra[extra.index(VOCAB_FLAG) + 1].split("|") if t.strip()]
     log = "\n".join(l for l in out.splitlines() if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+ \S+\[\d+:\d+\] ", l)).lower()
     return [t for t in terms if re.search(r"(?<![a-z0-9])" + re.escape(t.lower()) + r"(?![a-z0-9])", log)]
 
@@ -612,6 +635,9 @@ def main():
     # for the expected outcome and fail for each outcome they guard against (default spelling, rejection, fallback, a term in the log...).
     vocab_bad = vocabulary_gates_selftest()
     gate("T30 vocabulary gates self-test", not vocab_bad, "9 canned outcomes ok" if not vocab_bad else f"problems: {vocab_bad}")
+    # T32 replacement gate self-test: the online T32 gate with canned results (no app, no TTS, no network).
+    repl_bad = replacement_gate_selftest()
+    gate("T32 replacement gate self-test", not repl_bad, "10 canned outcomes ok" if not repl_bad else f"problems: {repl_bad}")
 
     # T24 duplicate-phrase check self-test (backlog 0o): the T18/T23 "no phrase duplicated at a seam" check must catch a real seam
     # repeat (also one more repeat of a phrase the expected text already repeats) and must NOT report recognizer variants, dropped words at a
@@ -826,6 +852,34 @@ def main():
              f"terms sent per session={r['vocab_terms']} rejected={r['vocab_rejected']} connects={r['live_connects']} (want 2) "
              f"auth_retry={r['auth_retry']} terms in log={r['vocab_leak']} via={probe_via(r)} lat={r['latency_ms']}ms exit={r['exit']} "
              f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+        # T32 offline (custom-words pairs): the same clip through the real ON-DEVICE pipeline with two test pairs, a word and a
+        # phrase. The final text must hold the replacements and none of the heard forms; the log holds counts only.
+        want_in, want_out = ["freitag", "retro"], ["friday", "review"]
+        for _ in range(2):  # retry once: the on-device recognizer is load-sensitive (it must hear "Friday" and "the review")
+            r = run_e2e(a.bin, tts(cid, voice, rate, text), timeout=90, extra=[REPLACEMENTS_FLAG, "Friday=Freitag|the review=the retro"])
+            res = r["result"] or ""
+            ws = words(res)
+            if r["exit"] == 0 and all(w in ws for w in want_in):
+                break
+        ok = (r["exit"] == 0 and all(w in ws for w in want_in) and not any(w in ws for w in want_out)
+              and bool(r["user_replacements"]) and all(pairs == 2 for pairs, _ in r["user_replacements"])
+              and max(n for _, n in r["user_replacements"]) == 2 and not r["vocab_leak"] and res.endswith(" "))
+        gate("T32 replacement/offline-ondevice", ok,
+             f"replaced forms in the text={[w for w in want_in if w in ws]} heard forms left={[w for w in want_out if w in ws]} "
+             f"(pairs, replacements made) per polished text={r['user_replacements']} words in log={r['vocab_leak']} exit={r['exit']} "
+             f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+        # ... and through the REST path: REST answers a canned text (test-only, no network) that holds the heard word, its
+        # possessive and a longer word that only starts with it. Exact final text: whole words only.
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model="gemini-3.5-flash-lite", timeout=60,
+                    extra=["--e2e-rest-fake-ok", "1", "--e2e-rest-fake-text", "Please ask Owen and the Owens family to review Owen's document.",
+                           REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS])
+        res = r["result"] or ""
+        ok = (r["exit"] == 0 and res == "Please ask Eoin and the Owens family to review Eoin's document. "
+              and (1, 2) in r["user_replacements"] and not r["vocab_leak"])
+        gate("T32 replacement/offline-rest", ok,
+             f"(pairs, replacements made) per polished text={r['user_replacements']} words in log={r['vocab_leak']} exit={r['exit']} -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
 
     # T15 bounded wait (user-approved 2026-11-10): a slow REST answer (test-only canned HTTP 200, no network) must not hold the
     # dictation: the on-device text comes ~3 s after release, then the REST text as the final result. A fast REST, or a press
@@ -1439,6 +1493,9 @@ def first_pause_start(path, min_gap=1.5, level=150):
 # T30 custom vocabulary: the test-only list of the online gates (--e2e-vocabulary; the user's rules.json is never touched).
 ONLINE_VOCAB = "Siobhan|Zyphra"
 ONLINE_VOCAB_SPELLING = [("name", "Siobhan"), ("product", "Zyphra")]  # (T28 probe clip, spelling that must come back)
+# T32: the test-only pair of the online gate (--e2e-replacements; the user's custom-words.json is never read in e2e mode).
+ONLINE_REPLACEMENTS = "Owen=Eoin"
+ONLINE_REPLACEMENT_EXPECTED = "Please ask Eoin to review the document."
 
 # T28 (backlog 0y-probe, OPT-IN via the RUN_PROBE flag file; see the docstring). A probe of the REAL Live server, not a quality
 # gate. Round 1 (2026-11-13) answered whether the `setup` message accepts inputAudioTranscription (yes, at setup level only;
@@ -1467,6 +1524,9 @@ PROBE_CLIPS = {
     "fillers": (lambda: tts(*CORPUS[0][:4]), CORPUS[0][4], None),
     "keep_like": (lambda: tts(*CORPUS[3][:4]), CORPUS[3][4], None),
     "repeat": (lambda: tts("probe_repeat", None, None, "I am so happy with my with my new app."), _PROBE_REPEAT_EXP, None),
+    # custom-words pair (T32): the clip says "Owen"; the pair Owen=Eoin must give "Eoin"
+    "owen": (lambda: tts("probe_owen", None, None, "Please ask Owen to review the document."),
+             "Please ask Owen to review the document.", ("Eoin",)),
     # a name with a space and one with an apostrophe (the clip says the usual spellings "Mary Ann O'Neal")
     "mary_anne": (lambda: tts("probe_mary_anne", None, None, "Please invite Mary Ann O'Neal to the review."),
                   "Please invite Mary Ann O'Neal to the review.", ("Mary Anne", "O'Neil")),
@@ -1543,7 +1603,7 @@ _SMART = {_IAT: {"mode": "SMART"}}
 # (case id, extra `setup` object, clip ids, what the case asks). "control" = {} and no vocabulary = today's setup message with the
 # probe's logging; it runs every clip another case uses, so each output has a control to compare with.
 PROBE_CASES = [
-    ("control", {}, ["name", "name_spelling", "product", "build", "bill", "mary_anne"] + PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
+    ("control", {}, ["name", "name_spelling", "product", "build", "bill", "mary_anne", "owen"] + PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
      "today's setup message, no vocabulary (baseline)"),
     ("iat_empty", {_IAT: {}}, ["build"], "is setup.inputAudioTranscription itself accepted (empty object)?"),
     ("language_codes", {_IAT: {"languageCodes": ["en-US"]}}, ["build"], "languageCodes only"),
@@ -1575,6 +1635,10 @@ PROBE_CASES = [
     ("vocab_language", {_IAT: {"customVocabulary": PROBE_VOCAB, "languageCodes": ["en-US"]}},
      ["name", "name_spelling", "product", "build", "bill"],
      "vocabulary + languageCodes en-US (the documentation: vocabulary is followed 'more reliably' with a language): compare with custom_vocabulary"),
+    ("replacement_pair", {}, ["owen"],
+     "custom-words pair Owen=Eoin (the app's replacement pass; the target also goes to Live as vocabulary): the control row shows "
+     "what Live writes for this clip WITHOUT the pair, the raw text here what Live writes with 'Eoin' in the vocabulary"),
+    ("replacement_term_only", {}, ["owen"], "only the plain term 'Eoin' in the vocabulary, no pair: does Live write Eoin for a spoken Owen by itself?"),
     ("raw_500_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_500}}, ["name"],
      "server limit: 500 terms sent raw in the setup extra (the app itself never sends more than 100)"),
     ("raw_1001_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_1001}}, ["name"],
@@ -1592,6 +1656,8 @@ PROBE_CASE_OPTS = {
     "vocab_shapes": {"vocab": [PROBE_TERM_64, "Mary Anne", "O'Neil"]},
     "smart_vocab": {"vocab": ["Siobhan", "Kristoffer", "Zyphra"]},
     "vocab_reject_sim": {"vocab": ["Siobhan", "Zyphra"], "flags": ["--e2e-live-vocab-reject"]},
+    "replacement_pair": {"flags": [REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS]},
+    "replacement_term_only": {"vocab": ["Eoin"]},
 }
 
 
@@ -2093,6 +2159,74 @@ def run_vocabulary_gates(binary, gate, report, runner=None):
          f"recall={rc:.2f} (T6 run of the same clip: {t6['recall'] if t6 else None}) lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
          f"live_ok={r['live_ok']} fell_back={r['fell_back']} leaked={leaked} terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} "
          f"terms in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+
+def run_replacement_gate(binary, gate, report, runner=None):
+    """T32 (online, regular suite): a custom-words pair on the real Live path. The clip says "Please ask Owen to review the
+    document"; with the pair Owen=Eoin the final text must hold "Eoin" and no "Owen", ON LIVE, recall >= ONLINE_MIN_RECALL against
+    the text with "Eoin", within the T8 limit. The pair's target goes to Live as vocabulary (exactly 1 term in the one session),
+    nothing is rejected, and the log shows counts only. Reported, not gated: how many replacements the app's pass made (0 = Live
+    wrote "Eoin" by itself from the vocabulary; 1 = Live wrote "Owen" and the pass fixed it). `runner` replaces run_e2e in the
+    offline self-test."""
+    runner = runner or run_e2e
+    build, _, _ = PROBE_CLIPS["owen"]
+    r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS])
+    res = r["result"] or ""
+    rc = recall(ONLINE_REPLACEMENT_EXPECTED, res)
+    lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+    ws = words(res)
+    ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and "eoin" in ws and "owen" not in ws and rc >= ONLINE_MIN_RECALL
+          and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [1] and not r["vocab_rejected"] and not r["vocab_leak"]
+          and bool(r["user_replacements"]) and all(p == 1 for p, _ in r["user_replacements"]) and res.endswith(" "))
+    r.update({"id": "replacement/owen", "model": LIVE_MODEL + "+replacement", "recall": round(rc, 3)})
+    report["tests"].append(r)
+    gate("T32 live-replacement/owen", ok,
+         f"'Eoin' in the text={'yes' if 'eoin' in ws else 'no'} 'Owen' left={'yes' if 'owen' in ws else 'no'} recall={rc:.2f} "
+         f"lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) live_ok={r['live_ok']} fell_back={r['fell_back']} "
+         f"vocabulary terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} (pairs, replacements made)={r['user_replacements']} "
+         f"words in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+
+def replacement_gate_selftest():
+    """Offline run of run_replacement_gate with canned e2e results (no app, no TTS, no network). Returns a list of problems."""
+    base = {"exit": 0, "latency_ms": 400, "live_ok": True, "fell_back": False, "vocab_terms": [1], "vocab_rejected": False,
+            "vocab_leak": [], "user_replacements": [(1, 1)], "tail": "", "result": ONLINE_REPLACEMENT_EXPECTED + " "}
+    modes = {  # mode -> (override of the canned result, must the gate pass?)
+        "replaced-by-the-pass": ({}, True),
+        "written-by-live": ({"user_replacements": [(1, 0)]}, True),
+        "owen-left": ({"result": "Please ask Owen to review the document. ", "user_replacements": [(1, 0)]}, False),
+        "both-names": ({"result": "Please ask Eoin Owen to review the document. "}, False),
+        "no-pair-in-force": ({"user_replacements": []}, False),
+        "target-not-sent": ({"vocab_terms": []}, False),
+        "fell-back": ({"live_ok": False, "fell_back": True}, False),
+        "slow": ({"latency_ms": USER_MAX_LATENCY_MS + 1}, False),
+        "word-in-log": ({"vocab_leak": ["Eoin"]}, False),
+        "no-result": ({"exit": "timeout", "latency_ms": None, "result": None}, False),
+    }
+    bad = []
+    real, clip_of = _selftest_clip_builders()
+    try:
+        for mode, (over, want) in modes.items():
+            def runner(binary, wav, model=None, timeout=90, extra=None):
+                ok_args = clip_of(wav) == "owen" and model == LIVE_MODEL and list(extra) == [REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS]
+                return dict(base, **over) if ok_args else dict(base, result=None)
+            gates, report = [], {"tests": []}
+            try:
+                run_replacement_gate("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), report, runner=runner)
+                json.dumps(report)
+            except Exception as e:  # any exception here would also end the real online run
+                bad.append(f"{mode}: {type(e).__name__}: {e}")
+                continue
+            if gates != [("T32 live-replacement/owen", want)]:
+                bad.append(f"{mode}: {gates}, want pass={want}")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
+    finally:
+        PROBE_CLIPS.clear()
+        PROBE_CLIPS.update(real)
+    if recall(ONLINE_REPLACEMENT_EXPECTED, real["owen"][1].replace("Owen", "Eoin")) < 1.0 or "Owen" not in real["owen"][1]:
+        bad.append("the owen clip and the expected text disagree")
+    return bad
 
 
 def _selftest_clip_builders():
@@ -2764,6 +2898,9 @@ def online_main(a):
 
     # T30 custom vocabulary (rules.json customVocabulary -> setup.inputAudioTranscription.customVocabulary): see run_vocabulary_gates.
     run_vocabulary_gates(a.bin, gate, report)
+
+    # T32 custom-words replacement pair on Live ("when you hear Owen, write Eoin"): see run_replacement_gate.
+    run_replacement_gate(a.bin, gate, report)
 
     # T23 (backlog 0m, OPT-IN: only while RUN_LONG exists): ~5 and ~10 min hands-free sessions must finish ON LIVE (no REST, no
     # fallback) with recall >= 0.95, no phrase duplicated at a split/reconnect seam, release->text within the T8 limit. Reported
