@@ -39,6 +39,8 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(39), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 12:15", @"title": @"Custom Words: names and unusual terms spelled your way", @"highlights": @[@"A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.", @"On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."]},
+            @{@"cycle": @(38), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 12:10", @"title": @"Sturdier Setup, Changelog and API key windows", @"highlights": @[@"First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.", @"Buttons need a press and release on the same spot, the search box clears with its X or Esc, long changelog titles no longer overlap, VoiceOver can read both windows, and test runs no longer flash extra icons in the menu bar.", @"An update no longer restarts the app while you are dictating: it waits until your text has been delivered."]},
             @{@"cycle": @(37), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:35", @"title": @"Long dictations stay on Live when the last sound is only a click or a breath", @"highlights": @[@"After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.", @"The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."]},
             @{@"cycle": @(36), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 11:00", @"title": @"Repeated phrases and mid-thought restarts cleaned up", @"highlights": @[@"Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').", @"Leaves deliberate repeats alone: emphasis after a comma ('I know, I know'), courtesy phrases, names, number runs and idioms such as 'again and again'. Runs on your Mac in well under a millisecond."]},
             @{@"cycle": @(35), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 10:30", @"title": @"Brand refresh shared with GeminiFlow for iOS & cleaner windows", @"highlights": @[@"Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.", @"Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."]},
@@ -188,43 +190,93 @@ static NSArray<NSDictionary *> *GFChangelogFilterEntries(NSArray<NSDictionary *>
     return out;
 }
 
-// Sanitizes pasted API keys (.env assignments, export lines, quotes, curl snippets, query URLs, stray whitespace/newlines).
-// Returns @"" if input is empty or a keyless http(s) URL (e.g. https://aistudio.google.com/apikey) so an existing key is never clobbered.
+// Reads an API key out of whatever the user pasted (.env assignments, export lines, quotes, curl snippets, JSON, "Bearer ..."
+// headers, query URLs, stray whitespace/newlines). A Google-style key (AIza + 35 characters) anywhere in the input wins. Otherwise
+// only ONE plain token of 20+ characters is accepted, after unwrapping ?key= / x-goog-api-key / KEY=value forms.
+// Returns @"" for everything else (empty input, a keyless URL such as https://aistudio.google.com/apikey, prose, a JSON object or
+// a command with no recognisable key), so garbage is never saved as a key and an existing key is never clobbered.
 static NSString *GFSanitizeApiKeyInput(NSString *raw) {
     if (![raw isKindOfClass:[NSString class]] || raw.length == 0) return @"";
-    NSString *s = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSString *s = [raw stringByTrimmingCharactersInSet:ws];
     if (s.length == 0) return @"";
 
-    // Extract ?key=AIza... or x-goog-api-key: ... if user pasted a curl command or URL snippet
-    static NSRegularExpression *urlKeyRe, *hdrKeyRe, *envRe;
+    static NSRegularExpression *googleRe, *wrapRe, *urlKeyRe, *hdrKeyRe, *envRe, *commentRe, *tokenRe;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        // A whole key, not 39 characters cut out of a longer token
+        googleRe = [NSRegularExpression regularExpressionWithPattern:@"(?<![0-9A-Za-z_\\-])AIza[0-9A-Za-z_\\-]{35}(?![0-9A-Za-z_\\-])" options:0 error:nil];
+        wrapRe   = [NSRegularExpression regularExpressionWithPattern:@"[ \\t]*[\\r\\n]+[ \\t]*" options:0 error:nil];
         urlKeyRe = [NSRegularExpression regularExpressionWithPattern:@"[?&](?:api_?)?key=([A-Za-z0-9_\\-]{16,})" options:NSRegularExpressionCaseInsensitive error:nil];
         hdrKeyRe = [NSRegularExpression regularExpressionWithPattern:@"x-goog-api-key[\"']?\\s*[:=]\\s*[\"']?([A-Za-z0-9_\\-]{16,})" options:NSRegularExpressionCaseInsensitive error:nil];
-        envRe    = [NSRegularExpression regularExpressionWithPattern:@"^(?:export\\s+)?[A-Za-z0-9_]*KEY[A-Za-z0-9_]*\\s*=\\s*(.*)$" options:NSRegularExpressionCaseInsensitive error:nil];
+        // The first KEY=value line of a (possibly multi-line) .env paste
+        envRe    = [NSRegularExpression regularExpressionWithPattern:@"^[ \\t]*(?:export[ \\t]+)?[A-Za-z0-9_]*KEY[A-Za-z0-9_]*[ \\t]*=[ \\t]*(.*)$"
+                                                             options:(NSRegularExpressionCaseInsensitive | NSRegularExpressionAnchorsMatchLines) error:nil];
+        commentRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+#.*$" options:0 error:nil];
+        tokenRe  = [NSRegularExpression regularExpressionWithPattern:@"^[A-Za-z0-9_.\\-]{20,}$" options:0 error:nil];
     });
+
+    // 1. A Google-style key anywhere: "Bearer AIza...", JSON, a curl command, KEY=AIza... # note, a two-line .env
+    NSTextCheckingResult *gm = [googleRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    if (gm) return [s substringWithRange:gm.range];
+    if ([s rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location != NSNotFound) {
+        // ...or one that a terminal or mail client wrapped onto two lines
+        NSString *joined = [wrapRe stringByReplacingMatchesInString:s options:0 range:NSMakeRange(0, s.length) withTemplate:@""];
+        gm = [googleRe firstMatchInString:joined options:0 range:NSMakeRange(0, joined.length)];
+        if (gm) return [joined substringWithRange:gm.range];
+    }
+
+    // 2. Any other key format: unwrap the known forms, then accept a single plain token only (never glue words together)
     NSTextCheckingResult *um = [urlKeyRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    NSTextCheckingResult *hm = um ? nil : [hdrKeyRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
     if (um && [um rangeAtIndex:1].location != NSNotFound) {
-        return [s substringWithRange:[um rangeAtIndex:1]];
+        s = [s substringWithRange:[um rangeAtIndex:1]];
+    } else if (hm && [hm rangeAtIndex:1].location != NSNotFound) {
+        s = [s substringWithRange:[hm rangeAtIndex:1]];
+    } else {
+        NSTextCheckingResult *em = [envRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+        if (em && [em rangeAtIndex:1].location != NSNotFound) {
+            s = [s substringWithRange:[em rangeAtIndex:1]];
+            s = [commentRe stringByReplacingMatchesInString:s options:0 range:NSMakeRange(0, s.length) withTemplate:@""]; // KEY=value # note
+            s = [s stringByTrimmingCharactersInSet:ws];
+        }
+        NSCharacterSet *quotes = [NSCharacterSet characterSetWithCharactersInString:@"\"'`"];
+        while (s.length >= 2 && [quotes characterIsMember:[s characterAtIndex:0]] && [quotes characterIsMember:[s characterAtIndex:s.length - 1]]) {
+            s = [[s substringWithRange:NSMakeRange(1, s.length - 2)] stringByTrimmingCharactersInSet:ws];
+        }
     }
-    NSTextCheckingResult *hm = [hdrKeyRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
-    if (hm && [hm rangeAtIndex:1].location != NSNotFound) {
-        return [s substringWithRange:[hm rangeAtIndex:1]];
-    }
-    NSTextCheckingResult *em = [envRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
-    if (em && [em rangeAtIndex:1].location != NSNotFound) {
-        s = [[s substringWithRange:[em rangeAtIndex:1]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    }
-    NSCharacterSet *quotes = [NSCharacterSet characterSetWithCharactersInString:@"\"'`"];
-    while (s.length >= 2 && [quotes characterIsMember:[s characterAtIndex:0]] && [quotes characterIsMember:[s characterAtIndex:s.length - 1]]) {
-        s = [[s substringWithRange:NSMakeRange(1, s.length - 2)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    }
-    // Strip any internal whitespace or newlines introduced by terminal wrapping
-    NSArray<NSString *> *parts = [s componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    s = [parts componentsJoinedByString:@""];
-    NSString *lower = s.lowercaseString;
-    if ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"]) return @"";
+    if ([tokenRe firstMatchInString:s options:0 range:NSMakeRange(0, s.length)] == nil) return @"";
     return s;
+}
+
+// What the API key dialog shows for a saved key: its first 4 and last 4 characters with dots between, never the whole key.
+// A key too short to hide anything that way (under 12 characters) is shown as dots only.
+static NSString *GFMaskedApiKey(NSString *key) __attribute__((unused));
+static NSString *GFMaskedApiKey(NSString *key) {
+    if (![key isKindOfClass:[NSString class]] || key.length == 0) return @"";
+    NSString *dots = @"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+    if (key.length < 12) return dots;
+    return [NSString stringWithFormat:@"%@%@%@", [key substringToIndex:4], dots, [key substringFromIndex:key.length - 4]];
+}
+
+// What pressing Save in the API key dialog does, given the text in the field and the key already saved.
+typedef NS_ENUM(NSInteger, GFApiKeySaveAction) {
+    GFApiKeySaveKeep = 0, // empty field with a saved key, or the saved key pasted again: key AND engine mode stay as they are
+    GFApiKeySaveStore,    // a new usable key: save it, switch to Gemini, verify it
+    GFApiKeySaveReject,   // text was entered but no key can be read from it: tell the user, change nothing
+    GFApiKeySaveNoKey     // empty field and nothing saved: stay on the on-device engine
+};
+static GFApiKeySaveAction GFApiKeySaveDecision(NSString *rawInput, NSString *savedKey, NSString * __autoreleasing *outKey) __attribute__((unused));
+static GFApiKeySaveAction GFApiKeySaveDecision(NSString *rawInput, NSString *savedKey, NSString * __autoreleasing *outKey) {
+    if (outKey) *outKey = nil;
+    NSString *typed = [([rawInput isKindOfClass:[NSString class]] ? rawInput : @"") stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL haveSaved = [savedKey isKindOfClass:[NSString class]] && savedKey.length > 0;
+    if (typed.length == 0) return haveSaved ? GFApiKeySaveKeep : GFApiKeySaveNoKey;
+    NSString *clean = GFSanitizeApiKeyInput(typed);
+    if (clean.length == 0) return GFApiKeySaveReject;
+    if (haveSaved && [clean isEqualToString:savedKey]) return GFApiKeySaveKeep;
+    if (outKey) *outKey = clean;
+    return GFApiKeySaveStore;
 }
 
 // Custom NSTextField that supports Cmd+V, Cmd+C, Cmd+X, Cmd+A inside accessory app dialogs
@@ -249,33 +301,168 @@ static NSString *GFSanitizeApiKeyInput(NSString *raw) {
 }
 @end
 
-// Shared closable window for accessory-app utilities: supports traffic-light X, Cmd+W, Cmd+F, and Esc.
+// Which window shortcut a key-down is: 1 = close (Cmd+W), 2 = find (Cmd+F), 0 = neither. Caps Lock (and the numeric-pad and
+// function flags) are ignored. The letter comes from `characters` (Latin under Cmd on most non-Latin layouts), then from
+// charactersIgnoringModifiers; only when neither is ASCII (a layout with no Latin letter on that key) the physical key decides,
+// so Dvorak-style layouts keep their own W and F.
+static NSInteger GFWindowShortcutForKey(NSEventModifierFlags flags, unsigned short keyCode, NSString *chars, NSString *charsIgnoringMods) {
+    NSEventModifierFlags held = flags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
+    if (held != NSEventModifierFlagCommand) return 0;
+    for (NSString *c in @[chars ?: @"", charsIgnoringMods ?: @""]) {
+        if (c.length == 1 && [c characterAtIndex:0] < 128) {
+            NSString *letter = c.lowercaseString;
+            return [letter isEqualToString:@"w"] ? 1 : ([letter isEqualToString:@"f"] ? 2 : 0);
+        }
+    }
+    if (keyCode == 13) return 1; // kVK_ANSI_W
+    if (keyCode == 3) return 2;  // kVK_ANSI_F
+    return 0;
+}
+
+// Shared closable window for accessory-app utilities: supports traffic-light X, Cmd+W, Cmd+F, Esc and Return (default action).
 @interface GFClosableWindow : NSWindow
 @property (nonatomic, copy) void (^onFindShortcut)(void);
 @property (nonatomic, copy) BOOL (^onEscapeShortcut)(void); // return YES if consumed (e.g. cleared search), NO to close window
+@property (nonatomic, copy) void (^onReturnShortcut)(void); // Return / Enter when no control is editing (e.g. Done in Setup)
 @end
 
 @implementation GFClosableWindow
 - (BOOL)canBecomeKeyWindow { return YES; }
 - (BOOL)canBecomeMainWindow { return YES; }
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
-    NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-    NSString *ch = event.charactersIgnoringModifiers.lowercaseString;
-    if (mods == NSEventModifierFlagCommand) {
-        if ([ch isEqualToString:@"w"]) {
+    if (event.type == NSEventTypeKeyDown) {
+        NSInteger shortcut = GFWindowShortcutForKey(event.modifierFlags, event.keyCode, event.characters, event.charactersIgnoringModifiers);
+        if (shortcut == 1) {
             [self performClose:nil];
             return YES;
         }
-        if ([ch isEqualToString:@"f"] && self.onFindShortcut) {
+        if (shortcut == 2 && self.onFindShortcut) {
             self.onFindShortcut();
             return YES;
         }
     }
     return [super performKeyEquivalent:event];
 }
+- (void)keyDown:(NSEvent *)event {
+    // Reaches the window only when no view handled the key (a text field being edited keeps its own Return)
+    NSEventModifierFlags held = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
+    if (self.onReturnShortcut && held == 0 && (event.keyCode == 36 || event.keyCode == 76)) { // Return, keypad Enter
+        self.onReturnShortcut();
+        return;
+    }
+    [super keyDown:event];
+}
 - (void)cancelOperation:(id)sender {
     if (self.onEscapeShortcut && self.onEscapeShortcut()) return;
     [self performClose:sender];
+}
+@end
+
+// One flat background for the Changelog and Setup views AND their windows, so nothing of another colour shows under short
+// content, in the title strip or while a scroll view bounces.
+static BOOL GFAppearanceIsDark(NSAppearance *appearance) {
+    NSAppearance *app = appearance ?: [NSApp effectiveAppearance];
+    return [[app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+}
+static NSColor *GFFlatBackground(BOOL dark) {
+    return dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
+                : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+}
+static NSColor *GFFlatWindowBackgroundColor(void) {
+    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        return GFFlatBackground(GFAppearanceIsDark(appearance));
+    }];
+}
+
+// A click on a custom-drawn target counts only when the button went down AND came up on the same target (0 = no target),
+// like a real button: pressing, dragging off and releasing cancels; so does releasing on a different target.
+static NSInteger GFClickTargetForDownUp(NSInteger downTarget, NSInteger upTarget) {
+    return (downTarget != 0 && downTarget == upTarget) ? downTarget : 0;
+}
+
+// GeminiFlow is an accessory app: after one of its windows closes it would stay the active app with no window, and the next
+// dictation's Cmd+V would go nowhere. Remember the app the user was last in, and hand focus back when our last window closes.
+static NSRunningApplication *gGFLastOtherFrontApp = nil;
+static void GFNoteFrontAppBeforeActivating(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // Keep following the user while a window of ours stays open (they may switch apps and come back)
+        [[[NSWorkspace sharedWorkspace] notificationCenter] addObserverForName:NSWorkspaceDidActivateApplicationNotification object:nil
+            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+                NSRunningApplication *app = note.userInfo[NSWorkspaceApplicationKey];
+                if (app && app.processIdentifier != getpid()) gGFLastOtherFrontApp = app;
+            }];
+    });
+    NSRunningApplication *front = [NSWorkspace sharedWorkspace].frontmostApplication;
+    if (front && front.processIdentifier != getpid()) gGFLastOtherFrontApp = front;
+}
+static BOOL GFShouldReturnFocus(BOOL ownWindowStillVisible, BOOL appIsActive, BOOL haveOtherApp) {
+    return !ownWindowStillVisible && appIsActive && haveOtherApp;
+}
+// Call when a GeminiFlow window closes or is minimized, or a GeminiFlow dialog ends. Runs on the next main-queue turn, when the
+// closing window is really gone. The app is never hidden (the HUD panel must keep working); the previous app is activated instead.
+static void GFReturnFocusIfNoWindowLeft(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL ownVisible = [NSApp modalWindow] != nil;
+        for (NSWindow *w in [NSApp windows]) {
+            if ([w isKindOfClass:[GFClosableWindow class]] && w.isVisible) ownVisible = YES;
+        }
+        NSRunningApplication *prev = gGFLastOtherFrontApp;
+        if (!GFShouldReturnFocus(ownVisible, [NSApp isActive], prev != nil && !prev.terminated)) return;
+        if (@available(macOS 14.0, *)) [NSApp yieldActivationToApplication:prev];
+        [prev activateWithOptions:0];
+    });
+}
+
+// On-device speech is the default engine (and the safety net with a key): ask for it whenever the answer is still open.
+static void GFRequestSpeechIfUndetermined(void (^onAnswer)(void)) {
+    if ([SFSpeechRecognizer authorizationStatus] != SFSpeechRecognizerAuthorizationStatusNotDetermined) return;
+    [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+        NSLog(@"Speech recognition authorization status: %ld", (long)status);
+        if (onAnswer) dispatch_async(dispatch_get_main_queue(), onAnswer);
+    }];
+}
+
+// VoiceOver element for something a custom view only draws: a button (with a press action) or a block of text. The frame is
+// computed from the host view on demand, so it stays right while the view scrolls or the window moves.
+@interface GFAXElement : NSAccessibilityElement
+@property (nonatomic, weak) NSView *hostView;
+@property (nonatomic, assign) NSRect rectInView;
+@property (nonatomic, copy) void (^onPress)(void);
++ (instancetype)elementInView:(NSView *)view rect:(NSRect)rect label:(NSString *)label press:(void (^)(void))press;
+@end
+
+@implementation GFAXElement
++ (instancetype)elementInView:(NSView *)view rect:(NSRect)rect label:(NSString *)label press:(void (^)(void))press {
+    GFAXElement *e = [[GFAXElement alloc] init];
+    e.hostView = view;
+    e.rectInView = rect;
+    e.onPress = press;
+    e.accessibilityParent = view;
+    e.accessibilityElement = YES;
+    e.accessibilityEnabled = YES;
+    if (press) {
+        e.accessibilityRole = NSAccessibilityButtonRole;
+        e.accessibilityLabel = label;
+    } else {
+        e.accessibilityRole = NSAccessibilityStaticTextRole;
+        e.accessibilityValue = label;
+    }
+    return e;
+}
+- (NSRect)accessibilityFrame {
+    NSView *v = self.hostView;
+    if (!v.window) return NSZeroRect;
+    return [v.window convertRectToScreen:[v convertRect:self.rectInView toView:nil]];
+}
+- (BOOL)accessibilityPerformPress {
+    if (!self.onPress) return NO;
+    self.onPress();
+    return YES;
+}
+- (BOOL)isAccessibilitySelectorAllowed:(SEL)selector {
+    if (selector == @selector(accessibilityPerformPress)) return self.onPress != nil;
+    return [super isAccessibilitySelectorAllowed:selector];
 }
 @end
 
@@ -294,11 +481,23 @@ typedef struct {
 @property (nonatomic, copy) void (^onStateChanged)(void);
 - (CGFloat)preferredHeightForWidth:(CGFloat)width;
 - (void)relayoutForWidth:(CGFloat)width;
+- (NSRect)targetRectForCycle:(NSInteger)cycle; // hit rect of a row (cycle > 0) or of "Collapse all" (-1) after the last layout pass
+- (void)activateTargetCycle:(NSInteger)cycle;  // what a click on that target does
 @end
+
+// The document view is never shorter than the scroll view's visible area, so short content (a filter with few results, a zoomed
+// window) leaves no strip of another colour underneath.
+static CGFloat GFChangelogDocumentHeight(CGFloat contentHeight, CGFloat clipHeight) {
+    return MAX(ceil(contentHeight), clipHeight);
+}
 
 @implementation GFChangelogDocumentView {
     NSMutableArray<NSValue *> *_hitTargets;
+    NSMutableArray<NSDictionary *> *_axItems; // what VoiceOver can reach: rect, cycle (0 = text only), label; rebuilt with the targets
+    NSArray *_axElements;                     // elements built from _axItems on demand
     NSTrackingArea *_trackingArea;
+    NSInteger _mouseDownTarget;
+    CGFloat _layoutWidth;                     // width of the last pass that rebuilt the targets
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -310,8 +509,13 @@ typedef struct {
         _expandedCycles = [NSMutableSet set];
         _hoveredTargetCycle = 0;
         _hitTargets = [NSMutableArray array];
+        _axItems = [NSMutableArray array];
     }
     return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (BOOL)isFlipped { return YES; }
@@ -358,10 +562,20 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
     return ts;
 }
 
-- (CGFloat)renderOrMeasureWithWidth:(CGFloat)width draw:(BOOL)doDraw {
+// What VoiceOver reads for an entry (the view only draws its text)
+static NSString *GFChangelogSpokenEntry(NSDictionary *entry, BOOL withHighlights) {
+    NSMutableString *t = [NSMutableString stringWithFormat:@"Cycle %ld, %@. %@", (long)[entry[@"cycle"] integerValue],
+                          GFShortDateFromTimestamp(entry[@"timestamp"]), entry[@"title"] ?: @""];
+    if (withHighlights && [entry[@"highlights"] isKindOfClass:[NSArray class]]) {
+        [t appendFormat:@". %@", [entry[@"highlights"] componentsJoinedByString:@" "]];
+    }
+    return t;
+}
+
+// One pass for measuring, drawing and (collect) rebuilding the hit targets + VoiceOver items, so the three can never disagree.
+- (CGFloat)renderOrMeasureWithWidth:(CGFloat)width draw:(BOOL)doDraw collect:(BOOL)collect {
     BOOL dark = [self isDarkAppearance];
-    NSColor *bgColor      = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
-                                 : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    NSColor *bgColor      = GFFlatBackground(dark);
     NSColor *hoverColor   = dark ? [NSColor colorWithWhite:1.0 alpha:0.055]
                                  : [NSColor colorWithWhite:0.0 alpha:0.040];
     NSColor *dividerColor = dark ? [NSColor colorWithWhite:1.0 alpha:0.075]
@@ -376,8 +590,16 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
     if (doDraw) {
         [bgColor setFill];
         NSRectFill(self.bounds);
-        [_hitTargets removeAllObjects];
     }
+    if (collect) { // targets belong to the layout, not to the last draw
+        [_hitTargets removeAllObjects];
+        [_axItems removeAllObjects];
+        _axElements = nil;
+        _layoutWidth = width;
+    }
+    void (^addAXItem)(NSRect, NSInteger, NSString *) = ^(NSRect r, NSInteger cycle, NSString *label) {
+        if (collect) [self->_axItems addObject:@{@"rect": [NSValue valueWithRect:r], @"cycle": @(cycle), @"label": label ?: @""}];
+    };
 
     NSFont *overlineFont = [NSFont monospacedDigitSystemFontOfSize:10.5 weight:NSFontWeightSemibold];
     NSFont *timeFont     = [NSFont monospacedDigitSystemFontOfSize:11.5 weight:NSFontWeightRegular];
@@ -428,6 +650,7 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
                 NSSize esz = [empty sizeWithAttributes:ea];
                 [empty drawAtPoint:NSMakePoint((width - esz.width) / 2.0, y + 36.0) withAttributes:ea];
             }
+            addAXItem(NSMakeRect(padX, y + 36.0, contentW, 20.0), 0, @"No matching updates.");
             return y + 96.0;
         }
         for (NSUInteger i = 0; i < filtered.count; i++) {
@@ -456,6 +679,7 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
                 [entry[@"timestamp"] drawAtPoint:NSMakePoint(padX + contentW - tsz.width, y + 1.0) withAttributes:ta];
             }
             CGFloat bh = measureOrDrawBullets(entry[@"highlights"], titleX, y + th + 7.0, contentW - 42.0, doDraw);
+            addAXItem(NSMakeRect(padX, y, contentW, th + 7.0 + bh), 0, GFChangelogSpokenEntry(entry, YES));
             y += th + 7.0 + bh + 15.0;
         }
         return y + 12.0;
@@ -484,6 +708,7 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
     y += heroTitleH + 10.0;
 
     CGFloat heroBulletsH = measureOrDrawBullets(latest[@"highlights"], padX, y, contentW, doDraw);
+    addAXItem(NSMakeRect(padX, 18.0, contentW, y + heroBulletsH - 18.0), 0, [@"Latest. " stringByAppendingString:GFChangelogSpokenEntry(latest, YES)]);
     y += heroBulletsH + 20.0;
 
     if (doDraw) {
@@ -499,14 +724,17 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
             NSString *hdr = [NSString stringWithFormat:@"Earlier updates (%lu)", (unsigned long)earlierCount];
             [hdr drawAtPoint:NSMakePoint(padX, y)
               withAttributes:@{NSFontAttributeName: secHdrFont, NSForegroundColorAttributeName: mutedColor}];
-            if (self.expandedCycles.count > 0) {
-                NSString *colStr = @"Collapse all";
-                NSDictionary *ca = @{NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
-                                     NSForegroundColorAttributeName: (self.hoveredTargetCycle == -1 ? inkColor : mutedColor)};
-                NSSize csz = [colStr sizeWithAttributes:ca];
-                [colStr drawAtPoint:NSMakePoint(padX + contentW - csz.width, y) withAttributes:ca];
+        }
+        if (self.expandedCycles.count > 0) {
+            NSString *colStr = @"Collapse all";
+            NSDictionary *ca = @{NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
+                                 NSForegroundColorAttributeName: (self.hoveredTargetCycle == -1 ? inkColor : mutedColor)};
+            NSSize csz = [colStr sizeWithAttributes:ca];
+            if (doDraw) [colStr drawAtPoint:NSMakePoint(padX + contentW - csz.width, y) withAttributes:ca];
+            if (collect) {
                 GFChangelogHitTarget ht = {NSMakeRect(padX + contentW - csz.width - 6.0, y - 3.0, csz.width + 12.0, 22.0), -1};
                 [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFChangelogHitTarget)]];
+                addAXItem(ht.rect, -1, colStr);
             }
         }
         y += 24.0;
@@ -519,14 +747,30 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
 
             CGFloat leftLead = 54.0; // chevron + #cycle
             CGFloat rightDateW = 54.0;
-            CGFloat titleW = contentW - leftLead - rightDateW;
+            CGFloat titleW = contentW - leftLead - rightDateW; // collapsed: one truncated line beside the short date
+            NSDictionary *da = @{NSFontAttributeName: timeFont, NSForegroundColorAttributeName: mutedColor};
+            NSString *dateToShow = open ? entry[@"timestamp"] : shortDate;
+            NSSize dsz = [dateToShow sizeWithAttributes:da];
+            // Expanded: the title wraps beside the full timestamp. ONE width for measuring and for drawing, so the row is exactly as
+            // tall as what is drawn in it (it was measured at titleW and drawn narrower, and the bullets could run into the next row).
+            CGFloat openTitleW = MAX(120.0, contentW - leftLead - (dsz.width + 12.0));
             CGFloat rh = 36.0;
             CGFloat th = 18.0;
             CGFloat bh = 0.0;
             if (open) {
-                th = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:titleW];
+                th = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:openTitleW];
                 bh = measureOrDrawBullets(entry[@"highlights"], 0, 0, contentW - leftLead, NO);
                 rh = 10.0 + th + 8.0 + bh + 14.0;
+            }
+            NSRect rowHit = NSMakeRect(padX - 8.0, y + 1.0, contentW + 16.0, rh - 2.0);
+            if (collect) {
+                GFChangelogHitTarget ht = {rowHit, cyc};
+                [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFChangelogHitTarget)]];
+                addAXItem(rowHit, cyc, [NSString stringWithFormat:@"%@, %@", GFChangelogSpokenEntry(entry, NO), open ? @"expanded" : @"collapsed"]);
+                if (open && [entry[@"highlights"] isKindOfClass:[NSArray class]]) {
+                    addAXItem(NSMakeRect(padX + leftLead, y + 9.0 + th + 8.0, contentW - leftLead, bh), 0,
+                              [entry[@"highlights"] componentsJoinedByString:@" "]);
+                }
             }
 
             if (doDraw) {
@@ -534,14 +778,11 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
                     [dividerColor setFill];
                     NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
                 }
-                NSRect rowHit = NSMakeRect(padX - 8.0, y + 1.0, contentW + 16.0, rh - 2.0);
                 if (self.hoveredTargetCycle == cyc) {
                     NSBezierPath *hbp = [NSBezierPath bezierPathWithRoundedRect:rowHit xRadius:6.0 yRadius:6.0];
                     [hoverColor setFill];
                     [hbp fill];
                 }
-                GFChangelogHitTarget ht = {rowHit, cyc};
-                [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFChangelogHitTarget)]];
 
                 // Left subtle chevron
                 NSBezierPath *chev = [NSBezierPath bezierPath];
@@ -565,18 +806,12 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
                 [cycLabel drawAtPoint:NSMakePoint(padX + 16.0, y + 9.5)
                        withAttributes:@{NSFontAttributeName: cycleColFont, NSForegroundColorAttributeName: mutedColor}];
 
-                NSDictionary *da = @{NSFontAttributeName: timeFont, NSForegroundColorAttributeName: mutedColor};
-                NSString *dateToShow = open ? entry[@"timestamp"] : shortDate;
-                NSSize dsz = [dateToShow sizeWithAttributes:da];
-
                 if (open) {
-                    CGFloat openTitleW = contentW - leftLead - (dsz.width + 12.0);
-                    CGFloat openTH = [self wrappedHeightForText:entry[@"title"] font:rowTitleFont width:MAX(120.0, openTitleW)];
-                    [entry[@"title"] drawWithRect:NSMakeRect(padX + leftLead, y + 9.0, MAX(120.0, openTitleW), openTH + 4.0)
+                    [entry[@"title"] drawWithRect:NSMakeRect(padX + leftLead, y + 9.0, openTitleW, th + 4.0)
                                           options:(NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading)
                                        attributes:@{NSFontAttributeName: rowTitleFont, NSForegroundColorAttributeName: inkColor, NSParagraphStyleAttributeName: wrapPS}];
                     [dateToShow drawAtPoint:NSMakePoint(padX + contentW - dsz.width, y + 10.0) withAttributes:da];
-                    measureOrDrawBullets(entry[@"highlights"], padX + leftLead, y + 9.0 + openTH + 8.0, contentW - leftLead, YES);
+                    measureOrDrawBullets(entry[@"highlights"], padX + leftLead, y + 9.0 + th + 8.0, contentW - leftLead, YES);
                 } else {
                     [entry[@"title"] drawWithRect:NSMakeRect(padX + leftLead, y + 9.0, titleW, 20.0)
                                           options:NSStringDrawingUsesLineFragmentOrigin
@@ -593,18 +828,22 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
 }
 
 - (CGFloat)preferredHeightForWidth:(CGFloat)width {
-    return MAX(360.0, [self renderOrMeasureWithWidth:width draw:NO]);
+    return MAX(360.0, [self renderOrMeasureWithWidth:width draw:NO collect:NO]);
 }
 
 - (void)relayoutForWidth:(CGFloat)width {
     CGFloat w = MAX(320.0, width);
-    CGFloat h = [self preferredHeightForWidth:w];
-    [self setFrameSize:NSMakeSize(w, h)];
+    // The layout pass also rebuilds the hit targets: a click or a hover must not depend on a draw having happened since
+    CGFloat contentH = MAX(360.0, [self renderOrMeasureWithWidth:w draw:NO collect:YES]);
+    NSScrollView *sv = self.enclosingScrollView;
+    [self setFrameSize:NSMakeSize(w, GFChangelogDocumentHeight(contentH, sv ? sv.contentSize.height : 0.0))];
+    [self refreshHover];
     [self setNeedsDisplay:YES];
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-    [self renderOrMeasureWithWidth:self.bounds.size.width draw:YES];
+    CGFloat w = self.bounds.size.width;
+    [self renderOrMeasureWithWidth:w draw:YES collect:(_layoutWidth != w)]; // collects only when no layout pass ran at this width
 }
 
 - (NSInteger)targetCycleAtPoint:(NSPoint)pt {
@@ -616,35 +855,103 @@ static NSString *GFShortDateFromTimestamp(NSString *ts) {
     return 0;
 }
 
-- (void)mouseMoved:(NSEvent *)event {
-    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
-    NSInteger hit = [self targetCycleAtPoint:pt];
-    if (hit != self.hoveredTargetCycle) {
-        self.hoveredTargetCycle = hit;
-        [self setNeedsDisplay:YES];
+- (NSRect)targetRectForCycle:(NSInteger)cycle {
+    for (NSValue *v in _hitTargets) {
+        GFChangelogHitTarget ht;
+        [v getValue:&ht];
+        if (ht.cycle == cycle) return ht.rect;
     }
+    return NSZeroRect;
+}
+
+- (void)activateTargetCycle:(NSInteger)cycle {
+    if (cycle == -1) {
+        [self.expandedCycles removeAllObjects];
+    } else if (cycle > 0) {
+        if ([self.expandedCycles containsObject:@(cycle)]) [self.expandedCycles removeObject:@(cycle)];
+        else [self.expandedCycles addObject:@(cycle)];
+    } else {
+        return;
+    }
+    [self relayoutForWidth:self.bounds.size.width];
+    if (self.onStateChanged) self.onStateChanged();
+    NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
+}
+
+- (void)setHoveredTarget:(NSInteger)hit {
+    if (hit == self.hoveredTargetCycle) return;
+    self.hoveredTargetCycle = hit;
+    [self setNeedsDisplay:YES];
+}
+
+// Hover follows the pointer, not the last mouse-moved event: content moves under a still pointer when the list scrolls or a
+// row expands, and the highlight must not stay on the row that used to be there.
+- (void)refreshHover {
+    NSInteger hit = 0;
+    NSWindow *win = self.window;
+    if (win) {
+        NSPoint pt = [self convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil];
+        if (NSPointInRect(pt, self.visibleRect)) hit = [self targetCycleAtPoint:pt];
+    }
+    [self setHoveredTarget:hit];
+}
+
+- (void)viewWillMoveToSuperview:(NSView *)newSuperview {
+    [super viewWillMoveToSuperview:newSuperview];
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc removeObserver:self name:NSViewBoundsDidChangeNotification object:nil];
+    if ([newSuperview isKindOfClass:[NSClipView class]]) { // the scroll view's clip view: its bounds change on every scroll
+        newSuperview.postsBoundsChangedNotifications = YES;
+        [nc addObserver:self selector:@selector(clipViewDidScroll:) name:NSViewBoundsDidChangeNotification object:newSuperview];
+    }
+}
+
+- (void)clipViewDidScroll:(NSNotification *)note {
+    [self refreshHover];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    [self setHoveredTarget:[self targetCycleAtPoint:[self convertPoint:event.locationInWindow fromView:nil]]];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    if (self.hoveredTargetCycle != 0) {
-        self.hoveredTargetCycle = 0;
-        [self setNeedsDisplay:YES];
-    }
+    [self setHoveredTarget:0];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    _mouseDownTarget = [self targetCycleAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
-    NSInteger hit = [self targetCycleAtPoint:pt];
-    if (hit == -1) {
-        [self.expandedCycles removeAllObjects];
-        [self relayoutForWidth:self.bounds.size.width];
-        if (self.onStateChanged) self.onStateChanged();
-    } else if (hit > 0) {
-        if ([self.expandedCycles containsObject:@(hit)]) [self.expandedCycles removeObject:@(hit)];
-        else [self.expandedCycles addObject:@(hit)];
-        [self relayoutForWidth:self.bounds.size.width];
-        if (self.onStateChanged) self.onStateChanged();
+    NSInteger upTarget = [self targetCycleAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSInteger hit = GFClickTargetForDownUp(_mouseDownTarget, upTarget);
+    _mouseDownTarget = 0;
+    if (hit != 0) [self activateTargetCycle:hit];
+}
+
+// VoiceOver: the view only draws its rows, so it vends one element per row ("Collapse all" and the rows are buttons; the latest
+// entry, expanded details and filter results are text).
+- (NSArray *)gfAXElements {
+    if (_axElements) return _axElements;
+    NSMutableArray *els = [NSMutableArray array];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *item in _axItems) {
+        NSInteger cycle = [item[@"cycle"] integerValue];
+        void (^press)(void) = cycle == 0 ? nil : ^{ [weakSelf activateTargetCycle:cycle]; };
+        [els addObject:[GFAXElement elementInView:self rect:[item[@"rect"] rectValue] label:item[@"label"] press:press]];
     }
+    _axElements = els;
+    return els;
+}
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityGroupRole; }
+- (NSString *)accessibilityLabel { return @"Updates"; }
+- (NSArray *)accessibilityChildren { return [self gfAXElements]; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    for (GFAXElement *e in [[self gfAXElements] reverseObjectEnumerator]) {
+        if (NSPointInRect(point, e.accessibilityFrame)) return e;
+    }
+    return self;
 }
 @end
 
@@ -757,11 +1064,14 @@ static NSBitmapImageRep *GFRenderBrandPreview(NSArray<NSImage *> *menuIcons) {
 @end
 
 @implementation GFFlatHeaderView
+// The header row moves the window like a title bar. Only clicks on the header itself arrive here: the filter field and the
+// All/Engine switch are subviews and keep their own clicks.
+- (void)mouseDown:(NSEvent *)event {
+    [self.window performWindowDragWithEvent:event];
+}
 - (void)drawRect:(NSRect)dirtyRect {
-    NSAppearance *app = self.effectiveAppearance ?: [NSApp effectiveAppearance];
-    BOOL dark = [[app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    NSColor *bg = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
-                       : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    BOOL dark = GFAppearanceIsDark(self.effectiveAppearance);
+    NSColor *bg = GFFlatBackground(dark);
     NSColor *sep = dark ? [NSColor colorWithWhite:1.0 alpha:0.08]
                         : [NSColor colorWithWhite:0.0 alpha:0.08];
     NSColor *ink = dark ? [NSColor colorWithWhite:0.97 alpha:1.0]
@@ -798,6 +1108,11 @@ static GFFlatHeaderView *GFMakeChangelogHeader(NSRect frame, id target, NSSearch
     search.controlSize = NSControlSizeSmall;
     search.font = [NSFont systemFontOfSize:12.0];
     search.autoresizingMask = NSViewMinXMargin;
+    // The action fires on every change, including the field's own X button (which does not post a text-did-change)
+    search.sendsSearchStringImmediately = YES;
+    search.sendsWholeSearchString = NO;
+    search.target = target;
+    search.action = NSSelectorFromString(@"searchFieldChanged:");
     [bar addSubview:search];
     if (outSearch) *outSearch = search;
     if (outScope) *outScope = scope;
@@ -859,6 +1174,8 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
 + (instancetype)sharedController;
 - (void)showWindow;
 - (void)reloadEntries;
+- (BOOL)clearSearchIfNeeded;
+- (void)searchFieldChanged:(id)sender;
 @end
 
 @implementation GFChangelogWindowController
@@ -885,19 +1202,14 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
     self.window.delegate = self;
     [self.window center];
 
+    self.window.backgroundColor = GFFlatWindowBackgroundColor(); // same colour as the views, in both appearances
+
     __weak typeof(self) weakSelf = self;
     self.window.onFindShortcut = ^{
         [weakSelf.window makeFirstResponder:weakSelf.searchField];
     };
     self.window.onEscapeShortcut = ^BOOL{
-        if (weakSelf.searchField.stringValue.length > 0) {
-            weakSelf.searchField.stringValue = @"";
-            weakSelf.docView.searchQuery = @"";
-            CGFloat cw = weakSelf.scrollView.contentSize.width > 100 ? weakSelf.scrollView.contentSize.width : weakSelf.window.contentView.bounds.size.width;
-            [weakSelf.docView relayoutForWidth:cw];
-            return YES;
-        }
-        return NO;
+        return [weakSelf clearSearchIfNeeded]; // Esc with the focus outside the field: clear a filter first, close otherwise
     };
 
     NSView *root = self.window.contentView;
@@ -929,32 +1241,72 @@ static NSBitmapImageRep *GFRenderChangelogSnapshot(BOOL dark, NSString *query, N
     [self reloadEntries];
 }
 
+// Width the list is laid out at: the scroll view's content width (the window's while that is not known yet).
+- (CGFloat)layoutWidth {
+    if (self.scrollView.contentSize.width > 100) return self.scrollView.contentSize.width;
+    if (self.window) return self.window.contentView.bounds.size.width;
+    return self.docView.bounds.size.width;
+}
+
 - (void)reloadEntries {
     [self ensureWindow];
     self.docView.allEntries = GFChangelogLoadEntriesFromPaths(GFChangelogDefaultMacPaths());
-    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
-    [self.docView relayoutForWidth:contentW];
+    [self.docView relayoutForWidth:[self layoutWidth]];
 }
 
 - (void)scopeSegmentChanged:(NSSegmentedControl *)sender {
     self.docView.scopeFilter = sender.selectedSegment == 1 ? @"engine" : @"all";
-    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
-    [self.docView relayoutForWidth:contentW];
+    [self.docView relayoutForWidth:[self layoutWidth]];
+    [self.docView scrollPoint:NSZeroPoint];
+}
+
+// Every way the filter text can change ends here: typing, the field's X button, Esc, and the window's Esc shortcut.
+- (void)applySearchQuery:(NSString *)query {
+    NSString *q = query ?: @"";
+    if ([q isEqualToString:self.docView.searchQuery ?: @""]) return;
+    self.docView.searchQuery = q;
+    [self.docView relayoutForWidth:[self layoutWidth]];
+    [self.docView scrollPoint:NSZeroPoint]; // a new result list starts at its top
 }
 
 - (void)controlTextDidChange:(NSNotification *)obj {
-    self.docView.searchQuery = self.searchField.stringValue ?: @"";
-    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
-    [self.docView relayoutForWidth:contentW];
+    [self applySearchQuery:self.searchField.stringValue];
+}
+
+- (void)searchFieldChanged:(id)sender {
+    [self applySearchQuery:self.searchField.stringValue];
+}
+
+// YES if there was a filter to clear (the list is back to all updates).
+- (BOOL)clearSearchIfNeeded {
+    if (self.searchField.stringValue.length == 0) return NO;
+    self.searchField.stringValue = @"";
+    [self applySearchQuery:@""];
+    return YES;
+}
+
+// Esc while typing in the filter field: clear a non-empty filter; with an empty field, close the window.
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
+    if (control != self.searchField || commandSelector != @selector(cancelOperation:)) return NO;
+    if (![self clearSearchIfNeeded]) [self.window performClose:nil];
+    return YES;
 }
 
 - (void)windowDidResize:(NSNotification *)notification {
-    CGFloat contentW = self.scrollView.contentSize.width > 100 ? self.scrollView.contentSize.width : self.window.contentView.bounds.size.width;
-    [self.docView relayoutForWidth:contentW];
+    [self.docView relayoutForWidth:[self layoutWidth]];
+}
+
+- (void)windowWillClose:(NSNotification *)notification {
+    GFReturnFocusIfNoWindowLeft();
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+    GFReturnFocusIfNoWindowLeft();
 }
 
 - (void)showWindow {
     [self reloadEntries];
+    GFNoteFrontAppBeforeActivating();
     [NSApp activateIgnoringOtherApps:YES];
     [self.window makeKeyAndOrderFront:nil];
 }
@@ -974,26 +1326,75 @@ typedef struct {
     NSInteger actionId; // 1=API Key, 2=Mic, 3=Accessibility, 4=Speech, 5=Keyboard, 6=Done
 } GFSetupHitTarget;
 
+static BOOL GFSetupStateEqual(GFSetupState a, GFSetupState b) {
+    return a.hasApiKey == b.hasApiKey && a.micStatus == b.micStatus && a.axTrusted == b.axTrusted &&
+           a.speechStatus == b.speechStatus && a.fnDoNothing == b.fnDoNothing;
+}
+
+// Speech Recognition row: with no API key the on-device recogniser is the only engine, so it is required, not a nice-to-have.
+static NSString *GFSetupSpeechSubtitle(BOOL hasApiKey, NSInteger speechStatus) {
+    if (speechStatus == 3) return @"Ready (offline safety net)";
+    return hasApiKey ? @"Recommended for offline fallback" : @"Required without an API key";
+}
+
+// The five rows for a state: action id, ok, title, subtitle, button title. Drawn by the view and read out by VoiceOver.
+static NSArray<NSDictionary *> *GFSetupRows(GFSetupState st) {
+    return @[
+        @{@"id": @1, @"ok": @(st.hasApiKey), @"title": @"Gemini API Key",
+          @"subtitle": st.hasApiKey ? @"Configured (Gemini Live Transcribe active)" : @"Optional: add a key for fast cloud transcription",
+          @"button": st.hasApiKey ? @"Change" : @"Set Key"},
+        @{@"id": @2, @"ok": @(st.micStatus == 3), @"title": @"Microphone",
+          @"subtitle": st.micStatus == 3 ? @"Ready" : @"Required to hear your voice while holding Fn",
+          @"button": st.micStatus == 0 ? @"Allow" : (st.micStatus == 3 ? @"Settings" : @"Open Settings")},
+        @{@"id": @3, @"ok": @(st.axTrusted), @"title": @"Accessibility",
+          @"subtitle": st.axTrusted ? @"Ready (auto-paste & Fn key listener active)" : @"Required to paste at your cursor and detect Fn",
+          @"button": st.axTrusted ? @"Settings" : @"Open Settings"},
+        @{@"id": @4, @"ok": @(st.speechStatus == 3), @"title": @"Speech Recognition",
+          @"subtitle": GFSetupSpeechSubtitle(st.hasApiKey, st.speechStatus),
+          @"button": st.speechStatus == 0 ? @"Allow" : (st.speechStatus == 3 ? @"Settings" : @"Open Settings")},
+        @{@"id": @5, @"ok": @(st.fnDoNothing), @"title": @"Fn / Globe Key",
+          @"subtitle": st.fnDoNothing ? @"Set to 'Do Nothing' in Keyboard Settings" : @"Tip: set 'Press fn key to: Do Nothing'",
+          @"button": @"Keyboard"}
+    ];
+}
+
+// Accessibility button: the first click while not trusted raises the system prompt (it has its own "Open System Settings"
+// button); later clicks, and any click once trusted, open the Settings pane. Never both in one click.
+static BOOL GFSetupAccessibilityClickPrompts(BOOL trusted, BOOL promptedBefore) {
+    return !trusted && !promptedBefore;
+}
+
+static const CGFloat kGFSetupRowsTop = 94.0, kGFSetupRowHeight = 54.0;
+
 @interface GFSetupContentView : NSView
 @property (nonatomic, assign) GFSetupState state;
 @property (nonatomic, assign) NSInteger hoveredActionId;
+@property (nonatomic, assign) NSUInteger stateChangeCount; // times the state really changed (each rebuilds the targets and redraws)
 @property (nonatomic, copy) void (^onAction)(NSInteger actionId);
+- (NSRect)rectForAction:(NSInteger)actionId; // button rect for an action id (1-5 rows, 6 Done)
+- (void)performAction:(NSInteger)actionId;
 @end
 
 @implementation GFSetupContentView {
     NSMutableArray<NSValue *> *_hitTargets;
+    NSArray *_axElements;
     NSTrackingArea *_trackingArea;
+    NSInteger _mouseDownAction;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     self = [super initWithFrame:frameRect];
     if (self) {
         _hitTargets = [NSMutableArray array];
+        [self rebuildTargets];
     }
     return self;
 }
 
 - (BOOL)isFlipped { return YES; }
+
+// The first click after coming back from System Settings must press the button, not only bring the window forward
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
@@ -1005,11 +1406,43 @@ typedef struct {
     [self addTrackingArea:_trackingArea];
 }
 
+// The button rectangles depend only on the state (button titles) and the view width: they are rebuilt when one of those changes,
+// not in drawRect, so a click never depends on a draw having happened.
+- (void)rebuildTargets {
+    [_hitTargets removeAllObjects];
+    _axElements = nil;
+    CGFloat padX = 24.0, contentW = self.bounds.size.width - padX * 2.0;
+    NSDictionary *ba = @{NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium]};
+    CGFloat y = kGFSetupRowsTop;
+    for (NSDictionary *row in GFSetupRows(_state)) {
+        NSSize bsz = [row[@"button"] sizeWithAttributes:ba];
+        CGFloat bw = MAX(74.0, ceil(bsz.width) + 22.0);
+        GFSetupHitTarget ht = {NSMakeRect(padX + contentW - bw, y + 14.0, bw, 26.0), [row[@"id"] integerValue]};
+        [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFSetupHitTarget)]];
+        y += kGFSetupRowHeight;
+    }
+    GFSetupHitTarget done = {NSMakeRect(padX + contentW - 76.0, y + 16.0, 76.0, 28.0), 6}; // bottom-right Done button
+    [_hitTargets addObject:[NSValue valueWithBytes:&done objCType:@encode(GFSetupHitTarget)]];
+}
+
+- (void)setState:(GFSetupState)state {
+    if (GFSetupStateEqual(_state, state)) return; // the 1 s refresh usually brings nothing new: no rebuild, no redraw
+    _state = state;
+    _stateChangeCount += 1;
+    [self rebuildTargets];
+    [self refreshHover];
+    [self setNeedsDisplay:YES];
+    NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
+}
+
+- (void)setFrameSize:(NSSize)newSize {
+    [super setFrameSize:newSize];
+    [self rebuildTargets];
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
-    NSAppearance *app = self.effectiveAppearance ?: [NSApp effectiveAppearance];
-    BOOL dark = [[app bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    NSColor *bgColor    = dark ? [NSColor colorWithSRGBRed:0.082 green:0.086 blue:0.102 alpha:1.0]
-                               : [NSColor colorWithSRGBRed:1.000 green:1.000 blue:1.000 alpha:1.0];
+    BOOL dark = GFAppearanceIsDark(self.effectiveAppearance);
+    NSColor *bgColor    = GFFlatBackground(dark);
     NSColor *inkColor   = dark ? [NSColor colorWithWhite:0.97 alpha:1.0]
                                : [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
     NSColor *mutedColor = dark ? [NSColor colorWithSRGBRed:0.560 green:0.565 blue:0.615 alpha:1.0]
@@ -1027,7 +1460,6 @@ typedef struct {
 
     [bgColor setFill];
     NSRectFill(self.bounds);
-    [_hitTargets removeAllObjects];
 
     CGFloat w = self.bounds.size.width;
     CGFloat padX = 24.0;
@@ -1039,90 +1471,55 @@ typedef struct {
            withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:20.0 weight:NSFontWeightRegular],
                             NSForegroundColorAttributeName: mutedColor, NSKernAttributeName: @(-20.0 * 0.020)}];
 
-    CGFloat y = 66.0;
-    [@"Hold Fn to speak and release to paste anywhere on your Mac." drawAtPoint:NSMakePoint(padX, y)
+    [@"Hold Fn to speak and release to paste anywhere on your Mac." drawAtPoint:NSMakePoint(padX, 66.0)
                                                                  withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12.5],
                                                                                   NSForegroundColorAttributeName: mutedColor}];
-    y += 28.0;
-
-    struct {
-        NSInteger actionId;
-        BOOL ok;
-        NSString *title;
-        NSString *subtitle;
-        NSString *btnTitle;
-    } rows[5] = {
-        {1, self.state.hasApiKey,
-         @"Gemini API Key",
-         self.state.hasApiKey ? @"Configured (Gemini Live Transcribe active)" : @"Optional: add a key for fast cloud transcription",
-         self.state.hasApiKey ? @"Change" : @"Set Key"},
-        {2, self.state.micStatus == 3,
-         @"Microphone",
-         self.state.micStatus == 3 ? @"Ready" : @"Required to hear your voice while holding Fn",
-         self.state.micStatus == 0 ? @"Allow" : (self.state.micStatus == 3 ? @"Settings" : @"Open Settings")},
-        {3, self.state.axTrusted,
-         @"Accessibility",
-         self.state.axTrusted ? @"Ready (auto-paste & Fn key listener active)" : @"Required to paste at your cursor and detect Fn",
-         self.state.axTrusted ? @"Settings" : @"Open Settings"},
-        {4, self.state.speechStatus == 3,
-         @"Speech Recognition",
-         self.state.speechStatus == 3 ? @"Ready (offline safety net)" : @"Recommended for offline fallback",
-         self.state.speechStatus == 0 ? @"Allow" : (self.state.speechStatus == 3 ? @"Settings" : @"Open Settings")},
-        {5, self.state.fnDoNothing,
-         @"Fn / Globe Key",
-         self.state.fnDoNothing ? @"Set to 'Do Nothing' in Keyboard Settings" : @"Tip: set 'Press fn key to: Do Nothing'",
-         @"Keyboard"}
-    };
+    CGFloat y = kGFSetupRowsTop;
 
     NSFont *rowTitleF = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
     NSFont *rowSubF   = [NSFont systemFontOfSize:11.5 weight:NSFontWeightRegular];
     NSFont *btnFont   = [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium];
 
-    for (int i = 0; i < 5; i++) {
+    for (NSDictionary *row in GFSetupRows(self.state)) {
+        NSInteger actionId = [row[@"id"] integerValue];
         [sepColor setFill];
         NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
 
-        CGFloat rowH = 54.0;
         NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(padX + 2.0, y + 14.0, 8.0, 8.0)];
-        [(rows[i].ok ? greenDot : amberDot) setFill];
+        [([row[@"ok"] boolValue] ? greenDot : amberDot) setFill];
         [dot fill];
 
-        [rows[i].title drawAtPoint:NSMakePoint(padX + 18.0, y + 9.0)
+        [row[@"title"] drawAtPoint:NSMakePoint(padX + 18.0, y + 9.0)
                     withAttributes:@{NSFontAttributeName: rowTitleF, NSForegroundColorAttributeName: inkColor}];
-        [rows[i].subtitle drawAtPoint:NSMakePoint(padX + 18.0, y + 28.0)
+        [row[@"subtitle"] drawAtPoint:NSMakePoint(padX + 18.0, y + 28.0)
                        withAttributes:@{NSFontAttributeName: rowSubF, NSForegroundColorAttributeName: mutedColor}];
 
         NSDictionary *ba = @{NSFontAttributeName: btnFont, NSForegroundColorAttributeName: inkColor};
-        NSSize bsz = [rows[i].btnTitle sizeWithAttributes:ba];
-        CGFloat bw = MAX(74.0, ceil(bsz.width) + 22.0);
-        NSRect bRect = NSMakeRect(padX + contentW - bw, y + 14.0, bw, 26.0);
+        NSString *btnTitle = row[@"button"];
+        NSSize bsz = [btnTitle sizeWithAttributes:ba];
+        NSRect bRect = [self rectForAction:actionId];
         NSBezierPath *bbp = [NSBezierPath bezierPathWithRoundedRect:bRect xRadius:6.0 yRadius:6.0];
-        [(self.hoveredActionId == rows[i].actionId ? btnHoverBg : btnBg) setFill];
+        [(self.hoveredActionId == actionId ? btnHoverBg : btnBg) setFill];
         [bbp fill];
-        [rows[i].btnTitle drawAtPoint:NSMakePoint(bRect.origin.x + (bw - bsz.width) / 2.0, bRect.origin.y + (26.0 - bsz.height) / 2.0 - 0.5)
-                       withAttributes:ba];
-        GFSetupHitTarget ht = {bRect, rows[i].actionId};
-        [_hitTargets addObject:[NSValue valueWithBytes:&ht objCType:@encode(GFSetupHitTarget)]];
+        [btnTitle drawAtPoint:NSMakePoint(bRect.origin.x + (bRect.size.width - bsz.width) / 2.0, bRect.origin.y + (26.0 - bsz.height) / 2.0 - 0.5)
+               withAttributes:ba];
 
-        y += rowH;
+        y += kGFSetupRowHeight;
     }
 
     [sepColor setFill];
     NSRectFillUsingOperation(NSMakeRect(padX, y, contentW, 1.0), NSCompositingOperationSourceOver);
-    y += 16.0;
 
     // Bottom-right Done button
     NSString *doneLabel = @"Done";
     NSDictionary *da = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5 weight:NSFontWeightSemibold], NSForegroundColorAttributeName: doneFg};
     NSSize dsz = [doneLabel sizeWithAttributes:da];
-    NSRect doneRect = NSMakeRect(padX + contentW - 76.0, y, 76.0, 28.0);
+    NSRect doneRect = [self rectForAction:6];
     NSBezierPath *dbp = [NSBezierPath bezierPathWithRoundedRect:doneRect xRadius:7.0 yRadius:7.0];
     [doneBg setFill];
     [dbp fill];
     [doneLabel drawAtPoint:NSMakePoint(doneRect.origin.x + (76.0 - dsz.width) / 2.0, doneRect.origin.y + (28.0 - dsz.height) / 2.0 - 0.5)
             withAttributes:da];
-    GFSetupHitTarget dht = {doneRect, 6};
-    [_hitTargets addObject:[NSValue valueWithBytes:&dht objCType:@encode(GFSetupHitTarget)]];
 }
 
 - (NSInteger)actionAtPoint:(NSPoint)pt {
@@ -1134,26 +1531,81 @@ typedef struct {
     return 0;
 }
 
-- (void)mouseMoved:(NSEvent *)event {
-    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
-    NSInteger hit = [self actionAtPoint:pt];
-    if (hit != self.hoveredActionId) {
-        self.hoveredActionId = hit;
-        [self setNeedsDisplay:YES];
+- (NSRect)rectForAction:(NSInteger)actionId {
+    for (NSValue *v in _hitTargets) {
+        GFSetupHitTarget ht;
+        [v getValue:&ht];
+        if (ht.actionId == actionId) return ht.rect;
     }
+    return NSZeroRect;
+}
+
+- (void)performAction:(NSInteger)actionId {
+    if (actionId > 0 && self.onAction) self.onAction(actionId);
+}
+
+- (void)setHoveredAction:(NSInteger)hit {
+    if (hit == self.hoveredActionId) return;
+    self.hoveredActionId = hit;
+    [self setNeedsDisplay:YES];
+}
+
+// Hover follows the pointer: a button can change width under a still pointer when the state changes
+- (void)refreshHover {
+    NSInteger hit = 0;
+    NSWindow *win = self.window;
+    if (win) hit = [self actionAtPoint:[self convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil]];
+    [self setHoveredAction:hit];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    [self setHoveredAction:[self actionAtPoint:[self convertPoint:event.locationInWindow fromView:nil]]];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    if (self.hoveredActionId != 0) {
-        self.hoveredActionId = 0;
-        [self setNeedsDisplay:YES];
-    }
+    [self setHoveredAction:0];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    _mouseDownAction = [self actionAtPoint:pt];
+    // The title area above the rows moves the window like a title bar
+    if (_mouseDownAction == 0 && pt.y < kGFSetupRowsTop) [self.window performWindowDragWithEvent:event];
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
-    NSInteger hit = [self actionAtPoint:pt];
-    if (hit > 0 && self.onAction) self.onAction(hit);
+    NSInteger upAction = [self actionAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSInteger hit = GFClickTargetForDownUp(_mouseDownAction, upAction);
+    _mouseDownAction = 0;
+    [self performAction:hit];
+}
+
+// VoiceOver: the buttons are only drawn, so the view vends one button element per row (title, status and button name) and Done.
+- (NSArray *)gfAXElements {
+    if (_axElements) return _axElements;
+    NSMutableArray *els = [NSMutableArray array];
+    __weak typeof(self) weakSelf = self;
+    [els addObject:[GFAXElement elementInView:self rect:NSMakeRect(24.0, 30.0, self.bounds.size.width - 48.0, 56.0)
+                                        label:@"GeminiFlow Setup. Hold Fn to speak and release to paste anywhere on your Mac." press:nil]];
+    for (NSDictionary *row in GFSetupRows(_state)) {
+        NSInteger actionId = [row[@"id"] integerValue];
+        NSString *label = [NSString stringWithFormat:@"%@. %@. %@", row[@"title"], row[@"subtitle"], row[@"button"]];
+        [els addObject:[GFAXElement elementInView:self rect:[self rectForAction:actionId] label:label
+                                            press:^{ [weakSelf performAction:actionId]; }]];
+    }
+    [els addObject:[GFAXElement elementInView:self rect:[self rectForAction:6] label:@"Done" press:^{ [weakSelf performAction:6]; }]];
+    _axElements = els;
+    return els;
+}
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityGroupRole; }
+- (NSString *)accessibilityLabel { return @"Setup"; }
+- (NSArray *)accessibilityChildren { return [self gfAXElements]; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    for (GFAXElement *e in [[self gfAXElements] reverseObjectEnumerator]) {
+        if (NSPointInRect(point, e.accessibilityFrame)) return e;
+    }
+    return self;
 }
 @end
 
@@ -1192,14 +1644,18 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
 @property (nonatomic, strong) GFClosableWindow *window;
 @property (nonatomic, strong) GFSetupContentView *contentView;
 @property (nonatomic, strong) NSTimer *refreshTimer;
+@property (nonatomic, assign) BOOL accessibilityPrompted; // the system Accessibility prompt was raised from this window already
 @property (nonatomic, copy) void (^onPromptApiKey)(void);
 @property (nonatomic, copy) void (^onAccessibilityTrusted)(void);
 + (instancetype)sharedController;
 - (void)showWindow;
 - (void)refreshState;
+- (void)applyState:(GFSetupState)st;
 @end
 
-@implementation GFSetupWindowController
+@implementation GFSetupWindowController {
+    BOOL _lastAXTrusted;
+}
 
 + (instancetype)sharedController {
     static GFSetupWindowController *shared = nil;
@@ -1223,12 +1679,18 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
     return st;
 }
 
+// onAccessibilityTrusted fires only when Accessibility goes from not trusted to trusted (the first refresh counts when it is
+// trusted already), not on every 1 s refresh; the view redraws only when the state really changed.
+- (void)applyState:(GFSetupState)st {
+    BOOL becameTrusted = st.axTrusted && !_lastAXTrusted;
+    _lastAXTrusted = st.axTrusted;
+    if (becameTrusted && self.onAccessibilityTrusted) self.onAccessibilityTrusted();
+    self.contentView.state = st;
+}
+
 - (void)refreshState {
     if (!self.contentView) return;
-    GFSetupState st = [self queryLiveState];
-    if (st.axTrusted && self.onAccessibilityTrusted) self.onAccessibilityTrusted();
-    self.contentView.state = st;
-    [self.contentView setNeedsDisplay:YES];
+    [self applyState:[self queryLiveState]];
 }
 
 - (void)ensureWindow {
@@ -1240,11 +1702,13 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
     self.window.titleVisibility = NSWindowTitleHidden;
     self.window.titlebarAppearsTransparent = YES;
     self.window.releasedWhenClosed = NO;
+    self.window.backgroundColor = GFFlatWindowBackgroundColor(); // same colour as the view, in both appearances
     self.window.delegate = self;
     [self.window center];
 
     self.contentView = [[GFSetupContentView alloc] initWithFrame:frame];
     __weak typeof(self) weakSelf = self;
+    self.window.onReturnShortcut = ^{ [weakSelf.window performClose:nil]; }; // Return = Done
     self.contentView.onAction = ^(NSInteger actionId) {
         typeof(self) s = weakSelf;
         if (!s) return;
@@ -1260,9 +1724,13 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
                 [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"]];
             }
         } else if (actionId == 3) {
-            NSDictionary *opts = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
-            AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts);
-            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];
+            if (GFSetupAccessibilityClickPrompts(AXIsProcessTrusted(), s.accessibilityPrompted)) {
+                s.accessibilityPrompted = YES;
+                NSDictionary *opts = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+                AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts);
+            } else {
+                [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];
+            }
         } else if (actionId == 4) {
             if ([SFSpeechRecognizer authorizationStatus] == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
                 [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
@@ -1290,6 +1758,17 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
 - (void)windowWillClose:(NSNotification *)notification {
     [self.refreshTimer invalidate];
     self.refreshTimer = nil;
+    // Closed without pressing Allow: ask for the microphone now, so the first Fn press is not what macOS has to prompt for
+    if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusNotDetermined) {
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+            NSLog(@"Microphone access %@", granted ? @"granted" : @"not granted");
+        }];
+    }
+    GFReturnFocusIfNoWindowLeft();
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+    GFReturnFocusIfNoWindowLeft();
 }
 
 - (void)showWindow {
@@ -1297,8 +1776,643 @@ static NSBitmapImageRep *GFRenderSetupSnapshot(BOOL dark, GFSetupState state) {
     [self refreshState];
     [self.refreshTimer invalidate];
     self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(refreshState) userInfo:nil repeats:YES];
+    GFNoteFrontAppBeforeActivating();
     [NSApp activateIgnoringOtherApps:YES];
     [self.window makeKeyAndOrderFront:nil];
+    // With no API key the on-device recogniser is the engine: ask for Speech recognition as soon as Setup is shown
+    __weak typeof(self) weakSelf = self;
+    GFRequestSpeechIfUndetermined(^{ [weakSelf refreshState]; });
+}
+@end
+
+// ---- Custom Words window: the user's names and unusual terms. The engine reads the file at every Live connect, so a change made
+// here applies to the next dictation. The storage and cleaning helpers are engine code defined further down (Foundation-only);
+// they are declared here for this Mac-only block.
+static NSString *GFCustomWordsPath(void);
+static NSArray<NSString *> *GFLoadCustomWordsFromPath(NSString *path);
+static BOOL GFSaveCustomWordsToPath(NSArray<NSString *> *words, NSString *path, NSError **err);
+static NSArray<NSString *> *GFCleanVocabulary(id raw);
+static const NSUInteger kVocabularyMaxTerms;
+static const NSUInteger kVocabularyMaxTermLength;
+
+// The short inline message after an add that left something out (@"" when everything was added).
+static NSString *GFCustomWordsSkipNotice(NSUInteger pieces, NSUInteger duplicates, NSUInteger tooLong, NSUInteger noRoom) {
+    if (duplicates + tooLong + noRoom == 0) return @"";
+    if (pieces <= 1) {
+        if (duplicates > 0) return @"Already in the list.";
+        if (tooLong > 0) return [NSString stringWithFormat:@"Too long (%lu characters at most).", (unsigned long)kVocabularyMaxTermLength];
+        return [NSString stringWithFormat:@"The list is full (%lu).", (unsigned long)kVocabularyMaxTerms];
+    }
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (duplicates > 0) [parts addObject:[NSString stringWithFormat:@"%lu already listed", (unsigned long)duplicates]];
+    if (tooLong > 0) [parts addObject:[NSString stringWithFormat:@"%lu too long", (unsigned long)tooLong]];
+    if (noRoom > 0) [parts addObject:[NSString stringWithFormat:@"%lu over the limit of %lu", (unsigned long)noRoom, (unsigned long)kVocabularyMaxTerms]];
+    return [NSString stringWithFormat:@"Skipped: %@.", [parts componentsJoinedByString:@", "]];
+}
+
+// The list as the window knows it: always what the file holds after the engine's own cleaning (GFLoadCustomWordsFromPath), so the
+// screen, the file and what is sent to Live can never differ. Every add / remove is saved at once (no Save button); a failed
+// save changes nothing. New words go to the top (newest first). The words are never logged.
+@interface GFCustomWordsStore : NSObject
+@property (nonatomic, copy, readonly) NSString *path;
+@property (nonatomic, copy, readonly) NSArray<NSString *> *words;
+@property (nonatomic, copy, readonly) NSString *notice; // about the last action; @"" when there is nothing to say
+- (instancetype)initWithPath:(NSString *)path;
+- (void)reload;                               // re-reads the file and clears the notice
+- (NSUInteger)addFromInput:(NSString *)input; // one term, or several separated by commas or new lines; returns how many were added
+- (BOOL)removeWord:(NSString *)word;
+@end
+
+@implementation GFCustomWordsStore
+- (instancetype)initWithPath:(NSString *)path {
+    self = [super init];
+    if (self) {
+        _path = [path copy];
+        _words = GFLoadCustomWordsFromPath(_path);
+        _notice = @"";
+    }
+    return self;
+}
+
+- (void)reload {
+    _words = GFLoadCustomWordsFromPath(_path);
+    _notice = @"";
+}
+
+- (NSUInteger)addFromInput:(NSString *)input {
+    NSArray<NSString *> *current = GFLoadCustomWordsFromPath(_path); // from the file, not from memory: it may have been edited by hand
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSString *w in current) [seen addObject:w.lowercaseString];
+    NSMutableArray<NSString *> *added = [NSMutableArray array];
+    NSUInteger pieces = 0, duplicates = 0, tooLong = 0, noRoom = 0;
+    NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@",\n\r"];
+    for (NSString *piece in [(input ?: @"") componentsSeparatedByCharactersInSet:separators]) {
+        if ([piece stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0) continue;
+        pieces++;
+        NSString *term = GFCleanVocabulary(@[piece]).firstObject; // the engine's cleaning; a non-empty piece is dropped only for its length
+        if (!term) { tooLong++; continue; }
+        if ([seen containsObject:term.lowercaseString]) { duplicates++; continue; }
+        if (current.count + added.count >= kVocabularyMaxTerms) { noRoom++; continue; }
+        [seen addObject:term.lowercaseString];
+        [added addObject:term];
+    }
+    NSString *notice = GFCustomWordsSkipNotice(pieces, duplicates, tooLong, noRoom);
+    if (added.count > 0 && !GFSaveCustomWordsToPath([added arrayByAddingObjectsFromArray:current], _path, NULL)) {
+        [added removeAllObjects];
+        notice = @"Could not save the list.";
+    }
+    _words = GFLoadCustomWordsFromPath(_path); // what the file holds now, saved or not
+    _notice = notice;
+    return added.count;
+}
+
+- (BOOL)removeWord:(NSString *)word {
+    NSArray<NSString *> *current = GFLoadCustomWordsFromPath(_path);
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    for (NSString *w in current) {
+        if (![w.lowercaseString isEqualToString:(word ?: @"").lowercaseString]) [kept addObject:w];
+    }
+    BOOL ok = kept.count == current.count || GFSaveCustomWordsToPath(kept, _path, NULL);
+    _words = GFLoadCustomWordsFromPath(_path);
+    _notice = ok ? @"" : @"Could not save the list.";
+    return ok;
+}
+@end
+
+static NSColor *GFFlatInk(BOOL dark) {
+    return dark ? [NSColor colorWithWhite:0.97 alpha:1.0] : [NSColor colorWithSRGBRed:0.090 green:0.090 blue:0.105 alpha:1.0];
+}
+static NSColor *GFFlatMuted(BOOL dark) {
+    return dark ? [NSColor colorWithSRGBRed:0.560 green:0.565 blue:0.615 alpha:1.0] : [NSColor colorWithSRGBRed:0.450 green:0.455 blue:0.500 alpha:1.0];
+}
+static NSColor *GFFlatSeparator(BOOL dark) {
+    return dark ? [NSColor colorWithWhite:1.0 alpha:0.075] : [NSColor colorWithWhite:0.0 alpha:0.075];
+}
+
+// A real button (keyboard focus, Space, press tracking and VoiceOver come from NSButton) drawn like the Setup window's flat
+// buttons: a quiet rounded fill, or the filled "Done" style when primary.
+@interface GFFlatButton : NSButton
+@property (nonatomic, assign) BOOL primary;
++ (instancetype)flatButtonWithTitle:(NSString *)title primary:(BOOL)primary frame:(NSRect)frame;
+@end
+
+@implementation GFFlatButton {
+    BOOL _hovered;
+    NSTrackingArea *_trackingArea;
+}
++ (instancetype)flatButtonWithTitle:(NSString *)title primary:(BOOL)primary frame:(NSRect)frame {
+    GFFlatButton *b = [[GFFlatButton alloc] initWithFrame:frame];
+    b.title = title ?: @"";
+    b.primary = primary;
+    b.bordered = NO;
+    [b setButtonType:NSButtonTypeMomentaryChange];
+    return b;
+}
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (BOOL)wantsUpdateLayer { return NO; } // always drawn by drawRect: below, never by the standard button layer
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+                                                 options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+                                                   owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+- (void)mouseEntered:(NSEvent *)event { _hovered = YES; [self setNeedsDisplay:YES]; }
+- (void)mouseExited:(NSEvent *)event { _hovered = NO; [self setNeedsDisplay:YES]; }
+- (CGFloat)cornerRadius { return self.primary ? 7.0 : 6.0; }
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL dark = GFAppearanceIsDark(self.effectiveAppearance);
+    BOOL pressed = self.cell.isHighlighted;
+    NSColor *ink = GFFlatInk(dark), *fill, *text;
+    NSFont *font;
+    if (self.primary) {
+        fill = (pressed || _hovered) ? [ink colorWithAlphaComponent:(pressed ? 0.75 : 0.88)] : ink;
+        text = GFFlatBackground(dark);
+        font = [NSFont systemFontOfSize:12.5 weight:NSFontWeightSemibold];
+    } else {
+        CGFloat alpha = dark ? (pressed ? 0.21 : (_hovered ? 0.15 : 0.09)) : (pressed ? 0.135 : (_hovered ? 0.095 : 0.055));
+        fill = [NSColor colorWithWhite:(dark ? 1.0 : 0.0) alpha:alpha];
+        text = ink;
+        font = [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium];
+    }
+    [fill setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:[self cornerRadius] yRadius:[self cornerRadius]] fill];
+    NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: text};
+    NSSize sz = [self.title sizeWithAttributes:attrs];
+    CGFloat ty = (self.bounds.size.height - sz.height) / 2.0 + (self.isFlipped ? -0.5 : 0.5);
+    [self.title drawAtPoint:NSMakePoint((self.bounds.size.width - sz.width) / 2.0, ty) withAttributes:attrs];
+}
+- (void)drawFocusRingMask {
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:[self cornerRadius] yRadius:[self cornerRadius]] fill];
+}
+- (NSRect)focusRingMaskBounds { return self.bounds; }
+@end
+
+static const CGFloat kGFWordsWindowWidth = 440.0, kGFWordsRowHeight = 32.0, kGFWordsListTop = 150.0;
+static const NSInteger kGFWordsVisibleRows = 8;
+static const CGFloat kGFWordsFooterTop = 150.0 + 8 * 32.0 + 14.0;      // list top + visible rows + gap
+static const CGFloat kGFWordsWindowHeight = 150.0 + 8 * 32.0 + 14.0 + 28.0 + 16.0; // + Done button + bottom margin
+
+// The list: one term per row with a remove control (a drawn "x") at the right. Same rules as the other custom-drawn views: a click
+// needs press and release on the same control, the targets are rebuilt when the list changes (not when it is drawn), hover follows
+// the pointer while the list scrolls, and VoiceOver gets an element per term and per remove control.
+@interface GFCustomWordsListView : NSView
+@property (nonatomic, copy) NSArray<NSString *> *words;
+@property (nonatomic, assign) NSInteger hoveredRow; // the row whose remove control is under the pointer; -1 = none
+@property (nonatomic, copy) void (^onRemove)(NSString *word);
+- (void)relayout;
+- (NSRect)removeRectForRow:(NSInteger)row;
+@end
+
+@implementation GFCustomWordsListView {
+    NSMutableArray<NSValue *> *_removeRects;
+    NSArray *_axElements;
+    NSTrackingArea *_trackingArea;
+    NSInteger _mouseDownTarget; // row + 1; 0 = none
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        _words = @[];
+        _hoveredRow = -1;
+        _removeRects = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)setWords:(NSArray<NSString *> *)words {
+    _words = [words copy] ?: @[];
+    [self relayout];
+}
+
+// As tall as its rows, never shorter than the visible area; the remove targets are rebuilt here.
+- (void)relayout {
+    [_removeRects removeAllObjects];
+    _axElements = nil;
+    CGFloat w = self.bounds.size.width;
+    for (NSUInteger i = 0; i < _words.count; i++) {
+        // The drawn "x" ends at the content edge (24 pt from the window edge); its 22 pt target is centred on it
+        [_removeRects addObject:[NSValue valueWithRect:NSMakeRect(w - 39.0, i * kGFWordsRowHeight + 5.0, 22.0, 22.0)]];
+    }
+    NSScrollView *sv = self.enclosingScrollView;
+    CGFloat h = MAX(MAX(_words.count, 1) * kGFWordsRowHeight, sv ? sv.contentSize.height : 0.0);
+    [self setFrameSize:NSMakeSize(w, h)];
+    [self refreshHover];
+    [self setNeedsDisplay:YES];
+    NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
+}
+
+- (NSRect)removeRectForRow:(NSInteger)row {
+    return (row >= 0 && (NSUInteger)row < _removeRects.count) ? _removeRects[(NSUInteger)row].rectValue : NSZeroRect;
+}
+
+- (NSInteger)removeRowAtPoint:(NSPoint)pt {
+    for (NSUInteger i = 0; i < _removeRects.count; i++) {
+        if (NSPointInRect(pt, _removeRects[i].rectValue)) return (NSInteger)i;
+    }
+    return -1;
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL dark = GFAppearanceIsDark(self.effectiveAppearance);
+    NSColor *ink = GFFlatInk(dark), *muted = GFFlatMuted(dark);
+    [GFFlatBackground(dark) setFill];
+    NSRectFill(self.bounds);
+    CGFloat w = self.bounds.size.width, padX = 24.0;
+    if (_words.count == 0) {
+        NSString *empty = @"No words yet.";
+        NSDictionary *ea = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5], NSForegroundColorAttributeName: muted};
+        [empty drawAtPoint:NSMakePoint((w - [empty sizeWithAttributes:ea].width) / 2.0, 28.0) withAttributes:ea];
+        return;
+    }
+    NSMutableParagraphStyle *truncPS = [[NSMutableParagraphStyle alloc] init];
+    truncPS.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSDictionary *ta = @{NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium], NSForegroundColorAttributeName: ink,
+                         NSParagraphStyleAttributeName: truncPS};
+    for (NSUInteger i = 0; i < _words.count; i++) {
+        CGFloat y = i * kGFWordsRowHeight;
+        if (!NSIntersectsRect(NSMakeRect(0, y, w, kGFWordsRowHeight), dirtyRect)) continue;
+        if (i > 0) {
+            [GFFlatSeparator(dark) setFill];
+            NSRectFillUsingOperation(NSMakeRect(padX, y, w - padX * 2.0, 1.0), NSCompositingOperationSourceOver);
+        }
+        [_words[i] drawWithRect:NSMakeRect(padX, y + 7.0, w - padX * 2.0 - 34.0, 20.0) options:NSStringDrawingUsesLineFragmentOrigin attributes:ta];
+        NSRect rr = _removeRects[i].rectValue;
+        BOOL hot = self.hoveredRow == (NSInteger)i;
+        if (hot) {
+            [[NSColor colorWithWhite:(dark ? 1.0 : 0.0) alpha:(dark ? 0.12 : 0.08)] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:rr xRadius:6.0 yRadius:6.0] fill];
+        }
+        NSBezierPath *x = [NSBezierPath bezierPath];
+        x.lineWidth = 1.5;
+        x.lineCapStyle = NSLineCapStyleRound;
+        CGFloat cx = NSMidX(rr), cy = NSMidY(rr), arm = 3.5;
+        [x moveToPoint:NSMakePoint(cx - arm, cy - arm)];
+        [x lineToPoint:NSMakePoint(cx + arm, cy + arm)];
+        [x moveToPoint:NSMakePoint(cx + arm, cy - arm)];
+        [x lineToPoint:NSMakePoint(cx - arm, cy + arm)];
+        [(hot ? ink : muted) setStroke];
+        [x stroke];
+    }
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+                                                 options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+                                                   owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+
+- (void)setHovered:(NSInteger)row {
+    if (row == self.hoveredRow) return;
+    self.hoveredRow = row;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)refreshHover {
+    NSInteger row = -1;
+    NSWindow *win = self.window;
+    if (win) {
+        NSPoint pt = [self convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil];
+        if (NSPointInRect(pt, self.visibleRect)) row = [self removeRowAtPoint:pt];
+    }
+    [self setHovered:row];
+}
+
+- (void)viewWillMoveToSuperview:(NSView *)newSuperview {
+    [super viewWillMoveToSuperview:newSuperview];
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc removeObserver:self name:NSViewBoundsDidChangeNotification object:nil];
+    if ([newSuperview isKindOfClass:[NSClipView class]]) {
+        newSuperview.postsBoundsChangedNotifications = YES;
+        [nc addObserver:self selector:@selector(clipViewDidScroll:) name:NSViewBoundsDidChangeNotification object:newSuperview];
+    }
+}
+
+- (void)clipViewDidScroll:(NSNotification *)note { [self refreshHover]; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (void)mouseMoved:(NSEvent *)event { [self setHovered:[self removeRowAtPoint:[self convertPoint:event.locationInWindow fromView:nil]]]; }
+- (void)mouseExited:(NSEvent *)event { [self setHovered:-1]; }
+
+- (void)mouseDown:(NSEvent *)event {
+    _mouseDownTarget = [self removeRowAtPoint:[self convertPoint:event.locationInWindow fromView:nil]] + 1;
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    NSInteger upTarget = [self removeRowAtPoint:[self convertPoint:event.locationInWindow fromView:nil]] + 1;
+    NSInteger hit = GFClickTargetForDownUp(_mouseDownTarget, upTarget);
+    _mouseDownTarget = 0;
+    if (hit > 0 && (NSUInteger)(hit - 1) < _words.count && self.onRemove) self.onRemove(_words[(NSUInteger)(hit - 1)]);
+}
+
+- (NSArray *)gfAXElements {
+    if (_axElements) return _axElements;
+    NSMutableArray *els = [NSMutableArray array];
+    __weak typeof(self) weakSelf = self;
+    CGFloat w = self.bounds.size.width;
+    if (_words.count == 0) [els addObject:[GFAXElement elementInView:self rect:NSMakeRect(24.0, 24.0, w - 48.0, 24.0) label:@"No words yet." press:nil]];
+    for (NSUInteger i = 0; i < _words.count; i++) {
+        NSString *word = _words[i];
+        [els addObject:[GFAXElement elementInView:self rect:NSMakeRect(24.0, i * kGFWordsRowHeight, w - 48.0 - 34.0, kGFWordsRowHeight) label:word press:nil]];
+        [els addObject:[GFAXElement elementInView:self rect:_removeRects[i].rectValue label:[@"Remove " stringByAppendingString:word]
+                                            press:^{ if (weakSelf.onRemove) weakSelf.onRemove(word); }]];
+    }
+    _axElements = els;
+    return els;
+}
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityListRole; }
+- (NSString *)accessibilityLabel { return @"Words"; }
+- (NSArray *)accessibilityChildren { return [self gfAXElements]; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    for (GFAXElement *e in [[self gfAXElements] reverseObjectEnumerator]) {
+        if (NSPointInRect(point, e.accessibilityFrame)) return e;
+    }
+    return self;
+}
+@end
+
+// The window's content: title below the window-button strip, two muted lines, the add row (a real text field and a real button),
+// the scrolling list, and a footer with the count, an inline message when there is one, and Done.
+@interface GFCustomWordsContentView : NSView
+@property (nonatomic, strong, readonly) PasteableTextField *inputField;
+@property (nonatomic, strong, readonly) GFFlatButton *addButton;
+@property (nonatomic, strong, readonly) GFFlatButton *doneButton;
+@property (nonatomic, strong, readonly) NSScrollView *scrollView;
+@property (nonatomic, strong, readonly) GFCustomWordsListView *listView;
+@property (nonatomic, copy, readonly) NSString *footerText; // "3 of 100"
+@property (nonatomic, copy, readonly) NSString *notice;
+- (void)showWords:(NSArray<NSString *> *)words notice:(NSString *)notice;
+@end
+
+@implementation GFCustomWordsContentView {
+    NSArray *_axTextElements;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        CGFloat w = frameRect.size.width, padX = 24.0;
+        _notice = @"";
+        _footerText = @"";
+        _inputField = [[PasteableTextField alloc] initWithFrame:NSMakeRect(padX, 112.0, w - padX * 2.0 - 74.0 - 8.0, 24.0)];
+        _inputField.placeholderString = @"Add a name or term";
+        _inputField.font = [NSFont systemFontOfSize:13.0];
+        _inputField.bezelStyle = NSTextFieldRoundedBezel;
+        _inputField.usesSingleLineMode = YES; // a pasted multi-line list stays on one line (the line breaks are kept in the text)
+        _inputField.cell.scrollable = YES;
+        [_inputField setAccessibilityLabel:@"New word"];
+        [self addSubview:_inputField];
+        _addButton = [GFFlatButton flatButtonWithTitle:@"Add" primary:NO frame:NSMakeRect(w - padX - 74.0, 111.0, 74.0, 26.0)];
+        [self addSubview:_addButton];
+        _scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, kGFWordsListTop, w, kGFWordsVisibleRows * kGFWordsRowHeight)];
+        _scrollView.hasVerticalScroller = YES;
+        _scrollView.hasHorizontalScroller = NO;
+        _scrollView.autohidesScrollers = YES;
+        _scrollView.drawsBackground = NO;
+        _scrollView.borderType = NSNoBorder;
+        _listView = [[GFCustomWordsListView alloc] initWithFrame:NSMakeRect(0, 0, w, kGFWordsVisibleRows * kGFWordsRowHeight)];
+        _scrollView.documentView = _listView;
+        [self addSubview:_scrollView];
+        _doneButton = [GFFlatButton flatButtonWithTitle:@"Done" primary:YES frame:NSMakeRect(w - padX - 76.0, kGFWordsFooterTop, 76.0, 28.0)];
+        [self addSubview:_doneButton];
+        // Tab order: field, Add, Done
+        _inputField.nextKeyView = _addButton;
+        _addButton.nextKeyView = _doneButton;
+        _doneButton.nextKeyView = _inputField;
+        [self showWords:@[] notice:@""];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)showWords:(NSArray<NSString *> *)words notice:(NSString *)notice {
+    NSString *oldNotice = _notice;
+    _notice = [notice copy] ?: @"";
+    _footerText = [NSString stringWithFormat:@"%lu of %lu", (unsigned long)words.count, (unsigned long)kVocabularyMaxTerms];
+    _axTextElements = nil;
+    self.listView.words = words ?: @[];
+    [self setNeedsDisplay:YES];
+    if (_notice.length > 0 && ![_notice isEqualToString:oldNotice] && self.window) { // VoiceOver speaks a new inline message
+        NSAccessibilityPostNotificationWithUserInfo(self.window, NSAccessibilityAnnouncementRequestedNotification,
+            @{NSAccessibilityAnnouncementKey: _notice, NSAccessibilityPriorityKey: @(NSAccessibilityPriorityHigh)});
+    }
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL dark = GFAppearanceIsDark(self.effectiveAppearance);
+    NSColor *ink = GFFlatInk(dark), *muted = GFFlatMuted(dark);
+    [GFFlatBackground(dark) setFill];
+    NSRectFill(self.bounds);
+    CGFloat w = self.bounds.size.width, padX = 24.0, contentW = w - padX * 2.0;
+
+    // Title below the window-button strip (the top kGFTitlebarStripHeight pt stay empty)
+    [GFBrandTitle(@"Custom Words", 20.0, ink) drawAtPoint:NSMakePoint(padX, 34.0)];
+    NSDictionary *la = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5], NSForegroundColorAttributeName: muted};
+    [@"Names and unusual terms to spell exactly." drawAtPoint:NSMakePoint(padX, 66.0) withAttributes:la];
+    [@"Skip everyday words: a listed word replaces its sound-alikes." drawAtPoint:NSMakePoint(padX, 84.0) withAttributes:la];
+
+    [GFFlatSeparator(dark) setFill];
+    NSRectFillUsingOperation(NSMakeRect(padX, kGFWordsListTop - 1.0, contentW, 1.0), NSCompositingOperationSourceOver);
+    NSRectFillUsingOperation(NSMakeRect(padX, kGFWordsListTop + kGFWordsVisibleRows * kGFWordsRowHeight, contentW, 1.0), NSCompositingOperationSourceOver);
+
+    [self.footerText drawAtPoint:NSMakePoint(padX, kGFWordsFooterTop - 1.0)
+                  withAttributes:@{NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:11.5 weight:NSFontWeightRegular],
+                                   NSForegroundColorAttributeName: muted}];
+    if (self.notice.length > 0) {
+        NSMutableParagraphStyle *truncPS = [[NSMutableParagraphStyle alloc] init];
+        truncPS.lineBreakMode = NSLineBreakByTruncatingTail;
+        [self.notice drawWithRect:NSMakeRect(padX, kGFWordsFooterTop + 14.0, contentW - 76.0 - 12.0, 16.0) options:NSStringDrawingUsesLineFragmentOrigin
+                       attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
+                                    NSForegroundColorAttributeName: ink, NSParagraphStyleAttributeName: truncPS}];
+    }
+}
+
+// The title area moves the window like a title bar
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
+    if (pt.y < 104.0) [self.window performWindowDragWithEvent:event];
+}
+
+// VoiceOver: the drawn text (title + the two lines; count + message) joins the real controls
+- (NSArray *)gfAXTextElements {
+    if (_axTextElements) return _axTextElements;
+    CGFloat w = self.bounds.size.width;
+    NSString *footer = self.notice.length > 0 ? [NSString stringWithFormat:@"%@. %@", self.footerText, self.notice] : self.footerText;
+    _axTextElements = @[
+        [GFAXElement elementInView:self rect:NSMakeRect(24.0, 30.0, w - 48.0, 72.0)
+                             label:@"Custom Words. Names and unusual terms to spell exactly. Skip everyday words: a listed word replaces its sound-alikes."
+                             press:nil],
+        [GFAXElement elementInView:self rect:NSMakeRect(24.0, kGFWordsFooterTop - 2.0, w - 48.0 - 88.0, 32.0) label:footer press:nil]];
+    return _axTextElements;
+}
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityGroupRole; }
+- (NSString *)accessibilityLabel { return @"Custom Words"; }
+- (NSArray *)accessibilityChildren {
+    NSArray *texts = [self gfAXTextElements];
+    return @[texts[0], self.inputField, self.addButton, self.scrollView, texts[1], self.doneButton];
+}
+@end
+
+static NSBitmapImageRep *GFRenderCustomWordsSnapshot(BOOL dark, NSArray<NSString *> *words, NSString *notice) {
+    CGFloat w = kGFWordsWindowWidth, h = kGFWordsWindowHeight;
+    GFCustomWordsContentView *v = [[GFCustomWordsContentView alloc] initWithFrame:NSMakeRect(0, 0, w, h)];
+    NSAppearance *appearance = [NSAppearance appearanceNamed:(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
+    v.appearance = appearance;
+    [v showWords:GFCleanVocabulary(words ?: @[]) notice:notice ?: @""];
+    NSInteger pw = (NSInteger)(w * 2.0), ph = (NSInteger)(h * 2.0);
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:pw pixelsHigh:ph
+        bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+        bytesPerRow:pw * 4 bitsPerPixel:32];
+    rep.size = NSMakeSize(w, h);
+    [appearance performAsCurrentDrawingAppearance:^{
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
+        [v displayRectIgnoringOpacity:v.bounds inContext:[NSGraphicsContext currentContext]];
+        // Simulated traffic lights (close and minimize; the window does not resize)
+        NSColor *tlColors[3] = {
+            [NSColor colorWithSRGBRed:1.0 green:0.373 blue:0.341 alpha:1.0],
+            [NSColor colorWithSRGBRed:0.996 green:0.737 blue:0.180 alpha:1.0],
+            [NSColor colorWithWhite:0.5 alpha:0.25]
+        };
+        for (int i = 0; i < 3; i++) {
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(12.0 + i * 20.0, h - 20.0, 12.0, 12.0)];
+            [tlColors[i] setFill];
+            [dot fill];
+        }
+        [NSGraphicsContext restoreGraphicsState];
+    }];
+    return rep;
+}
+
+@interface GFCustomWordsWindowController : NSObject <NSWindowDelegate, NSTextFieldDelegate>
+@property (nonatomic, strong) GFClosableWindow *window;
+@property (nonatomic, strong, readonly) GFCustomWordsContentView *contentView;
+@property (nonatomic, strong, readonly) GFCustomWordsStore *store;
++ (instancetype)sharedController;              // the user's list (GFCustomWordsPath); created on the first click of the menu item
+- (instancetype)initWithPath:(NSString *)path; // builds the views, opens no window (tests pass a temp file)
+- (void)showWindow;
+- (void)addFromField:(id)sender;
+- (void)removeWord:(NSString *)word;
+@end
+
+@implementation GFCustomWordsWindowController
+
++ (instancetype)sharedController {
+    static GFCustomWordsWindowController *shared = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        shared = [[GFCustomWordsWindowController alloc] initWithPath:GFCustomWordsPath()];
+    });
+    return shared;
+}
+
+- (instancetype)initWithPath:(NSString *)path {
+    self = [super init];
+    if (self) {
+        _store = [[GFCustomWordsStore alloc] initWithPath:path];
+        _contentView = [[GFCustomWordsContentView alloc] initWithFrame:NSMakeRect(0, 0, kGFWordsWindowWidth, kGFWordsWindowHeight)];
+        _contentView.inputField.delegate = self;
+        _contentView.addButton.target = self;
+        _contentView.addButton.action = @selector(addFromField:);
+        _contentView.doneButton.target = self;
+        _contentView.doneButton.action = @selector(done:);
+        __weak typeof(self) weakSelf = self;
+        _contentView.listView.onRemove = ^(NSString *word) { [weakSelf removeWord:word]; };
+        [self refreshView];
+    }
+    return self;
+}
+
+- (void)refreshView {
+    [self.contentView showWords:self.store.words notice:self.store.notice];
+}
+
+- (void)addFromField:(id)sender {
+    NSTextField *field = self.contentView.inputField;
+    NSString *input = field.stringValue ?: @"";
+    if ([input stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length == 0) return;
+    NSUInteger added = [self.store addFromInput:input];
+    if (added > 0) field.stringValue = @""; // a rejected entry stays in the field so it can be corrected
+    [self refreshView];
+    if (added > 0) [self.contentView.listView scrollPoint:NSZeroPoint]; // new words are at the top
+    [self.window makeFirstResponder:field];
+}
+
+- (void)removeWord:(NSString *)word {
+    [self.store removeWord:word];
+    [self refreshView];
+}
+
+- (void)done:(id)sender {
+    [self.window performClose:nil];
+}
+
+// A pasted multi-line list is added at once (a single-line field would otherwise show only part of it)
+- (void)controlTextDidChange:(NSNotification *)obj {
+    NSString *text = self.contentView.inputField.stringValue ?: @"";
+    if ([text rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location != NSNotFound) [self addFromField:nil];
+}
+
+// Return adds. Esc clears a non-empty field first and closes the window when the field is empty.
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
+    if (control != self.contentView.inputField) return NO;
+    if (commandSelector == @selector(insertNewline:)) {
+        [self addFromField:nil];
+        return YES;
+    }
+    if (commandSelector == @selector(cancelOperation:)) {
+        if (self.contentView.inputField.stringValue.length > 0) self.contentView.inputField.stringValue = @"";
+        else [self.window performClose:nil];
+        return YES;
+    }
+    return NO;
+}
+
+- (void)ensureWindow {
+    if (self.window) return;
+    NSRect frame = NSMakeRect(0, 0, kGFWordsWindowWidth, kGFWordsWindowHeight);
+    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskFullSizeContentView;
+    self.window = [[GFClosableWindow alloc] initWithContentRect:frame styleMask:style backing:NSBackingStoreBuffered defer:NO];
+    self.window.title = @"GeminiFlow Custom Words";
+    self.window.titleVisibility = NSWindowTitleHidden;
+    self.window.titlebarAppearsTransparent = YES;
+    self.window.releasedWhenClosed = NO;
+    self.window.backgroundColor = GFFlatWindowBackgroundColor();
+    self.window.delegate = self;
+    [self.window center];
+    self.window.contentView = self.contentView;
+    self.window.initialFirstResponder = self.contentView.inputField;
+}
+
+- (void)windowWillClose:(NSNotification *)notification {
+    GFReturnFocusIfNoWindowLeft();
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+    GFReturnFocusIfNoWindowLeft();
+}
+
+- (void)showWindow {
+    [self ensureWindow];
+    [self.store reload]; // the file may have been edited since the window was last shown
+    [self refreshView];
+    GFNoteFrontAppBeforeActivating();
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.window makeKeyAndOrderFront:nil];
+    [self.window makeFirstResponder:self.contentView.inputField];
 }
 @end
 
@@ -1633,6 +2747,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) BOOL liveHadTextAtSupersede;      // backlog 0u: Live had text for it when the newer press started
 @property (nonatomic, assign) BOOL onDeviceNoSpeechAtSupersede; // backlog 0u: on-device had said "No speech detected" by then
 @property (nonatomic, assign) BOOL finished;         // delivered, or ended as no speech
+@property (nonatomic, assign) NSTimeInterval supersededWhileThinkingTime; // busy marker: a newer press started while this one was "thinking"
 @property (nonatomic, assign) NSTimeInterval releaseTime;
 // Bounded wait (user-approved 2026-11-10): on-device text delivered early while a slow REST call runs, maybe swapped later
 @property (nonatomic, strong) NSString *earlyText;           // the early on-device delivery (nil = none)
@@ -1654,6 +2769,13 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 // it was scheduled under is still current, so a stale "Cancelled"/"No speech"/post-paste fade can't hide a new recording.
 @property (nonatomic, assign) NSUInteger hudGeneration;
 @property (nonatomic, assign) NSInteger menuIconState;          // 0 = idle, 1 = listening, 2 = thinking (set via setMenuIconState:)
+// Busy marker (see GFDictationInProgress). busyMarkerPath is nil in every --test / e2e process (main() sets it for the real app only).
+@property (nonatomic, copy) NSString *busyMarkerPath;
+@property (nonatomic, assign) BOOL busyMarkerExists;            // this process created the marker and has not removed it
+@property (nonatomic, assign) NSTimeInterval busyLastInProgress; // last time a dictation was seen in progress
+@property (nonatomic, assign) BOOL busyTickScheduled;
+@property (nonatomic, assign) NSUInteger busyMarkerWrites;      // times the marker was created (tests)
+@property (nonatomic, strong) NSMutableArray<GFDictation *> *busySuperseded; // superseded while thinking, result not delivered yet
 @property (nonatomic, assign) NSUInteger hudDismissalsHonored;  // counters for the --test suite / diagnostics
 @property (nonatomic, assign) NSUInteger hudDismissalsDropped;
 @property (nonatomic, assign) BOOL unitTestMode;                // --test: keep the user's log file quiet
@@ -1734,8 +2856,16 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) NSUInteger e2eLifetimeClosedSid; // liveSessionId of the socket the lifetime hook last closed
 @property (nonatomic, assign) NSUInteger e2eLifetimeCloses;
 @property (nonatomic, copy) NSDictionary *e2eLiveSetupExtra;      // test hook (e2e only, backlog 0y-probe): deep-merged into the Live `setup` object
+@property (nonatomic, copy) NSArray<NSString *> *e2eVocabulary;   // test hook (e2e / --test only): the ONLY vocabulary in tests (the user's lists are never read there)
+@property (nonatomic, assign) BOOL e2eLiveVocabReject;            // test hook (e2e only): the first session that sends a vocabulary is "rejected" (close 1007)
+@property (nonatomic, assign) BOOL e2eLiveVocabRejectFired;
 @property (nonatomic, assign) NSTimeInterval e2eLiveSetupSentTime; // setup probe: when the current socket's setup message was sent
 @property (nonatomic, strong) NSMutableSet<NSString *> *e2eLiveSeenFields; // setup probe: field NAMES of this session's server messages
+@property (nonatomic, assign) NSUInteger e2eLiveInterimCount;       // setup probe: serverContent.interimInputTranscription messages this session
+@property (nonatomic, assign) NSUInteger e2eLiveFinalCount;         // setup probe: serverContent.inputTranscription messages this session
+@property (nonatomic, assign) NSTimeInterval e2eLiveFirstAudioTime; // setup probe: when this session's first audio message was sent
+@property (nonatomic, assign) NSTimeInterval e2eLiveFirstInterimTime;
+@property (nonatomic, assign) NSTimeInterval e2eLiveFirstFinalTime;
 
 // Gemini Live WebSocket session
 @property (nonatomic, strong) NSURLSession *liveSession;
@@ -1786,6 +2916,11 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) GFLiveAuthMode liveAuthMode;       // per run: header auth confirmed / key-in-URL fallback in use
 @property (nonatomic, assign) BOOL liveAuthViaHeader;            // the current Live session sent the key in x-goog-api-key
 @property (nonatomic, assign) BOOL liveNextConnectKeyInURL;      // one-shot: the next connect is the key-in-URL retry
+@property (nonatomic, copy) NSArray<NSString *> *liveSentVocabulary;     // custom vocabulary in the CURRENT session's setup message (empty = none)
+@property (nonatomic, copy) NSArray<NSString *> *liveRejectedVocabulary; // per run: the server rejected a setup carrying this list; it is not sent again
+@property (nonatomic, assign) NSInteger liveSimulatedCloseCode;          // seam (--test, e2e-only hook): one-shot close code of the next socket failure
+@property (nonatomic, copy) NSString *liveSimulatedCloseReason;          // ... and its close reason
+@property (nonatomic, strong) NSDictionary *liveTestLastSetup;           // --test only (liveTestSocketless): the setup message of the last connect
 @property (nonatomic, assign) BOOL liveAuthRetrySession;         // the current session is that retry
 
 // Recent dictations
@@ -1999,13 +3134,79 @@ static id GFJSONDeepMerge(id base, id extra) {
     }
     return out;
 }
-static NSDictionary *GFLiveSetupMessage(NSString *model, NSDictionary *extra) {
+// Custom vocabulary (backlog 0y; probed on the real server 2026-11-13): the user's list of names and unusual terms. Live gets it
+// as setup.inputAudioTranscription.customVocabulary and then writes those spellings ("Shavon" -> "Siobhan", "Zyfra" -> "Zyphra").
+// The server accepts the field only at setup level. It is STRONG: a listed common word replaces its sound-alikes even when the
+// other word was said ("build" in the list turned a spoken "bill" into "build"), so the list is for names and rare terms. An
+// empty or missing list leaves the setup message byte for byte as before.
+// Where the list lives: ~/Library/Application Support/GeminiFlow/custom-words.json (GFCustomWordsPath; a JSON array of strings,
+// written by GFSaveCustomWordsToPath, file mode 0600). It holds people's names, so it is deliberately OUTSIDE the repository
+// folder (~/GeminiFlow/rules.json is tracked in git and published). rules.json "customVocabulary" is still read as an extra,
+// hand-edited source and is appended after the file's words. Automated tests (--test, e2e mode) never read either file.
+// Cleaning: strings only, trimmed, inner whitespace collapsed to one space, empties dropped, terms longer than 64 characters
+// dropped, case-insensitive duplicates dropped (the first spelling wins), at most the first 100 terms, order kept.
+static const NSUInteger kVocabularyMaxTerms = 100;
+static const NSUInteger kVocabularyMaxTermLength = 64;
+static NSArray<NSString *> *GFCleanVocabulary(id raw) {
+    if (![raw isKindOfClass:[NSArray class]]) return @[];
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (id item in (NSArray *)raw) {
+        if (![item isKindOfClass:[NSString class]]) continue;
+        NSMutableArray<NSString *> *parts = [NSMutableArray array];
+        for (NSString *part in [(NSString *)item componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]])
+            if (part.length > 0) [parts addObject:part];
+        NSString *term = [parts componentsJoinedByString:@" "];
+        if (term.length == 0 || term.length > kVocabularyMaxTermLength || [seen containsObject:term.lowercaseString]) continue;
+        [seen addObject:term.lowercaseString];
+        [out addObject:term];
+        if (out.count >= kVocabularyMaxTerms) break;
+    }
+    return out;
+}
+// The cleaned "customVocabulary" list of a rules.json file's bytes (empty for a missing / unreadable file or key).
+static NSArray<NSString *> *GFVocabularyFromRulesData(NSData *data) {
+    id rules = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    return [rules isKindOfClass:[NSDictionary class]] ? GFCleanVocabulary(((NSDictionary *)rules)[@"customVocabulary"]) : @[];
+}
+// The custom words file: a JSON array of strings in the user's Application Support folder (never in the repository folder).
+static NSString *GFCustomWordsPath(void) {
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/custom-words.json"];
+}
+// The CLEANED list stored at `path` (GFCleanVocabulary); empty for a missing, unreadable or malformed file.
+static NSArray<NSString *> *GFLoadCustomWordsFromPath(NSString *path) {
+    NSData *data = path.length > 0 ? [NSData dataWithContentsOfFile:path] : nil;
+    id obj = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    return GFCleanVocabulary(obj);
+}
+// The user's vocabulary from its two sources: the custom words file first, then rules.json "customVocabulary" (the first readable
+// of `rulesPaths`), cleaned together (so duplicates across the two collapse and the 100-term limit applies to the whole list).
+static NSArray<NSString *> *GFUserVocabularyFromFiles(NSString *customWordsPath, NSArray<NSString *> *rulesPaths) {
+    NSData *rules = nil;
+    for (NSString *path in rulesPaths) {
+        rules = [NSData dataWithContentsOfFile:path];
+        if (rules) break;
+    }
+    return GFCleanVocabulary([GFLoadCustomWordsFromPath(customWordsPath) arrayByAddingObjectsFromArray:GFVocabularyFromRulesData(rules)]);
+}
+// Which list a Live connect sends. Test isolation: in --test and in e2e mode ONLY the injected list (--e2e-vocabulary) is used
+// and the user's files are never read (`loadUser` is not called), so the user's real words are never sent by an automated test
+// and never bias its outputs. In the normal app the injected list is ignored and `loadUser` supplies the list.
+static NSArray<NSString *> *GFVocabularyForConnect(BOOL testMode, NSArray<NSString *> *injected, NSArray<NSString *> *(^loadUser)(void)) {
+    if (testMode) return GFCleanVocabulary(injected ?: @[]);
+    return (loadUser ? loadUser() : nil) ?: @[];
+}
+// The setup message: today's fields, then the vocabulary (when there is one), then the e2e-only extra (merged last, so a probe
+// can add to or replace the vocabulary object).
+static NSDictionary *GFLiveSetupMessageWithVocabulary(NSString *model, NSArray<NSString *> *vocabulary, NSDictionary *extra) {
     NSDictionary *setup = @{@"model": [NSString stringWithFormat:@"models/%@", model],
                             @"generationConfig": @{@"responseModalities": @[@"TEXT"]},
                             @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES}}};
+    if (vocabulary.count > 0) setup = GFJSONDeepMerge(setup, @{@"inputAudioTranscription": @{@"customVocabulary": vocabulary}});
     if ([extra isKindOfClass:[NSDictionary class]] && extra.count > 0) setup = GFJSONDeepMerge(setup, extra);
     return @{@"setup": setup};
 }
+static NSDictionary *GFLiveSetupMessage(NSString *model, NSDictionary *extra) { return GFLiveSetupMessageWithVocabulary(model, nil, extra); }
 // The --e2e-live-setup-extra argument as a dictionary; nil unless it is a JSON object.
 static NSDictionary *GFParseLiveSetupExtra(NSString *json) {
     NSData *d = [json dataUsingEncoding:NSUTF8StringEncoding];
@@ -2062,6 +3263,13 @@ static NSString *GFLiveProbeErrorFrameLine(NSDictionary *json, BOOL setupDone) {
             [status isKindOfClass:[NSString class]] && [status length] > 0 ? [GFLiveProbeClean(status, 60) stringByReplacingOccurrencesOfString:@" " withString:@"_"] : @"none",
             GFLiveProbeClean([msg isKindOfClass:[NSString class]] ? msg : ([e isKindOfClass:[NSString class]] ? e : nil), 400)];
 }
+// Interim text (serverContent.interimInputTranscription; the app does not use it): how many messages, and how long after the
+// session's first audio message the first interim and the first final text arrived (-1 = none). Numbers only.
+static NSString *GFLiveProbeInterimLine(NSUInteger interim, double firstInterimMs, NSUInteger finals, double firstFinalMs) {
+    return [NSString stringWithFormat:@"E2E: Live setup probe: interim transcripts: %lu messages, first %.0f ms after the first audio was sent; "
+            @"final transcripts: %lu messages, first %.0f ms after the first audio was sent", (unsigned long)interim,
+            interim > 0 ? firstInterimMs : -1.0, (unsigned long)finals, finals > 0 ? firstFinalMs : -1.0];
+}
 static NSString *GFLiveProbeFieldsLine(NSSet<NSString *> *names) {
     return [NSString stringWithFormat:@"E2E: Live setup probe: server message fields seen: [%@]", GFLiveProbeJoinedNames(names)];
 }
@@ -2085,6 +3293,45 @@ static BOOL GFLiveFailureLooksLikeAuth(NSInteger httpStatus, NSInteger closeCode
 static BOOL GFLiveShouldRetryWithKeyInURL(BOOL viaHeader, BOOL setupDone, GFLiveAuthMode mode, BOOL recording, BOOL finalizing, BOOL ourSocket,
                                           BOOL authLike) {
     return viaHeader && !setupDone && mode != GFLiveAuthHeaderOK && recording && !finalizing && ourSocket && authLike;
+}
+// Why did a Live session die before setupComplete? Custom vocabulary safety net: the server rejects a setup field it does not
+// accept by closing the socket with code 1007 and a reason like "Invalid JSON payload received. Unknown name ...: Cannot find
+// field." (seen on the real server 2026-11-13 for misplaced fields). Close 1007 also counts as auth-like (backlog 15), so a
+// session that SENT a vocabulary is checked first: a reason that names the field or says the payload is invalid, or a 1007 whose
+// reason does not talk about credentials, means "vocabulary rejected" -> reconnect without it instead of the key-in-URL retry.
+// How the server rejects a bad VALUE (too many or too long terms) has not been seen yet; "invalid argument" / "invalid value"
+// reasons are taken as that, whatever the close code.
+// A session that sent no vocabulary is classified exactly as before (auth-like or not).
+typedef NS_ENUM(NSInteger, GFLivePreSetupFailure) {
+    GFLivePreSetupFailureNetwork = 0,    // not auth, not the vocabulary: fails as before
+    GFLivePreSetupFailureAuth = 1,       // GFLiveFailureLooksLikeAuth: the key-in-URL retry may apply
+    GFLivePreSetupFailureVocabulary = 2, // the setup with the vocabulary was rejected
+};
+static GFLivePreSetupFailure GFLiveClassifyPreSetupFailure(BOOL sentVocabulary, NSInteger httpStatus, NSInteger closeCode, NSString *closeReason,
+                                                           NSString *errDomain, NSInteger errCode) {
+    if (sentVocabulary) {
+        NSString *r = closeReason.lowercaseString ?: @"";
+        for (NSString *w in @[@"inputaudiotranscription", @"input_audio_transcription", @"customvocabulary", @"custom_vocabulary",
+                              @"unknown name", @"invalid json payload", @"invalid argument", @"invalid value"])
+            if ([r containsString:w]) return GFLivePreSetupFailureVocabulary;
+        if (closeCode == 1007 && !GFLiveFailureLooksLikeAuth(0, 0, closeReason, nil, 0)) return GFLivePreSetupFailureVocabulary;
+    }
+    return GFLiveFailureLooksLikeAuth(httpStatus, closeCode, closeReason, errDomain, errCode) ? GFLivePreSetupFailureAuth : GFLivePreSetupFailureNetwork;
+}
+// Vocabulary terms can be people's names: mask any the server quoted back before its close reason is logged.
+static NSString *GFMaskTerms(NSString *s, NSArray<NSString *> *terms) {
+    if (s.length == 0 || terms.count == 0) return s;
+    NSString *out = s;
+    for (NSString *t in terms)
+        if (t.length > 0) out = [out stringByReplacingOccurrencesOfString:t withString:@"<term>" options:NSCaseInsensitiveSearch range:NSMakeRange(0, out.length)];
+    return out;
+}
+// One line per rejection: counts, codes and the server's own (masked) reason; never the terms. No double quotes in it (the e2e
+// harness reads the quoted E2E RESULT line; the server's reason quotes field names).
+static NSString *GFLiveVocabularyRejectedLine(NSUInteger terms, NSInteger httpStatus, NSInteger closeCode, NSString *maskedReason, BOOL reconnecting) {
+    return [NSString stringWithFormat:@"Live: the server rejected the setup with the custom vocabulary (%lu terms; HTTP %ld, close %ld); "
+            @"this list is not sent again this run%@. Server's reason: %@", (unsigned long)terms, (long)httpStatus, (long)closeCode,
+            reconnecting ? @"; reconnecting without it" : @"", maskedReason.length > 0 ? GFLiveProbeClean(maskedReason, 300) : @"(none)"];
 }
 
 // No-speech presses (backlog 0e, approved by the user 2026-11-06 13:43). REST invents fluent text for noise-only audio
@@ -2518,6 +3765,28 @@ static BOOL GFWritePrivateFile(NSData *data, NSString *path) {
     return ok;
 }
 
+// Saves the custom words list (see GFCustomWordsPath): cleans it (GFCleanVocabulary), creates the folder if needed, and replaces
+// the file atomically (a private 0600 temp file in the same folder, then rename), so a reader never sees a half-written list and
+// the words are readable only by the user. Returns NO and sets *err when the list can't be written (the old file stays).
+static BOOL GFSaveCustomWordsToPath(NSArray<NSString *> *words, NSString *path, NSError **err) {
+    NSError *e = nil;
+    NSData *data = path.length > 0 ? [NSJSONSerialization dataWithJSONObject:GFCleanVocabulary(words) options:NSJSONWritingPrettyPrinted error:&e] : nil;
+    NSString *dir = path.stringByDeletingLastPathComponent;
+    BOOL ok = data != nil && [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES
+                                                                         attributes:@{NSFilePosixPermissions: @(0700)} error:&e];
+    if (ok) {
+        NSString *tmp = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@".custom-words-%@.tmp", [NSUUID UUID].UUIDString]];
+        ok = GFWritePrivateFile(data, tmp);
+        if (ok && rename(tmp.fileSystemRepresentation, path.fileSystemRepresentation) != 0) {
+            ok = NO;
+            unlink(tmp.fileSystemRepresentation);
+        }
+        if (!ok) e = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+    }
+    if (!ok && err) *err = e ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError userInfo:nil];
+    return ok;
+}
+
 // Writes wav to a private temp file and calls start(path, done). done() deletes the file: call it once the recognition that
 // reads the file has ended, on success AND failure (extra calls are no-ops; any thread). Returns NO, without calling start,
 // if the file can't be written.
@@ -2563,6 +3832,62 @@ static double GFE2EWatchdogSeconds(double fileSeconds) {
     double old = fileSeconds + 60.0 + (GFRestTimeoutForAudioSeconds(fileSeconds) - 8.0);
     double chain = fileSeconds + GFRestTimeoutForAudioSeconds(fileSeconds) + kRestSlowRetryGrace + GFWavWatchdogLimit(fileSeconds) + 30.0;
     return MAX(120.0, MAX(old, chain));
+}
+
+// Busy marker (user-approved 2026-11-13). On 2026-11-13 11:13 a deploy restarted the app 12 s into a dictation and the dictation
+// was lost. The log file cannot tell a restart script whether the REAL app is mid-dictation (test processes write the same lines),
+// so the real app publishes it: while a dictation is in progress the file ~/Library/Application Support/GeminiFlow/busy exists and
+// holds this process's pid (decimal text, mode 0600); otherwise it does not exist. Never written by --test or e2e processes.
+// In progress = any of:
+//   - the menu state is not idle: 1 from the press (a whole hands-free session included), 2 from the release until the latest
+//     press's dictation ends. Every end (delivered, clipboard-only, no speech, Esc, mic error, early on-device paste) goes
+//     through returnToIdleWithStatusTitle: -> setMenuIconState:0;
+//   - an EARLIER dictation that a newer press superseded while it was still "thinking" has not delivered its result yet (the menu
+//     state belongs to the newer press, so it cannot tell);
+//   - a paste is pending (queued, deferred behind a recording, or in flight: the Cmd+V goes out 0.12 s after the clipboard is set).
+// The marker stays for kBusyMarkerGrace after the last of these ended, so it outlives the paste. A late swap of an early-pasted
+// text is not protected (its text is already delivered).
+static const NSTimeInterval kBusyMarkerGrace = 1.0;
+static const NSTimeInterval kBusyMarkerTick = 0.25; // while the marker exists it is re-checked this often (the only removal path)
+static BOOL GFDictationInProgress(NSInteger menuState, NSUInteger undeliveredSuperseded, BOOL pastePending) {
+    return menuState != 0 || undeliveredSuperseded > 0 || pastePending;
+}
+static BOOL GFBusyMarkerShouldExist(BOOL inProgress, BOOL exists, NSTimeInterval sinceLastInProgress) {
+    if (inProgress) return YES;
+    return exists && sinceLastInProgress < kBusyMarkerGrace;
+}
+// A superseded dictation stops counting once its whole fallback chain must be over (the e2e watchdog's bound: recording length +
+// REST budget + slow-retry grace + WAV-fallback watchdog + 30 s, at least 120 s), so a result that never arrives cannot keep the
+// marker forever.
+static BOOL GFSupersededDictationExpired(NSTimeInterval age, double audioSeconds) {
+    return age > GFE2EWatchdogSeconds(audioSeconds);
+}
+// The marker's path for this run: nil (no marker) for e2e and --test processes, and on iOS.
+static NSString *GFBusyMarkerPathForRun(NSString *e2eMode, BOOL unitTestMode) {
+#if TARGET_OS_IPHONE
+    return nil;
+#else
+    if (e2eMode.length > 0 || unitTestMode) return nil;
+    NSString *home = NSHomeDirectory(); // ~/Library/Application Support/GeminiFlow/busy (the app is not sandboxed)
+    return home.length > 0 ? [home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/busy"] : nil;
+#endif
+}
+// busy: (re)write the marker with this process's pid, creating its folder; not busy: remove it. Every failure is ignored: the
+// marker must never affect a dictation. A no-op on iOS.
+static void GFBusyMarkerWrite(NSString *path, BOOL busy) {
+#if !TARGET_OS_IPHONE
+    if (path.length == 0) return;
+    if (!busy) { unlink(path.fileSystemRepresentation); return; }
+    [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent] withIntermediateDirectories:YES
+                                               attributes:nil error:nil];
+    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR);
+    if (fd < 0) return;
+    fchmod(fd, S_IRUSR | S_IWUSR); // exactly 0600 whatever the umask
+    char pid[32];
+    int n = snprintf(pid, sizeof(pid), "%d", (int)getpid());
+    if (n > 0 && write(fd, pid, (size_t)n) < 0) { /* ignored */ }
+    close(fd);
+#endif
 }
 
 // Seconds until the watchdog should look again; 0 = give up now. sinceProgress < 0 means no callback yet.
@@ -2945,11 +4270,11 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     BOOL micReady = ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusAuthorized);
     BOOL axReady = AXIsProcessTrusted();
     if (!micReady || !axReady) {
-        [self openSetupWindow];
-    } else if ([SFSpeechRecognizer authorizationStatus] == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
-        [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
-            NSLog(@"Speech recognition authorization status: %ld", (long)status);
-        }];
+        [self openSetupWindow]; // also asks for Speech recognition while that is still undecided
+    } else {
+        // The default engine is on-device speech (and it is the safety net with a key): ask whenever it is still undecided,
+        // not only when everything else is ready.
+        GFRequestSpeechIfUndetermined(nil);
     }
 }
 
@@ -2958,6 +4283,54 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 - (void)setMenuIconState:(NSInteger)state {
     _menuIconState = state;
     if (self.statusItem) self.statusItem.button.image = [self menuBarIconForState:state];
+    [self busyMarkerRefresh];
+}
+
+// Busy marker (see GFDictationInProgress). Created here when a press starts (setMenuIconState:1); while it exists, a
+// kBusyMarkerTick timer re-checks the state and removes it kBusyMarkerGrace after nothing is in progress any more. So no end-of-
+// dictation path has to remember the marker: they only have to end the way they already do.
+- (void)busyMarkerRefresh { [self busyMarkerRefreshAt:[NSDate timeIntervalSinceReferenceDate]]; }
+
+- (NSMutableArray<GFDictation *> *)busySuperseded { if (!_busySuperseded) _busySuperseded = [NSMutableArray array]; return _busySuperseded; }
+
+// Called at a new press, before the previous dictation's snapshot is taken: if that dictation is still "thinking", the menu state
+// is about to belong to the new press, so remember it until its result is delivered.
+- (void)busyMarkerNoteSuperseded:(GFDictation *)prev {
+    if (self.busyMarkerPath.length == 0 || !prev || prev.finished || self.menuIconState != 2) return;
+    if ([self.busySuperseded indexOfObjectIdenticalTo:prev] != NSNotFound) return;
+    prev.supersededWhileThinkingTime = [NSDate timeIntervalSinceReferenceDate];
+    [self.busySuperseded addObject:prev];
+}
+
+- (void)busyMarkerRefreshAt:(NSTimeInterval)now {
+    if (self.busyMarkerPath.length == 0) return;
+    for (NSInteger i = (NSInteger)_busySuperseded.count - 1; i >= 0; i--) {
+        GFDictation *d = _busySuperseded[i];
+        if (d.finished || GFSupersededDictationExpired(now - d.supersededWhileThinkingTime, d.pcm.length / 32000.0))
+            [_busySuperseded removeObjectAtIndex:i];
+    }
+    NSInteger state = (self.isRecording && self.menuIconState == 0) ? 1 : self.menuIconState;
+    BOOL pastePending = self.pasteInFlight || _pasteQueue.count > 0 || _deferredPastes.count > 0;
+    BOOL inProgress = GFDictationInProgress(state, _busySuperseded.count, pastePending);
+    if (inProgress) self.busyLastInProgress = now;
+    BOOL want = GFBusyMarkerShouldExist(inProgress, self.busyMarkerExists, now - self.busyLastInProgress);
+    if (want && (!self.busyMarkerExists || access(self.busyMarkerPath.fileSystemRepresentation, F_OK) != 0)) {
+        if (!self.busyMarkerExists) self.busyMarkerWrites += 1;
+        GFBusyMarkerWrite(self.busyMarkerPath, YES); // also puts it back if something else removed it mid-dictation
+    } else if (!want && self.busyMarkerExists) {
+        GFBusyMarkerWrite(self.busyMarkerPath, NO);
+    }
+    self.busyMarkerExists = want;
+    if (want && !self.busyTickScheduled) {
+        self.busyTickScheduled = YES;
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kBusyMarkerTick * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf.busyTickScheduled = NO;
+            [strongSelf busyMarkerRefresh];
+        });
+    }
 }
 
 // Show the HUD as a new presentation: older pending dismissals become stale.
@@ -3033,8 +4406,12 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 }
 
 - (void)setupMenu {
-    self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
-    self.statusItem.button.title = @"";
+    // Automated runs (--e2e-file / --e2e-mic, from candidates and from the installed app during deploys) must not put an extra
+    // icon in the user's menu bar. The menu is still built and the icon state still tracked; only the status item is skipped.
+    if (self.e2eMode.length == 0) {
+        self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
+        self.statusItem.button.title = @"";
+    }
     [self setMenuIconState:0];
 
     self.menu = [[NSMenu alloc] init];
@@ -3065,6 +4442,10 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     // API Key setup
     NSMenuItem *apiKeyItem = [[NSMenuItem alloc] initWithTitle:@"Set Gemini API Key" action:@selector(promptForApiKey) keyEquivalent:@"k"];
     [self.menu addItem:apiKeyItem];
+
+    // Custom words: names and unusual terms the Live model should spell exactly (one click opens the list)
+    NSMenuItem *wordsItem = [[NSMenuItem alloc] initWithTitle:@"Custom Words" action:@selector(showCustomWordsWindow) keyEquivalent:@"u"];
+    [self.menu addItem:wordsItem];
 
     [self.menu addItem:[NSMenuItem separatorItem]];
 
@@ -3102,6 +4483,10 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 
 - (void)showChangelogWindow {
     [[GFChangelogWindowController sharedController] showWindow];
+}
+
+- (void)showCustomWordsWindow {
+    [[GFCustomWordsWindowController sharedController] showWindow];
 }
 
 - (void)openSetupWindow {
@@ -3147,7 +4532,9 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     NSString *existingKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Gemini API Key";
-    alert.informativeText = @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
+    alert.informativeText = existingKey.length > 0
+        ? @"A key is saved on this Mac (shown masked below). Paste a new key to replace it, or leave the field empty to keep it. You can paste a raw key or a GEMINI_API_KEY=... line:"
+        : @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
     [alert addButtonWithTitle:@"Save"];
     [alert addButtonWithTitle:@"Cancel"];
     [alert addButtonWithTitle:@"Get API Key"];
@@ -3155,39 +4542,52 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
         [alert addButtonWithTitle:@"Remove Key"];
     }
 
+    // The saved key is never put into the field in clear: it is shown masked as the placeholder, and an empty field keeps it
     PasteableTextField *input = [[PasteableTextField alloc] initWithFrame:NSMakeRect(0, 0, 340, 24)];
-    input.placeholderString = @"AIzaSy...";
-    input.stringValue = existingKey;
+    input.placeholderString = existingKey.length > 0 ? GFMaskedApiKey(existingKey) : @"AIzaSy...";
     alert.accessoryView = input;
+    alert.window.initialFirstResponder = input; // the cursor starts in the field, ready for Cmd+V
 
+    GFNoteFrontAppBeforeActivating();
     [NSApp activateIgnoringOtherApps:YES];
     NSModalResponse resp = [alert runModal];
     if (resp == NSAlertThirdButtonReturn) {
         [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://aistudio.google.com/apikey"]];
-        return;
+        return; // the browser comes forward
     }
     if (existingKey.length > 0 && resp == NSAlertThirdButtonReturn + 1) {
         [[NSUserDefaults standardUserDefaults] setObject:@"" forKey:kPrefApiKey];
         [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
         [self updateEngineCheckmarks];
-        return;
-    }
-    if (resp == NSAlertFirstButtonReturn) {
-        NSString *cleanKey = GFSanitizeApiKeyInput(input.stringValue);
-        if (cleanKey.length == 0) {
-            // Never silently wipe an existing saved key when pasting an empty string or bare AI Studio URL
-            if (existingKey.length == 0) {
-                [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
-                [self updateEngineCheckmarks];
+    } else if (resp == NSAlertFirstButtonReturn) {
+        NSString *cleanKey = nil;
+        GFApiKeySaveAction action = GFApiKeySaveDecision(input.stringValue, existingKey, &cleanKey);
+        if (action == GFApiKeySaveStore) {
+            [[NSUserDefaults standardUserDefaults] setObject:cleanKey forKey:kPrefApiKey];
+            NSLog(@"Gemini API key saved.");
+            [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
+            [self updateEngineCheckmarks];
+            [self verifyApiKeyForLive];
+        } else if (action == GFApiKeySaveNoKey) {
+            [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
+            [self updateEngineCheckmarks];
+        } else if (action == GFApiKeySaveReject) {
+            // Something was pasted but no key could be read from it: say so instead of closing silently. Nothing is changed.
+            NSAlert *bad = [[NSAlert alloc] init];
+            bad.messageText = @"That does not look like an API key";
+            bad.informativeText = existingKey.length > 0
+                ? @"Nothing was changed and your saved key is still in place. Paste only the key itself (Google keys start with AIza)."
+                : @"Nothing was saved. Paste only the key itself (Google keys start with AIza).";
+            [bad addButtonWithTitle:@"Try Again"];
+            [bad addButtonWithTitle:@"Cancel"];
+            if ([bad runModal] == NSAlertFirstButtonReturn) {
+                [self promptForApiKey];
+                return;
             }
-            return;
         }
-        [[NSUserDefaults standardUserDefaults] setObject:cleanKey forKey:kPrefApiKey];
-        NSLog(@"Gemini API key saved.");
-        [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
-        [self updateEngineCheckmarks];
-        [self verifyApiKeyForLive];
+        // GFApiKeySaveKeep: an empty field, or the saved key again. The key and the engine mode stay exactly as they are.
     }
+    GFReturnFocusIfNoWindowLeft(); // opened from the menu bar: give the keyboard back to the app the user was in
 }
 
 // After a key is saved, confirm it can reach the Live Transcribe model (key sent as a header, never in the URL).
@@ -3504,6 +4904,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 - (void)supersedePreviousDictation {
     GFDictation *prev = self.activeDictation;
     if (!prev) { prev = [[GFDictation alloc] init]; self.activeDictation = prev; }
+    [self busyMarkerNoteSuperseded:prev];
     BOOL liveFinalizing = self.liveFinalizing && !self.hasCompletedGeminiTurn;
     BOOL onDeviceFinalizing = self.isFinalizingOnDevice;
     // On-device text as of now (the new press stops this recognizer) and Live coverage, both before the buffers are swapped
@@ -4184,8 +5585,58 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 // Setup probe (e2e only): remember which fields the server's messages carry (names only, never values) and log an error frame.
 - (void)e2eNoteLiveProbeMessage:(NSDictionary *)json {
     GFJSONCollectKeyPaths(json, @"", 3, self.e2eLiveSeenFields);
+    NSDictionary *sc = [json[@"serverContent"] isKindOfClass:[NSDictionary class]] ? json[@"serverContent"] : nil;
+    if (sc[@"interimInputTranscription"] && self.e2eLiveInterimCount++ == 0) self.e2eLiveFirstInterimTime = [NSDate timeIntervalSinceReferenceDate];
+    if (sc[@"inputTranscription"] && self.e2eLiveFinalCount++ == 0) self.e2eLiveFirstFinalTime = [NSDate timeIntervalSinceReferenceDate];
     NSString *errLine = GFLiveProbeErrorFrameLine(json, self.liveWebSocketConnected);
     if (errLine) GFLog(@"%@", errLine);
+}
+
+// The custom vocabulary for the next Live connect: the user's custom words file plus rules.json "customVocabulary", read from disk
+// here (a small file; every press connects), so an edit applies to the next dictation without a relaunch. In e2e mode and in
+// --test only --e2e-vocabulary / e2eVocabulary counts and the user's files are not read (GFVocabularyForConnect). A list the
+// server rejected this run is not sent again (an edited list is tried once more). Empty = the setup message is today's.
+- (NSArray<NSString *> *)liveVocabularyForConnect {
+    NSArray<NSString *> *list = GFVocabularyForConnect(self.e2eMode.length > 0 || self.unitTestMode, self.e2eVocabulary, ^NSArray<NSString *> *{
+        NSString *home = NSHomeDirectory();
+        return GFUserVocabularyFromFiles(GFCustomWordsPath(), @[[home stringByAppendingPathComponent:@"GeminiFlow/rules.json"],
+                                                                [home stringByAppendingPathComponent:@"Library/Application Support/GeminiFlow/rules.json"]]);
+    });
+    if (list.count > 0 && self.liveRejectedVocabulary && [list isEqualToArray:self.liveRejectedVocabulary]) return @[];
+    return list;
+}
+
+// HTTP status / close code / close reason of a dead Live socket; any vocabulary term the server quoted back is masked. Seam: a
+// simulated close (set only by --test and by the e2e-only --e2e-live-vocab-reject hook) replaces the task's values once.
+- (void)liveCloseDetailsOfTask:(NSURLSessionWebSocketTask *)task http:(NSInteger *)http code:(NSInteger *)code reason:(NSString * __autoreleasing *)reason {
+    *http = [task.response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
+    *code = task.closeCode;
+    NSString *r = task.closeReason.length > 0 ? [[NSString alloc] initWithData:task.closeReason encoding:NSUTF8StringEncoding] : nil;
+    if (self.liveSimulatedCloseCode != 0) {
+        *code = self.liveSimulatedCloseCode;
+        r = self.liveSimulatedCloseReason;
+        self.liveSimulatedCloseCode = 0;
+        self.liveSimulatedCloseReason = nil;
+    }
+    *reason = GFMaskTerms(r, self.liveSentVocabulary);
+}
+
+// Test hook (e2e only, --e2e-live-vocab-reject): the server "rejects" the first session whose setup carries a vocabulary, the way
+// the real server rejects a setup field it does not know: the socket closes with code 1007 and an "Invalid JSON payload" reason
+// before setupComplete. Fires on the next main-queue turn (before any real answer can arrive), once per run.
+- (void)e2eMaybeSimulateVocabularyRejectionSession:(NSUInteger)sid task:(NSURLSessionWebSocketTask *)task {
+    if (self.e2eMode.length == 0 || !self.e2eLiveVocabReject || self.e2eLiveVocabRejectFired || self.liveSentVocabulary.count == 0) return;
+    self.e2eLiveVocabRejectFired = YES;
+    GFLog(@"E2E: simulating the server's rejection of the custom vocabulary (close 1007 before setupComplete, session %lu)", (unsigned long)sid);
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf || strongSelf.liveSessionId != sid || strongSelf.liveWebSocketConnected) return;
+        strongSelf.liveSimulatedCloseCode = 1007;
+        strongSelf.liveSimulatedCloseReason = @"Invalid JSON payload received. Unknown name \"customVocabulary\" at 'setup.input_audio_transcription': Cannot find field.";
+        [strongSelf liveConnectionLost:@"receive: simulated setup rejection (close code 1007)" session:sid task:task
+                                 error:[NSError errorWithDomain:NSPOSIXErrorDomain code:57 userInfo:nil]];
+    });
 }
 
 - (void)startGeminiLiveWebSocketResuming:(BOOL)resume {
@@ -4202,23 +5653,35 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     self.liveAuthRetrySession = self.liveNextConnectKeyInURL;
     self.liveNextConnectKeyInURL = NO;
     self.liveAuthViaHeader = !keyInURL;
-    self.liveSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration] delegate:nil delegateQueue:nil];
-    self.liveWebSocketTask = [self.liveSession webSocketTaskWithRequest:GFLiveWebSocketRequest(apiKey, keyInURL)];
-    self.liveWebSocketTask.maximumMessageSize = 4 * 1024 * 1024;
-    [self.liveWebSocketTask resume];
+    if (!self.liveTestSocketless) { // --test only: no socket (the session state and the setup message are still built)
+        self.liveSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration] delegate:nil delegateQueue:nil];
+        self.liveWebSocketTask = [self.liveSession webSocketTaskWithRequest:GFLiveWebSocketRequest(apiKey, keyInURL)];
+        self.liveWebSocketTask.maximumMessageSize = 4 * 1024 * 1024;
+        [self.liveWebSocketTask resume];
+    }
 
     // Transcription models reject system instructions; they return inputTranscription per utterance.
     // Manual activity: the server's VAD misses some voices / fast speech entirely (no ACTIVITY_START, even at
     // START_SENSITIVITY_HIGH), forcing the slow REST safety net. The user already tells us exactly when they speak
     // (Fn held), so we mark the whole press as one activity: activityStart at setupComplete, activityEnd on release.
     NSDictionary *setupExtra = [self liveSetupProbeExtra]; // test hook (e2e only); nil = the normal setup message
-    NSDictionary *setupMsg = GFLiveSetupMessage(model, setupExtra);
+    // Custom vocabulary (rules.json customVocabulary): part of every setup of the press (reconnects and rotations too). None = today's message.
+    NSArray<NSString *> *vocabulary = [self liveVocabularyForConnect];
+    self.liveSentVocabulary = vocabulary;
+    NSDictionary *setupMsg = GFLiveSetupMessageWithVocabulary(model, vocabulary, setupExtra);
     NSString *setupStr = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:setupMsg options:0 error:nil] encoding:NSUTF8StringEncoding];
+    if (self.liveTestSocketless) { self.liveTestLastSetup = setupMsg; return; } // --test only: nothing to send
     __weak typeof(self) weakSelf = self;
     GFLog(@"Live: connecting (%@, key via %@)", model, keyInURL ? @"URL" : @"header");
+    if (vocabulary.count > 0) // the COUNT only: the terms can be people's names
+        GFLog(@"Live: setup carries a custom vocabulary of %lu terms (session %lu)", (unsigned long)vocabulary.count, (unsigned long)sid);
+    if (self.e2eMode.length > 0) // test isolation, made visible: e2e runs never read the user's custom-words.json or rules.json list
+        GFLog(@"E2E: custom vocabulary: %lu terms from --e2e-vocabulary (the user's own lists are not read in e2e mode)", (unsigned long)vocabulary.count);
     if (setupExtra) { // setup probe (e2e only): which fields were added (names only), and start collecting the server's field names
         self.e2eLiveSetupSentTime = [NSDate timeIntervalSinceReferenceDate];
         self.e2eLiveSeenFields = [NSMutableSet set];
+        self.e2eLiveInterimCount = 0; self.e2eLiveFinalCount = 0;
+        self.e2eLiveFirstAudioTime = 0; self.e2eLiveFirstInterimTime = 0; self.e2eLiveFirstFinalTime = 0;
         GFLog(@"%@", GFLiveProbeSetupLine(sid, setupExtra, setupStr.length, keyInURL));
     }
     NSURLSessionWebSocketTask *task = self.liveWebSocketTask;
@@ -4240,6 +5703,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
         }
     }];
     [self listenForWebSocketMessagesSession:sid task:self.liveWebSocketTask];
+    [self e2eMaybeSimulateVocabularyRejectionSession:sid task:task]; // test hook (e2e only)
 }
 
 - (void)listenForWebSocketMessagesSession:(NSUInteger)sid task:(NSURLSessionWebSocketTask *)task {
@@ -4504,6 +5968,7 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     // A resend from the covered byte (reconnect/rotation) or audio held behind a slow split turn can be many seconds: send it as
     // 1 s messages (normal ~100 ms pumps are one message).
     NSUInteger maxChunk = 32000;
+    if (self.e2eLiveSeenFields && self.e2eLiveFirstAudioTime == 0) self.e2eLiveFirstAudioTime = [NSDate timeIntervalSinceReferenceDate]; // setup probe (e2e only)
     while (self.liveSentBytes < total) {
         NSUInteger pending = MIN(maxChunk, total - self.liveSentBytes);
         NSData *chunk = [self.recordedPCMData subdataWithRange:NSMakeRange(self.liveSentBytes, pending)];
@@ -4780,6 +6245,9 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 - (void)closeLiveWebSocket {
     if (self.e2eLiveSeenFields) { // setup probe (e2e only): the field names this session's server messages carried
         if (self.e2eLiveSeenFields.count > 0) GFLog(@"%@", GFLiveProbeFieldsLine(self.e2eLiveSeenFields));
+        if (self.e2eLiveFirstAudioTime > 0)
+            GFLog(@"%@", GFLiveProbeInterimLine(self.e2eLiveInterimCount, (self.e2eLiveFirstInterimTime - self.e2eLiveFirstAudioTime) * 1000.0,
+                                                self.e2eLiveFinalCount, (self.e2eLiveFirstFinalTime - self.e2eLiveFirstAudioTime) * 1000.0));
         self.e2eLiveSeenFields = nil;
     }
     self.liveWebSocketConnected = NO;
@@ -4803,19 +6271,32 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 - (void)liveConnectionLost:(NSString *)reason session:(NSUInteger)sid task:(NSURLSessionWebSocketTask *)task error:(NSError *)error {
     if (self.liveSessionId != sid || self.liveFailed || self.hasCompletedGeminiTurn) return;
     BOOL ours = task != nil && task == self.liveWebSocketTask;
+    NSInteger http = 0, closeCode = 0; // how the socket ended: HTTP status of the handshake, close code and close reason
+    NSString *closeReason = nil;
+    [self liveCloseDetailsOfTask:task http:&http code:&closeCode reason:&closeReason];
     if ([self liveSetupProbeExtra]) { // setup probe (e2e only): how the socket ended (a rejected setup closes it before setupComplete)
-        NSInteger probeHTTP = [task.response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
-        NSString *probeReason = task.closeReason.length > 0 ? [[NSString alloc] initWithData:task.closeReason encoding:NSUTF8StringEncoding] : nil;
-        GFLog(@"%@", GFLiveProbeCloseLine(self.liveWebSocketConnected, sid, self.liveAuthViaHeader, probeHTTP, task.closeCode, probeReason,
+        GFLog(@"%@", GFLiveProbeCloseLine(self.liveWebSocketConnected, sid, self.liveAuthViaHeader, http, closeCode, closeReason,
                                           error.domain, error.code));
     }
+    if (self.liveSentVocabulary.count > 0 && !self.liveWebSocketConnected
+        && GFLiveClassifyPreSetupFailure(YES, http, closeCode, closeReason, error.domain, error.code) == GFLivePreSetupFailureVocabulary) {
+        // Custom vocabulary safety net: the server rejected the setup that carried the list. Never lose Live over it: remember the
+        // list as rejected (it is not sent again this run) and, while the press is still recording, reconnect at once without it.
+        // This is not an auth failure, so the key-in-URL retry below is not used for it.
+        BOOL reconnect = self.isRecording && !self.liveFinalizing && ours;
+        if (!self.unitTestMode) GFLog(@"%@", GFLiveVocabularyRejectedLine(self.liveSentVocabulary.count, http, closeCode, closeReason, reconnect));
+        self.liveRejectedVocabulary = self.liveSentVocabulary;
+        if (reconnect) {
+            [self startGeminiLiveWebSocketResuming:self.liveEverConnected];
+            return;
+        }
+    }
     if (self.liveAuthViaHeader && !self.liveWebSocketConnected) { // backlog 15: header auth rejected? retry once with the key in the URL
-        NSInteger http = [task.response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
-        NSString *closeReason = task.closeReason.length > 0 ? [[NSString alloc] initWithData:task.closeReason encoding:NSUTF8StringEncoding] : nil;
-        BOOL authLike = GFLiveFailureLooksLikeAuth(http, task.closeCode, closeReason, error.domain, error.code);
+        BOOL authLike = GFLiveFailureLooksLikeAuth(http, closeCode, closeReason, error.domain, error.code);
         if (GFLiveShouldRetryWithKeyInURL(YES, NO, self.liveAuthMode, self.isRecording, self.liveFinalizing, ours, authLike)) {
-            GFLog(@"Live: header auth rejected before setupComplete (%@; HTTP %ld, close %ld %@); retrying once with the key in the URL",
-                  reason, (long)http, (long)task.closeCode, closeReason ?: @"");
+            if (!self.unitTestMode)
+                GFLog(@"Live: header auth rejected before setupComplete (%@; HTTP %ld, close %ld %@); retrying once with the key in the URL",
+                      reason, (long)http, (long)closeCode, closeReason ?: @"");
             self.liveNextConnectKeyInURL = YES;
             [self startGeminiLiveWebSocketResuming:self.liveEverConnected];
             return;
@@ -4922,6 +6403,10 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
           [NSDate timeIntervalSinceReferenceDate] - self.liveReleaseTime, reason, (unsigned long)self.liveSegments.count, (unsigned long)joined.length);
     if ([self liveSetupProbeExtra]) { // setup probe (e2e only): the server's text before the app's polish. Synthetic test clips;
         printf("E2E LIVE RAW: \"%s\"\n", GFLiveProbeClean(joined, 100000).UTF8String); // one line, stdout only (like E2E RESULT): never the log file
+        // ... and the per-turn texts exactly as the server sent them (a JSON array: line breaks and quotes survive), so the probe can
+        // see where the app joined two turns and whether SMART mode put line breaks or list markers into a turn
+        NSData *segJSON = [NSJSONSerialization dataWithJSONObject:(self.liveSegments ?: @[]) options:0 error:nil];
+        printf("E2E LIVE RAW SEGMENTS: %s\n", segJSON ? [[NSString alloc] initWithData:segJSON encoding:NSUTF8StringEncoding].UTF8String : "[]");
         fflush(stdout);
     }
     [self closeLiveWebSocket];
@@ -8449,6 +9934,256 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
                 printf("%s: paste order: %s\n", pOk[i] ? "PASS" : "FAIL", pWhat[i]);
             }
         }
+        // Busy marker (user-approved 2026-11-13): the real app publishes "dictation in progress" as a file holding its pid, so a
+        // restart script never kills a dictation. Pure rules first, then sequences on fresh delegates with an injected temp path
+        // (never the real one: --test and e2e processes get no path at all).
+        {
+            struct { NSInteger state; NSUInteger undelivered; BOOL paste; BOOL want; const char *what; } bp[] = {
+                {0, 0, NO,  NO,  "idle, nothing pending"},
+                {1, 0, NO,  YES, "recording (hold or hands-free)"},
+                {2, 0, NO,  YES, "released, still transcribing"},
+                {0, 1, NO,  YES, "idle icon, but an earlier superseded dictation is still being transcribed"},
+                {0, 0, YES, YES, "idle icon, paste still pending"},
+                {1, 2, YES, YES, "everything at once"},
+            };
+            for (size_t i = 0; i < sizeof(bp) / sizeof(bp[0]); i++) {
+                BOOL got = GFDictationInProgress(bp[i].state, bp[i].undelivered, bp[i].paste);
+                BOOL ok = got == bp[i].want;
+                if (ok) passed++; else failed++;
+                printf("%s: busy marker, %s = %s\n", ok ? "PASS" : "FAIL", bp[i].what, got ? "in progress" : "not in progress");
+            }
+            struct { BOOL inProgress, exists; double since; BOOL want; const char *what; } bm[] = {
+                {YES, NO,  99.0, YES, "a press starts: created"},
+                {YES, YES, 0.0,  YES, "in progress: kept"},
+                {NO,  YES, 0.50, YES, "0.5 s after the last delivery: kept (the Cmd+V may still be read)"},
+                {NO,  YES, 0.99, YES, "0.99 s after: kept"},
+                {NO,  YES, 1.00, NO,  "1.0 s after: removed"},
+                {NO,  NO,  0.20, NO,  "idle and no marker: never created"},
+            };
+            for (size_t i = 0; i < sizeof(bm) / sizeof(bm[0]); i++) {
+                BOOL got = GFBusyMarkerShouldExist(bm[i].inProgress, bm[i].exists, bm[i].since);
+                BOOL ok = got == bm[i].want;
+                if (ok) passed++; else failed++;
+                printf("%s: busy marker file, %s = %s\n", ok ? "PASS" : "FAIL", bm[i].what, got ? "exists" : "absent");
+            }
+            // A superseded dictation counts until its whole fallback chain must be over, never less.
+            BOOL expOk = !GFSupersededDictationExpired(119.0, 0.0) && GFSupersededDictationExpired(121.0, 0.0);
+            double audios[] = {5.0, 30.0, 124.0, 600.0, 1800.0};
+            for (size_t i = 0; i < sizeof(audios) / sizeof(audios[0]); i++) {
+                double chain = GFRestTimeoutForAudioSeconds(audios[i]) + kRestSlowRetryGrace + GFWavWatchdogLimit(audios[i]);
+                if (GFSupersededDictationExpired(chain + 30.0, audios[i]) || !GFSupersededDictationExpired(GFE2EWatchdogSeconds(audios[i]) + 1.0, audios[i]))
+                    expOk = NO;
+            }
+            if (expOk) passed++; else failed++;
+            printf("%s: busy marker: a superseded dictation counts for at least its REST + retry + WAV-fallback chain + 30 s, then expires "
+                   "(30 s of audio: %.0f s)\n", expOk ? "PASS" : "FAIL", GFE2EWatchdogSeconds(30.0));
+#if !TARGET_OS_IPHONE // the marker is a Mac file: on iOS the path is nil and the writer does nothing
+            // Path: only the real app has one.
+            NSString *realPath = GFBusyMarkerPathForRun(nil, NO);
+            BOOL pathOk = GFBusyMarkerPathForRun(@"file", NO) == nil && GFBusyMarkerPathForRun(@"mic", NO) == nil
+                          && GFBusyMarkerPathForRun(nil, YES) == nil && GFBusyMarkerPathForRun(@"file", YES) == nil
+                          && [realPath hasSuffix:@"/Library/Application Support/GeminiFlow/busy"]
+                          && [GFBusyMarkerPathForRun(@"", NO) isEqualToString:realPath];
+            if (pathOk) passed++; else failed++;
+            printf("%s: busy marker path: none for e2e (file, mic) and --test processes; the real app's ends in "
+                   "Library/Application Support/GeminiFlow/busy\n", pathOk ? "PASS" : "FAIL");
+            // Writer: creates the folder, 0600, the pid as decimal text; removal; failures are ignored.
+            NSFileManager *bfm = [NSFileManager defaultManager];
+            NSString *bdir = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                              [NSString stringWithFormat:@"gf-busy-test-%d-%u", (int)getpid(), arc4random()]];
+            NSString *(^bpath)(NSString *) = ^NSString *(NSString *name) {
+                return [[bdir stringByAppendingPathComponent:name] stringByAppendingPathComponent:@"busy"];
+            };
+            BOOL (^bexists)(NSString *) = ^BOOL(NSString *p) { return [bfm fileExistsAtPath:p]; };
+            NSString *wp = bpath(@"writer");
+            GFBusyMarkerWrite(wp, YES);
+            NSString *wtext = [NSString stringWithContentsOfFile:wp encoding:NSUTF8StringEncoding error:nil];
+            NSNumber *wmode = [bfm attributesOfItemAtPath:wp error:nil][NSFilePosixPermissions];
+            NSString *wantPid = [NSString stringWithFormat:@"%d", (int)getpid()];
+            GFBusyMarkerWrite(wp, YES); // again: same content, not appended
+            BOOL wOk = [wtext isEqualToString:wantPid] && wmode.unsignedShortValue == 0600
+                       && [[NSString stringWithContentsOfFile:wp encoding:NSUTF8StringEncoding error:nil] isEqualToString:wantPid];
+            GFBusyMarkerWrite(wp, NO);
+            BOOL wGone = !bexists(wp);
+            GFBusyMarkerWrite(wp, NO);                                 // removing a missing marker
+            GFBusyMarkerWrite(nil, YES); GFBusyMarkerWrite(@"", NO);   // no path
+            GFBusyMarkerWrite(@"/dev/null/gf-no-such-folder/busy", YES); // cannot be created
+            if (wOk && wGone) passed++; else failed++;
+            printf("%s: busy marker writer: folder created, pid as decimal text, mode 0600, removed again; bad paths ignored (mode %o)\n",
+                   wOk && wGone ? "PASS" : "FAIL", wmode.unsignedShortValue);
+
+            AppDelegate *(^freshB)(NSString *) = ^AppDelegate *(NSString *name) {
+                AppDelegate *d = [[AppDelegate alloc] init];
+                d.unitTestMode = YES;
+                d.recordedPCMData = [NSMutableData dataWithLength:32000];
+                d.busyMarkerPath = name ? bpath(name) : nil;
+                return d;
+            };
+            GFDictation *(^press)(AppDelegate *, NSUInteger) = ^GFDictation *(AppDelegate *d, NSUInteger serial) { // as startRecording does
+                [d supersedePreviousDictation];
+                d.isRecording = YES;
+                GFDictation *x = [[GFDictation alloc] init]; x.serial = serial;
+                d.activeDictation = x;
+                [d setMenuIconState:1];
+                return x;
+            };
+            void (^releasePress)(AppDelegate *) = ^(AppDelegate *d) { d.isRecording = NO; [d setMenuIconState:2]; }; // stopRecordingAndProcess
+            void (^deliver)(AppDelegate *, GFDictation *) = ^(AppDelegate *d, GFDictation *x) { // applyFinalTranscript:dictation: without its paste
+                x.finished = YES;
+                [d showDeliveredUIAccessibilityTrusted:YES dictation:x];
+            };
+            NSTimeInterval bnow = [NSDate timeIntervalSinceReferenceDate];
+
+            // (1) press -> marker; release -> still there while thinking, however long; delivered -> gone after the grace.
+            AppDelegate *b1 = freshB(@"b1");
+            BOOL s1a = !bexists(b1.busyMarkerPath);
+            GFDictation *x1 = press(b1, 1);
+            BOOL s1b = bexists(b1.busyMarkerPath) && b1.busyMarkerWrites == 1
+                       && [[NSString stringWithContentsOfFile:b1.busyMarkerPath encoding:NSUTF8StringEncoding error:nil] isEqualToString:wantPid];
+            [b1 busyMarkerRefreshAt:bnow + 600.0];                       // a 10-minute hands-free session
+            BOOL s1c = bexists(b1.busyMarkerPath);
+            releasePress(b1);
+            [b1 busyMarkerRefreshAt:bnow + 660.0];                       // thinking (e.g. a slow REST call)
+            BOOL s1d = bexists(b1.busyMarkerPath) && b1.menuIconState == 2;
+            deliver(b1, x1);
+            NSTimeInterval t1 = [NSDate timeIntervalSinceReferenceDate];
+            BOOL s1e = bexists(b1.busyMarkerPath) && b1.menuIconState == 0; // delivered just now: the grace keeps it
+            b1.busyLastInProgress = t1;
+            [b1 busyMarkerRefreshAt:t1 + 0.9];
+            BOOL s1f = bexists(b1.busyMarkerPath);
+            [b1 busyMarkerRefreshAt:t1 + 1.05];
+            BOOL s1g = !bexists(b1.busyMarkerPath) && !b1.busyMarkerExists && b1.busyMarkerWrites == 1;
+            BOOL s1 = s1a && s1b && s1c && s1d && s1e && s1f && s1g;
+            if (s1) passed++; else failed++;
+            printf("%s: busy marker sequence: press -> marker with the pid; kept through a long session and while thinking; delivered -> "
+                   "kept for the grace, then gone (%d%d%d%d%d%d%d)\n", s1 ? "PASS" : "FAIL", s1a, s1b, s1c, s1d, s1e, s1f, s1g);
+
+            // (2) a newer press while the first is still thinking: the newer one finishes first -> the marker stays until the
+            // earlier one is delivered too.
+            AppDelegate *b2 = freshB(@"b2");
+            GFDictation *y1 = press(b2, 1);
+            releasePress(b2);
+            GFDictation *y2 = press(b2, 2);
+            BOOL s2a = y1.superseded && b2.busySuperseded.count == 1 && bexists(b2.busyMarkerPath);
+            releasePress(b2);
+            deliver(b2, y2);                                              // the newer dictation is delivered: icon idle
+            NSTimeInterval t2 = [NSDate timeIntervalSinceReferenceDate];
+            [b2 busyMarkerRefreshAt:t2 + 30.0];
+            BOOL s2b = b2.menuIconState == 0 && bexists(b2.busyMarkerPath) && b2.busySuperseded.count == 1;
+            y1.finished = YES;                                            // the earlier one's late result arrives (applyFinalTranscript sets this)
+            [b2 showDeliveredUIAccessibilityTrusted:YES dictation:y1];    // superseded: leaves the icon alone
+            [b2 busyMarkerRefreshAt:t2 + 30.5];
+            BOOL s2c = bexists(b2.busyMarkerPath) && b2.busySuperseded.count == 0;  // grace after its delivery
+            [b2 busyMarkerRefreshAt:t2 + 32.0];
+            BOOL s2d = !bexists(b2.busyMarkerPath) && b2.busyMarkerWrites == 1;
+            BOOL s2 = s2a && s2b && s2c && s2d;
+            if (s2) passed++; else failed++;
+            printf("%s: busy marker sequence: an earlier superseded dictation still transcribing keeps the marker after the newer one "
+                   "finished; gone once it is delivered too (%d%d%d%d)\n", s2 ? "PASS" : "FAIL", s2a, s2b, s2c, s2d);
+            // ...and if its result never arrives, it stops counting once its fallback chain must be over.
+            AppDelegate *b3 = freshB(@"b3");
+            GFDictation *z1 = press(b3, 1);
+            releasePress(b3);
+            GFDictation *z2 = press(b3, 2);
+            releasePress(b3);
+            deliver(b3, z2);
+            NSTimeInterval t3 = [NSDate timeIntervalSinceReferenceDate];
+            [b3 busyMarkerRefreshAt:t3 + 100.0];
+            BOOL s3a = bexists(b3.busyMarkerPath) && !z1.finished;
+            [b3 busyMarkerRefreshAt:t3 + GFE2EWatchdogSeconds(1.0) + 1.0];
+            [b3 busyMarkerRefreshAt:t3 + GFE2EWatchdogSeconds(1.0) + 2.5];
+            BOOL s3 = s3a && !bexists(b3.busyMarkerPath) && b3.busySuperseded.count == 0;
+            if (s3) passed++; else failed++;
+            printf("%s: busy marker sequence: a superseded dictation whose result never arrives expires with its fallback chain\n",
+                   s3 ? "PASS" : "FAIL");
+
+            // (3) Esc, mic error, no speech: the marker goes after the grace. A cancelled press that a newer press then supersedes
+            // is not counted (its icon was idle), so it cannot hold the marker.
+            AppDelegate *b4 = freshB(@"b4");
+            press(b4, 1);
+            [b4 cancelRecording];
+            NSTimeInterval t4 = [NSDate timeIntervalSinceReferenceDate];
+            BOOL s4a = bexists(b4.busyMarkerPath) && b4.menuIconState == 0;
+            [b4 busyMarkerRefreshAt:t4 + 1.1];
+            BOOL s4b = !bexists(b4.busyMarkerPath);
+            GFDictation *c2 = press(b4, 2);
+            BOOL s4c = bexists(b4.busyMarkerPath) && b4.busySuperseded.count == 0 && b4.busyMarkerWrites == 2;
+            releasePress(b4);
+            deliver(b4, c2);
+            [b4 busyMarkerRefreshAt:[NSDate timeIntervalSinceReferenceDate] + 1.1];
+            BOOL s4 = s4a && s4b && s4c && !bexists(b4.busyMarkerPath);
+            if (s4) passed++; else failed++;
+            printf("%s: busy marker sequence: Esc -> gone after the grace; the cancelled press never counts as undelivered (%d%d%d)\n",
+                   s4 ? "PASS" : "FAIL", s4a, s4b, s4c);
+            AppDelegate *b5 = freshB(@"b5");
+            press(b5, 1);
+            [b5 abortPressForMicProblem:GFMicProblemStartError micAuth:(long)AVAuthorizationStatusAuthorized closeLive:YES];
+            BOOL s5a = bexists(b5.busyMarkerPath) && b5.menuIconState == 0;
+            [b5 busyMarkerRefreshAt:[NSDate timeIntervalSinceReferenceDate] + 1.1];
+            BOOL s5 = s5a && !bexists(b5.busyMarkerPath);
+            if (s5) passed++; else failed++;
+            printf("%s: busy marker sequence: mic error -> gone after the grace\n", s5 ? "PASS" : "FAIL");
+            AppDelegate *b6 = freshB(@"b6");
+            GFDictation *n1 = press(b6, 1);
+            releasePress(b6);
+            [b6 showNoSpeechDetectedForDictation:n1];
+            BOOL s6a = bexists(b6.busyMarkerPath) && b6.menuIconState == 0 && n1.finished;
+            [b6 busyMarkerRefreshAt:[NSDate timeIntervalSinceReferenceDate] + 1.1];
+            BOOL s6 = s6a && !bexists(b6.busyMarkerPath);
+            if (s6) passed++; else failed++;
+            printf("%s: busy marker sequence: no speech -> gone after the grace\n", s6 ? "PASS" : "FAIL");
+
+            // (4) a new press inside the grace keeps the same marker; a marker removed by something else mid-dictation comes back.
+            AppDelegate *b7 = freshB(@"b7");
+            GFDictation *g1 = press(b7, 1);
+            releasePress(b7);
+            deliver(b7, g1);
+            press(b7, 2);
+            [b7 busyMarkerRefreshAt:[NSDate timeIntervalSinceReferenceDate] + 5.0];
+            BOOL s7a = bexists(b7.busyMarkerPath) && b7.busyMarkerWrites == 1;
+            unlink(b7.busyMarkerPath.fileSystemRepresentation);
+            [b7 busyMarkerRefresh];
+            BOOL s7 = s7a && bexists(b7.busyMarkerPath) && b7.busyMarkerWrites == 1;
+            if (s7) passed++; else failed++;
+            printf("%s: busy marker sequence: a new press inside the grace keeps the marker; removed from outside mid-dictation -> rewritten\n",
+                   s7 ? "PASS" : "FAIL");
+
+            // (5) --test / e2e processes (no path): the same sequence writes nothing, tracks nothing.
+            AppDelegate *b8 = freshB(nil);
+            GFDictation *q1 = press(b8, 1);
+            releasePress(b8);
+            press(b8, 2);
+            releasePress(b8);
+            [b8 busyMarkerRefresh];
+            AppDelegate *b9 = freshB(nil);
+            b9.e2eMode = @"file"; b9.unitTestMode = NO;
+            b9.busyMarkerPath = GFBusyMarkerPathForRun(b9.e2eMode, b9.unitTestMode); // what main() does
+            [b9 setMenuIconState:1];
+            BOOL s8 = b8.busyMarkerPath == nil && b8.busyMarkerWrites == 0 && !b8.busyMarkerExists && b8.busySuperseded.count == 0
+                      && !b8.busyTickScheduled && q1.superseded && b9.busyMarkerPath == nil && b9.busyMarkerWrites == 0 && !b9.busyMarkerExists;
+            if (s8) passed++; else failed++;
+            printf("%s: busy marker sequence: without a path (--test, e2e) nothing is written or tracked\n", s8 ? "PASS" : "FAIL");
+
+            // (6) real timer and paste queue: delivered + pasted -> the marker outlives the paste (0.37 s) and is removed by the
+            // app's own timer about a second after it; nothing calls the refresh from here.
+            AppDelegate *b10 = freshB(@"b10");
+            GFDictation *r1 = press(b10, 1);
+            releasePress(b10);
+            deliver(b10, r1);
+            [b10 enqueuePaste:@"busy marker test "];
+            NSDate *bd1 = [NSDate dateWithTimeIntervalSinceNow:0.9];
+            while ([bd1 timeIntervalSinceNow] > 0) [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            BOOL s10a = bexists(b10.busyMarkerPath) && !b10.pasteInFlight && b10.pasteLog.count == 1; // pasted 0.5 s ago: still there
+            NSDate *bd2 = [NSDate dateWithTimeIntervalSinceNow:1.1];
+            while ([bd2 timeIntervalSinceNow] > 0) [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            BOOL s10 = s10a && !bexists(b10.busyMarkerPath) && !b10.busyMarkerExists && b10.busyMarkerWrites == 1;
+            if (s10) passed++; else failed++;
+            printf("%s: busy marker sequence (real timer): the marker outlives the paste and is removed about 1 s after it (%d)\n",
+                   s10 ? "PASS" : "FAIL", s10a);
+            for (AppDelegate *d in @[b1, b2, b3, b4, b5, b6, b7, b8, b9, b10]) { GFBusyMarkerWrite(d.busyMarkerPath, NO); d.busyMarkerPath = nil; }
+            [bfm removeItemAtPath:bdir error:nil];
+#endif
+        }
         // Bounded wait on the Live-failure path (user-approved 2026-11-10): early on-device paste, then a swap only when provably safe
         {
             NSString *pastedT = @"On device text. ", *gem = @"Gemini text. ";
@@ -8927,7 +10662,11 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
                     isEqualToString:@"E2E: Live setup probe: server error frame (setupComplete=1, code 0, status none) message \"boom\""]
                 && GFLiveProbeErrorFrameLine(@{@"serverContent": @{@"error": @"not top level"}}, YES) == nil
                 && [fieldsLine rangeOfString:@"secret"].location == NSNotFound
-                && GFLiveProbeClean([@"" stringByPaddingToLength:500 withString:@"r" startingAtIndex:0], 400).length == 403;
+                && GFLiveProbeClean([@"" stringByPaddingToLength:500 withString:@"r" startingAtIndex:0], 400).length == 403
+                && [GFLiveProbeInterimLine(12, 840.4, 2, 9100.0) isEqualToString:@"E2E: Live setup probe: interim transcripts: 12 messages, first 840 ms after "
+                    @"the first audio was sent; final transcripts: 2 messages, first 9100 ms after the first audio was sent"]
+                && [GFLiveProbeInterimLine(0, 123.0, 0, -5.0) isEqualToString:@"E2E: Live setup probe: interim transcripts: 0 messages, first -1 ms after "
+                    @"the first audio was sent; final transcripts: 0 messages, first -1 ms after the first audio was sent"];
             if (okLines) passed++; else failed++;
             printf("%s: setup probe log lines: setup fields, setupComplete, close before/after setupComplete, error frame, server field names (no values)\n",
                    okLines ? "PASS" : "FAIL");
@@ -8946,6 +10685,225 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             [us5 invalidateAndCancel];
             if (okC5) passed++; else failed++;
             printf("%s: a socket failure in a setup probe run falls back exactly as a normal one (probe adds log lines only)\n", okC5 ? "PASS" : "FAIL");
+
+            // Custom vocabulary (rules.json customVocabulary -> setup.inputAudioTranscription.customVocabulary)
+            NSString *t64 = [@"" stringByPaddingToLength:64 withString:@"abcdefgh" startingAtIndex:0];
+            NSString *t65 = [t64 stringByAppendingString:@"x"];
+            NSArray *rawVocab = @[@"  Siobhan ", @"siobhan", @"SIOBHAN", @"", @"   ", @42, [NSNull null], @[@"nested"], @{@"a": @"b"}, @"Zyphra",
+                                  @"Mary\n  Anne", @"mary anne", t65, t64, @"O'Neil", @"\tKristoffer\n"];
+            NSArray *wantVocab = @[@"Siobhan", @"Zyphra", @"Mary Anne", t64, @"O'Neil", @"Kristoffer"];
+            NSMutableArray *many = [NSMutableArray array];
+            for (int i = 0; i < 150; i++) [many addObject:[NSString stringWithFormat:@"Term%03d", i]];
+            NSArray *first100 = [many subarrayWithRange:NSMakeRange(0, 100)];
+            NSData *(^utf8)(NSString *) = ^NSData *(NSString *str) { return [str dataUsingEncoding:NSUTF8StringEncoding]; };
+            BOOL okClean = [GFCleanVocabulary(rawVocab) isEqual:wantVocab] && [GFCleanVocabulary(many) isEqual:first100]
+                && [GFCleanVocabulary(wantVocab) isEqual:wantVocab] // cleaning a clean list changes nothing
+                && [GFCleanVocabulary(nil) isEqual:@[]] && [GFCleanVocabulary(@"Siobhan") isEqual:@[]] && [GFCleanVocabulary(@{@"a": @"b"}) isEqual:@[]]
+                && [GFCleanVocabulary(@[]) isEqual:@[]] && [GFCleanVocabulary([@"a|B||a| c d |b" componentsSeparatedByString:@"|"]) isEqual:(@[@"a", @"B", @"c d"])]
+                && [GFVocabularyFromRulesData(utf8(@"{\"cleanLikeFiller\":true,\"customVocabulary\":[\"Siobhan\",\" Zyphra \",\"siobhan\",7]}")) isEqual:(@[@"Siobhan", @"Zyphra"])]
+                && [GFVocabularyFromRulesData(utf8(@"{\"customVocabulary\":\"Siobhan\"}")) isEqual:@[]]
+                && [GFVocabularyFromRulesData(utf8(@"{\"extraFillers\":[\"you know\"]}")) isEqual:@[]]
+                && [GFVocabularyFromRulesData(utf8(@"[\"Siobhan\"]")) isEqual:@[]] && [GFVocabularyFromRulesData(utf8(@"{not json")) isEqual:@[]]
+                && [GFVocabularyFromRulesData(nil) isEqual:@[]] && [GFVocabularyFromRulesData([NSData data]) isEqual:@[]];
+            if (okClean) passed++; else failed++;
+            printf("%s: custom vocabulary cleaning: strings only, trimmed, no empties, first spelling wins, <= 64 chars, first 100, order kept\n",
+                   okClean ? "PASS" : "FAIL");
+            NSArray *vv = @[@"Siobhan", @"Zyphra"];
+            NSDictionary *wantVocabSetup = @{@"setup": @{@"model": [NSString stringWithFormat:@"models/%@", sm],
+                                                         @"generationConfig": @{@"responseModalities": @[@"TEXT"]},
+                                                         @"realtimeInputConfig": @{@"automaticActivityDetection": @{@"disabled": @YES}},
+                                                         @"inputAudioTranscription": @{@"customVocabulary": vv}}};
+            NSString *vocabSorted = @"{\"setup\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\"]},\"inputAudioTranscription\":{\"customVocabulary\":[\"Siobhan\",\"Zyphra\"]},"
+                                    @"\"model\":\"models\\/gemini-3.5-transcribe-live\",\"realtimeInputConfig\":{\"automaticActivityDetection\":{\"disabled\":true}}}}";
+            NSDictionary *vsm = GFLiveSetupMessageWithVocabulary(sm, vv, nil);
+            NSDictionary *vSmart = GFLiveSetupMessageWithVocabulary(sm, vv, @{@"inputAudioTranscription": @{@"mode": @"SMART"}});
+            NSDictionary *vReplaced = GFLiveSetupMessageWithVocabulary(sm, vv, @{@"inputAudioTranscription": @{@"customVocabulary": @[@"Other"]}});
+            BOOL okVocabSetup = [vsm isEqual:wantVocabSetup]
+                && [[[NSString alloc] initWithData:ser(vsm, NSJSONWritingSortedKeys) encoding:NSUTF8StringEncoding] isEqualToString:vocabSorted]
+                && [ser(GFLiveSetupMessageWithVocabulary(sm, @[], nil), 0) isEqualToData:ser(todaySetup, 0)]   // no vocabulary: today's bytes
+                && [ser(GFLiveSetupMessageWithVocabulary(sm, nil, nil), 0) isEqualToData:ser(todaySetup, 0)]
+                && [ser(GFLiveSetupMessageWithVocabulary(sm, @[], @{}), 0) isEqualToData:ser(todaySetup, 0)]
+                && [vSmart[@"setup"][@"inputAudioTranscription"] isEqual:(@{@"customVocabulary": vv, @"mode": @"SMART"})]  // the e2e extra is merged after it
+                && [vReplaced[@"setup"][@"inputAudioTranscription"] isEqual:(@{@"customVocabulary": @[@"Other"]})]
+                && [GFLiveSetupMessageWithVocabulary(sm, nil, px) isEqual:wantMerged];
+            if (okVocabSetup) passed++; else failed++;
+            printf("%s: Live setup with a vocabulary adds setup.inputAudioTranscription.customVocabulary; without one it is today's message, byte for byte\n",
+                   okVocabSetup ? "PASS" : "FAIL");
+            NSString *rejReason = @"Invalid JSON payload received. Unknown name \"customVocabulary\" at 'setup.input_audio_transcription': Cannot find field.";
+            struct { BOOL vocab; NSInteger http, close; NSString *reason; NSString *dom; NSInteger code; GFLivePreSetupFailure want; } pf[] = {
+                {YES, 0, 1007, rejReason, NSPOSIXErrorDomain, 57, GFLivePreSetupFailureVocabulary},
+                {YES, 0, 1007, nil, NSPOSIXErrorDomain, 57, GFLivePreSetupFailureVocabulary},
+                {YES, 0, 1008, @"Request contains an invalid argument: inputAudioTranscription", nil, 0, GFLivePreSetupFailureVocabulary},
+                {YES, 0, 1011, @"Unknown name \"x\"", nil, 0, GFLivePreSetupFailureVocabulary},
+                {YES, 0, 1000, @"custom_vocabulary has too many entries", nil, 0, GFLivePreSetupFailureVocabulary},
+                {YES, 101, 1008, @"Request contains an invalid argument.", NSPOSIXErrorDomain, 57, GFLivePreSetupFailureVocabulary},
+                {YES, 101, 1011, @"Invalid value at 'setup' (TYPE_STRING)", nil, 0, GFLivePreSetupFailureVocabulary},
+                {YES, 101, 1007, rejReason, NSPOSIXErrorDomain, 57, GFLivePreSetupFailureVocabulary}, // HTTP 101: closed after the upgrade (as seen)
+                {NO, 101, 1008, @"Request contains an invalid argument.", NSPOSIXErrorDomain, 57, GFLivePreSetupFailureAuth},
+                {YES, 0, 1007, @"API key not valid. Please pass a valid API key.", nil, 0, GFLivePreSetupFailureAuth},   // a bad key stays an auth failure
+                {YES, 0, 1008, nil, NSPOSIXErrorDomain, 57, GFLivePreSetupFailureAuth},
+                {YES, 401, 0, nil, NSURLErrorDomain, NSURLErrorBadServerResponse, GFLivePreSetupFailureAuth},
+                {YES, 0, 0, nil, NSURLErrorDomain, NSURLErrorNotConnectedToInternet, GFLivePreSetupFailureNetwork},
+                {YES, 0, 0, nil, NSURLErrorDomain, NSURLErrorTimedOut, GFLivePreSetupFailureNetwork},
+                {YES, 0, 1011, @"Internal error encountered.", NSPOSIXErrorDomain, 57, GFLivePreSetupFailureNetwork},
+                {NO, 0, 1007, rejReason, NSPOSIXErrorDomain, 57, GFLivePreSetupFailureAuth},       // no vocabulary sent: classified as before
+                {NO, 0, 1007, nil, nil, 0, GFLivePreSetupFailureAuth},
+                {NO, 0, 1008, nil, nil, 0, GFLivePreSetupFailureAuth},
+                {NO, 403, 0, nil, nil, 0, GFLivePreSetupFailureAuth},
+                {NO, 0, 0, nil, NSURLErrorDomain, NSURLErrorNotConnectedToInternet, GFLivePreSetupFailureNetwork},
+                {NO, 0, 1011, @"Unknown name \"x\"", nil, 0, GFLivePreSetupFailureNetwork},
+            };
+            int pfBad = 0;
+            for (size_t i = 0; i < sizeof(pf) / sizeof(pf[0]); i++) {
+                GFLivePreSetupFailure got = GFLiveClassifyPreSetupFailure(pf[i].vocab, pf[i].http, pf[i].close, pf[i].reason, pf[i].dom, pf[i].code);
+                // without a vocabulary the answer must agree with the auth classifier the key-in-URL retry has always used
+                BOOL asBefore = pf[i].vocab || (got == GFLivePreSetupFailureAuth) == GFLiveFailureLooksLikeAuth(pf[i].http, pf[i].close, pf[i].reason, pf[i].dom, pf[i].code);
+                if (got != pf[i].want || !asBefore) { pfBad++; printf("  pre-setup failure case %zu wrong\n", i + 1); }
+            }
+            BOOL okMask = [GFMaskTerms(@"Invalid value \"Siobhan\" and zyphra at index 1", vv) isEqualToString:@"Invalid value \"<term>\" and <term> at index 1"]
+                && [GFMaskTerms(rejReason, @[]) isEqualToString:rejReason] && GFMaskTerms(nil, vv) == nil
+                && [GFLiveVocabularyRejectedLine(2, 0, 1007, @"Unknown name \"customVocabulary\"\nat 'setup'", YES)
+                    isEqualToString:@"Live: the server rejected the setup with the custom vocabulary (2 terms; HTTP 0, close 1007); this list is not sent "
+                                    @"again this run; reconnecting without it. Server's reason: Unknown name 'customVocabulary' at 'setup'"]
+                && [GFLiveVocabularyRejectedLine(50, 0, 1007, nil, NO)
+                    isEqualToString:@"Live: the server rejected the setup with the custom vocabulary (50 terms; HTTP 0, close 1007); this list is not sent "
+                                    @"again this run. Server's reason: (none)"];
+            if (pfBad == 0 && okMask) passed++; else failed++;
+            printf("%s: pre-setup failure classifier: vocabulary rejected (1007 / reason names the field) vs auth vs network; no vocabulary = as before; terms masked in the log line\n",
+                   pfBad == 0 && okMask ? "PASS" : "FAIL");
+            // Sequences on fresh socketless AppDelegates (no network: the setup message and the session state are built, nothing is sent)
+            NSURLSession *us6 = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration]];
+            NSError *sockErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:57 userInfo:nil];
+            AppDelegate *(^vocabDelegate)(NSArray *) = ^AppDelegate *(NSArray *list) {
+                AppDelegate *d = [[AppDelegate alloc] init];
+                d.unitTestMode = YES; d.liveTestSocketless = YES; d.isRecording = YES; d.e2eVocabulary = list;
+                [d startGeminiLiveWebSocketResuming:NO];
+                d.liveWebSocketTask = [us6 webSocketTaskWithRequest:GFLiveWebSocketRequest(k, NO)]; // never resumed: stands for the session's socket
+                return d;
+            };
+            // (1) a session with a vocabulary closes 1007 before setupComplete: one reconnect without it, remembered, no key-in-URL retry
+            AppDelegate *v1 = vocabDelegate(vv);
+            BOOL okV1a = v1.liveSessionId == 1 && [v1.liveSentVocabulary isEqual:vv] && [v1.liveTestLastSetup isEqual:wantVocabSetup] && v1.liveAuthViaHeader
+                         && v1.liveRejectedVocabulary == nil;
+            v1.liveSimulatedCloseCode = 1007; v1.liveSimulatedCloseReason = rejReason;
+            [v1 liveConnectionLost:@"receive: test" session:1 task:v1.liveWebSocketTask error:sockErr];
+            BOOL okV1b = v1.liveSessionId == 2 && v1.liveSentVocabulary.count == 0 && [v1.liveTestLastSetup isEqual:todaySetup]
+                         && [ser(v1.liveTestLastSetup, 0) isEqualToData:ser(todaySetup, 0)] && [v1.liveRejectedVocabulary isEqual:vv]
+                         && v1.liveAuthViaHeader && !v1.liveAuthRetrySession && !v1.liveNextConnectKeyInURL && v1.liveAuthMode == GFLiveAuthUntested
+                         && !v1.liveFailed && v1.liveReconnects == 0 && v1.liveSimulatedCloseCode == 0;
+            // ... the retry session then fails like an auth problem (1008): the usual key-in-URL retry, still without the vocabulary
+            v1.liveWebSocketTask = [us6 webSocketTaskWithRequest:GFLiveWebSocketRequest(k, NO)];
+            v1.liveSimulatedCloseCode = 1008;
+            [v1 liveConnectionLost:@"receive: test" session:2 task:v1.liveWebSocketTask error:sockErr];
+            BOOL okV1c = v1.liveSessionId == 3 && !v1.liveAuthViaHeader && v1.liveAuthRetrySession && v1.liveSentVocabulary.count == 0 && !v1.liveFailed;
+            // ... the next press does not send the rejected list again; an edited list is tried once more
+            [v1 startGeminiLiveWebSocketResuming:NO];
+            BOOL okV1d = v1.liveSentVocabulary.count == 0 && [v1.liveTestLastSetup isEqual:todaySetup];
+            v1.e2eVocabulary = @[@"Siobhan"];
+            [v1 startGeminiLiveWebSocketResuming:NO];
+            okV1d = okV1d && [v1.liveSentVocabulary isEqual:(@[@"Siobhan"])];
+            if (okV1a && okV1b && okV1c && okV1d) passed++; else failed++;
+            printf("%s: a vocabulary session closed 1007 before setupComplete reconnects once without the list, remembers it, and is not an auth retry\n",
+                   okV1a && okV1b && okV1c && okV1d ? "PASS" : "FAIL");
+            // (2) no vocabulary: the same closes take the key-in-URL retry exactly as before
+            BOOL okV2 = YES;
+            for (int i = 0; i < 2; i++) {
+                AppDelegate *v2 = vocabDelegate(@[]);
+                okV2 = okV2 && v2.liveSentVocabulary.count == 0 && [ser(v2.liveTestLastSetup, 0) isEqualToData:ser(todaySetup, 0)];
+                v2.liveSimulatedCloseCode = i == 0 ? 1007 : 1008; v2.liveSimulatedCloseReason = i == 0 ? rejReason : nil;
+                [v2 liveConnectionLost:@"receive: test" session:1 task:v2.liveWebSocketTask error:sockErr];
+                okV2 = okV2 && v2.liveSessionId == 2 && !v2.liveAuthViaHeader && v2.liveAuthRetrySession && v2.liveRejectedVocabulary == nil && !v2.liveFailed;
+            }
+            // ... and a vocabulary session with a real auth failure (1008, or 1007 "API key not valid") keeps its list on the key-in-URL retry
+            for (int i = 0; i < 2; i++) {
+                AppDelegate *v3 = vocabDelegate(vv);
+                v3.liveSimulatedCloseCode = i == 0 ? 1008 : 1007; v3.liveSimulatedCloseReason = i == 0 ? nil : @"API key not valid. Please pass a valid API key.";
+                [v3 liveConnectionLost:@"receive: test" session:1 task:v3.liveWebSocketTask error:sockErr];
+                okV2 = okV2 && v3.liveSessionId == 2 && !v3.liveAuthViaHeader && v3.liveAuthRetrySession && [v3.liveSentVocabulary isEqual:vv]
+                       && v3.liveRejectedVocabulary == nil && [v3.liveTestLastSetup isEqual:wantVocabSetup];
+            }
+            if (okV2) passed++; else failed++;
+            printf("%s: without a vocabulary (or with a real auth failure) the key-in-URL retry behaves as before\n", okV2 ? "PASS" : "FAIL");
+            // (3) a network failure of a vocabulary session fails as before; a rejection after the press ended is remembered without a reconnect;
+            //     reconnects and rotations (resume) send the same list
+            AppDelegate *v4 = vocabDelegate(vv);
+            [v4 liveConnectionLost:@"receive: offline" session:1 task:v4.liveWebSocketTask
+                             error:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNotConnectedToInternet userInfo:nil]];
+            BOOL okV4 = v4.liveFailed && v4.liveSessionId == 1 && v4.liveRejectedVocabulary == nil && !v4.liveNextConnectKeyInURL;
+            AppDelegate *v5 = vocabDelegate(vv);
+            v5.isRecording = NO; // cancelled / finished press
+            v5.liveSimulatedCloseCode = 1007; v5.liveSimulatedCloseReason = rejReason;
+            [v5 liveConnectionLost:@"receive: test" session:1 task:v5.liveWebSocketTask error:sockErr];
+            BOOL okV5 = v5.liveFailed && v5.liveSessionId == 1 && [v5.liveRejectedVocabulary isEqual:vv];
+            AppDelegate *v6 = vocabDelegate(vv);
+            v6.liveEverConnected = YES;
+            [v6 startGeminiLiveWebSocketResuming:YES];
+            BOOL okV6 = v6.liveSessionId == 2 && [v6.liveSentVocabulary isEqual:vv] && [v6.liveTestLastSetup isEqual:wantVocabSetup];
+            [us6 invalidateAndCancel];
+            if (okV4 && okV5 && okV6) passed++; else failed++;
+            printf("%s: vocabulary sessions: a network failure fails as before, a late rejection is remembered, reconnects and rotations resend the list\n",
+                   okV4 && okV5 && okV6 ? "PASS" : "FAIL");
+
+            // Custom words file (GFCustomWordsPath), exercised in a temp folder: never the user's real file
+            NSFileManager *cwfm = [NSFileManager defaultManager];
+            NSString *cwDir = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"gf-custom-words-test-%@", [NSUUID UUID].UUIDString]];
+            NSString *cwFolder = [cwDir stringByAppendingPathComponent:@"nested"];
+            NSString *cwPath = [cwFolder stringByAppendingPathComponent:@"custom-words.json"];
+            NSUInteger (^cwMode)(void) = ^NSUInteger { return [[cwfm attributesOfItemAtPath:cwPath error:nil][NSFilePosixPermissions] unsignedIntegerValue] & 0777; };
+            id (^cwJSON)(void) = ^id { return [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:cwPath] ?: [NSData data] options:0 error:nil]; };
+            NSError *cwErr = nil;
+            BOOL okCwSave = GFSaveCustomWordsToPath(rawVocab, cwPath, &cwErr) && cwErr == nil   // creates the folders; cleans before writing
+                && [cwJSON() isEqual:wantVocab] && cwMode() == 0600 && [GFLoadCustomWordsFromPath(cwPath) isEqual:wantVocab]
+                && [[cwfm contentsOfDirectoryAtPath:cwFolder error:nil] isEqual:(@[@"custom-words.json"])];   // no temp file left behind
+            okCwSave = okCwSave && GFSaveCustomWordsToPath(@[@"Zyphra", @" zyphra", @"Siobhan"], cwPath, NULL)   // replaces the file
+                && [cwJSON() isEqual:(@[@"Zyphra", @"Siobhan"])] && cwMode() == 0600
+                && [[cwfm contentsOfDirectoryAtPath:cwFolder error:nil] isEqual:(@[@"custom-words.json"])];
+            NSError *cwBadErr = nil;   // a path that can't be written (its parent is a file): NO, an error, the saved list untouched
+            BOOL okCwFail = !GFSaveCustomWordsToPath(vv, [cwPath stringByAppendingPathComponent:@"x.json"], &cwBadErr) && cwBadErr != nil
+                && !GFSaveCustomWordsToPath(vv, @"", NULL) && !GFSaveCustomWordsToPath(vv, nil, &cwBadErr)
+                && [GFLoadCustomWordsFromPath(cwPath) isEqual:(@[@"Zyphra", @"Siobhan"])];
+            okCwSave = okCwSave && GFSaveCustomWordsToPath(@[], cwPath, NULL) && [cwJSON() isEqual:@[]] && [GFLoadCustomWordsFromPath(cwPath) isEqual:@[]];
+            BOOL okCwLoad = [GFLoadCustomWordsFromPath([cwFolder stringByAppendingPathComponent:@"missing.json"]) isEqual:@[]]
+                && [GFLoadCustomWordsFromPath(nil) isEqual:@[]] && [GFLoadCustomWordsFromPath(cwFolder) isEqual:@[]];   // missing, nil, a folder
+            for (NSString *content in @[@"{not json", @"{\"a\":1}", @"\"Siobhan\"", @""]) {
+                [utf8(content) writeToFile:cwPath atomically:YES];
+                okCwLoad = okCwLoad && [GFLoadCustomWordsFromPath(cwPath) isEqual:@[]];   // malformed or not an array: empty
+            }
+            [utf8(@"[\"A\", 3, \" b \", \"a\"]") writeToFile:cwPath atomically:YES];
+            okCwLoad = okCwLoad && [GFLoadCustomWordsFromPath(cwPath) isEqual:(@[@"A", @"b"])];   // a hand-edited file is cleaned on load
+            if (okCwSave && okCwFail && okCwLoad) passed++; else failed++;
+            printf("%s: custom words file: save cleans, creates the folder, replaces atomically with mode 0600; load cleans; missing or malformed = empty\n",
+                   okCwSave && okCwFail && okCwLoad ? "PASS" : "FAIL");
+            // Sources: the custom words file first, then rules.json customVocabulary, cleaned together
+            NSString *cwRules = [cwFolder stringByAppendingPathComponent:@"rules.json"];
+            [utf8(@"{\"cleanLikeFiller\":true,\"customVocabulary\":[\"Kristoffer\",\"siobhan\",\"Zyphra\"]}") writeToFile:cwRules atomically:YES];
+            GFSaveCustomWordsToPath(@[@"Siobhan", @"Mary Anne"], cwPath, NULL);
+            NSString *cwNoRules = [cwFolder stringByAppendingPathComponent:@"no-rules.json"];
+            BOOL okCwSources = [GFUserVocabularyFromFiles(cwPath, @[cwNoRules, cwRules]) isEqual:(@[@"Siobhan", @"Mary Anne", @"Kristoffer", @"Zyphra"])]
+                && [GFUserVocabularyFromFiles(cwPath, @[cwNoRules]) isEqual:(@[@"Siobhan", @"Mary Anne"])]
+                && [GFUserVocabularyFromFiles(cwNoRules, @[cwRules]) isEqual:(@[@"Kristoffer", @"siobhan", @"Zyphra"])]
+                && [GFUserVocabularyFromFiles(cwNoRules, @[]) isEqual:@[]] && [GFUserVocabularyFromFiles(nil, nil) isEqual:@[]];
+            GFSaveCustomWordsToPath([many subarrayWithRange:NSMakeRange(0, 80)], cwPath, NULL);   // 80 in the file + 70 in rules.json: the first 100 overall
+            [[NSJSONSerialization dataWithJSONObject:@{@"customVocabulary": [many subarrayWithRange:NSMakeRange(80, 70)]} options:0 error:nil] writeToFile:cwRules atomically:YES];
+            okCwSources = okCwSources && [GFUserVocabularyFromFiles(cwPath, @[cwRules]) isEqual:first100];
+            // Test isolation: in --test / e2e mode only the injected list counts and the user's files are NOT read
+            __block int cwLoads = 0;
+            NSArray<NSString *> *(^cwLoadUser)(void) = ^NSArray<NSString *> * { cwLoads++; return GFUserVocabularyFromFiles(cwPath, @[cwRules]); };
+            BOOL okCwIsolated = [GFVocabularyForConnect(YES, nil, cwLoadUser) isEqual:@[]] && [GFVocabularyForConnect(YES, @[], cwLoadUser) isEqual:@[]]
+                && [GFVocabularyForConnect(YES, vv, cwLoadUser) isEqual:vv] && cwLoads == 0                    // tests: the loader is never called
+                && [GFVocabularyForConnect(NO, vv, cwLoadUser) isEqual:first100] && cwLoads == 1               // the app: the user's list, not the injected one
+                && [GFVocabularyForConnect(NO, nil, nil) isEqual:@[]];
+            AppDelegate *cw1 = [[AppDelegate alloc] init]; cw1.unitTestMode = YES;                              // --test, no injected list
+            AppDelegate *cw2 = [[AppDelegate alloc] init]; cw2.e2eMode = @"file";                               // e2e mode, no --e2e-vocabulary
+            AppDelegate *cw3 = [[AppDelegate alloc] init]; cw3.e2eMode = @"file"; cw3.e2eVocabulary = vv;
+            okCwIsolated = okCwIsolated && [cw1 liveVocabularyForConnect].count == 0 && [cw2 liveVocabularyForConnect].count == 0
+                && [[cw3 liveVocabularyForConnect] isEqual:vv]
+                && [GFCustomWordsPath() hasSuffix:@"/Library/Application Support/GeminiFlow/custom-words.json"]
+                && ![GFCustomWordsPath() hasPrefix:[NSHomeDirectory() stringByAppendingPathComponent:@"GeminiFlow/"]];   // outside the repository folder
+            [cwfm removeItemAtPath:cwDir error:nil];
+            if (okCwSources && okCwIsolated) passed++; else failed++;
+            printf("%s: vocabulary sources: custom words file then rules.json, cleaned together; --test and e2e mode never read the user's lists\n",
+                   okCwSources && okCwIsolated ? "PASS" : "FAIL");
         }
         // Changelog data & filter invariants (Foundation-only; also runs in GFEngine --test on iOS)
         {
@@ -9262,6 +11220,582 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             printf("%s: menu bar icon is the brand mark: slanted clockwise, template, ink idle %ld < listening %ld, thinking dots %ld\n",
                    markOk ? "PASS" : "FAIL", (long)inkN[0], (long)inkN[1], (long)inkN[2]);
         }
+        // Cycle 36: Changelog / Setup window hardening after a code review. Logic and offscreen checks only: no window is opened,
+        // no permission is requested, no real status item is created.
+        {
+            // --- API key input (review item 2): the sanitizer returns a key or nothing, never garbage ---
+            NSString *gk  = [@"AIza" stringByAppendingString:[@"" stringByPaddingToLength:35 withString:@"Fake0_-xY" startingAtIndex:0]];  // Google-style: 39 chars
+            NSString *gk2 = [@"AIza" stringByAppendingString:[@"" stringByPaddingToLength:35 withString:@"Other1-_Zq" startingAtIndex:0]];
+            NSString *tok = @"sk-test_0123456789abcdefXYZ"; // another key shape: one plain token
+            NSArray<NSArray<NSString *> *> *sanCases = @[
+                // the six expectations that existed before (unchanged)
+                @[@"  AIzaSyTestKey1234567890  \n", @"AIzaSyTestKey1234567890"],
+                @[@"export GEMINI_API_KEY=\"AIzaSyQuotedKey123456789\"", @"AIzaSyQuotedKey123456789"],
+                @[@"GEMINI_API_KEY = 'AIzaSySingle1234567890'", @"AIzaSySingle1234567890"],
+                @[@"curl 'https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyFromURL12345678'", @"AIzaSyFromURL12345678"],
+                @[@"https://aistudio.google.com/apikey", @""],
+                @[@"   ", @""],
+                // what the review found being saved as garbage
+                @[[@"Bearer " stringByAppendingString:gk], gk],                                             // was "BearerAIza..."
+                @[[NSString stringWithFormat:@"Authorization: Bearer %@", gk], gk],
+                @[[NSString stringWithFormat:@"{\"apiKey\": \"%@\", \"project\": \"demo\"}", gk], gk],      // JSON was saved whole
+                @[[NSString stringWithFormat:@"curl -H 'x-goog-api-key: %@' -H 'Content-Type: application/json' https://generativelanguage.googleapis.com/v1beta/models", gk], gk],
+                @[[NSString stringWithFormat:@"GEMINI_API_KEY=%@ # note", gk], gk],                         // kept "#note"
+                @[[NSString stringWithFormat:@"PROJECT=demo\nGEMINI_API_KEY=%@\n", gk], gk],                // a two-line .env never matched
+                @[[NSString stringWithFormat:@"%@\n%@", gk, gk2], gk],                                      // the first key wins
+                @[[NSString stringWithFormat:@"%@\n  %@", [gk substringToIndex:20], [gk substringFromIndex:20]], gk], // wrapped onto two lines
+                @[[NSString stringWithFormat:@"`%@`", gk], gk],
+                @[[NSString stringWithFormat:@"PROJECT=demo\nMY_API_KEY=%@ # prod\nOTHER=1", tok], tok],
+                @[[NSString stringWithFormat:@"export API_KEY='%@'  # work", tok], tok],
+                @[tok, tok],
+                @[[gk stringByAppendingString:@"EXTRA"], [gk stringByAppendingString:@"EXTRA"]],            // a longer token is not cut to 39
+                @[[@"Bearer " stringByAppendingString:tok], @""],                                           // two words are never glued
+                @[[NSString stringWithFormat:@"{\"apiKey\": \"%@\"}", tok], @""],
+                @[@"curl https://generativelanguage.googleapis.com/v1beta/models", @""],
+                @[@"this is not a key at all", @""],
+                @[@"shortkey", @""],
+            ];
+            NSInteger sanBad = 0, sanFirstBad = -1;
+            for (NSUInteger i = 0; i < sanCases.count; i++) {
+                if (![GFSanitizeApiKeyInput(sanCases[i][0]) isEqualToString:sanCases[i][1]]) { sanBad++; if (sanFirstBad < 0) sanFirstBad = (NSInteger)i; }
+            }
+            if (sanBad == 0) passed++; else failed++;
+            printf("%s: GFSanitizeApiKeyInput returns the key or nothing for %lu pasted forms (Bearer, JSON, curl, comments, multi-line .env; first bad case %ld)\n",
+                   sanBad == 0 ? "PASS" : "FAIL", (unsigned long)sanCases.count, (long)sanFirstBad);
+
+            NSString *masked = GFMaskedApiKey(gk);
+            BOOL maskOk = masked.length == 16 && [masked hasPrefix:@"AIza"] && [masked hasSuffix:[gk substringFromIndex:35]] &&
+                          [masked rangeOfString:[gk substringWithRange:NSMakeRange(4, 31)]].location == NSNotFound &&
+                          [GFMaskedApiKey(@"shortkey123") isEqualToString:@"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"] &&
+                          [GFMaskedApiKey(@"") isEqualToString:@""] && [GFMaskedApiKey(nil) isEqualToString:@""];
+            if (maskOk) passed++; else failed++;
+            printf("%s: a saved API key is shown masked (first 4 + last 4 characters; a short key as dots only)\n", maskOk ? "PASS" : "FAIL");
+
+            struct { NSString *typed; NSString *saved; GFApiKeySaveAction want; NSString *wantKey; } sd[] = {
+                {@"", gk, GFApiKeySaveKeep, nil},                                              // empty field + Save keeps the saved key
+                {@"  \n", gk, GFApiKeySaveKeep, nil},
+                {gk, gk, GFApiKeySaveKeep, nil},                                               // the same key again: mode untouched
+                {[@"GEMINI_API_KEY=" stringByAppendingString:gk], gk, GFApiKeySaveKeep, nil},
+                {gk2, gk, GFApiKeySaveStore, gk2},
+                {[@"Bearer " stringByAppendingString:gk], @"", GFApiKeySaveStore, gk},
+                {@"hello world", gk, GFApiKeySaveReject, nil},                                 // unusable text never wipes a saved key
+                {@"https://aistudio.google.com/apikey", @"", GFApiKeySaveReject, nil},
+                {@"", @"", GFApiKeySaveNoKey, nil},
+                {nil, nil, GFApiKeySaveNoKey, nil},
+            };
+            NSInteger sdBad = 0;
+            for (size_t i = 0; i < sizeof(sd) / sizeof(sd[0]); i++) {
+                NSString *outKey = @"untouched";
+                GFApiKeySaveAction got = GFApiKeySaveDecision(sd[i].typed, sd[i].saved, &outKey);
+                if (got != sd[i].want || !((outKey == nil && sd[i].wantKey == nil) || [outKey isEqualToString:sd[i].wantKey])) sdBad++;
+            }
+            if (sdBad == 0) passed++; else failed++;
+            printf("%s: API key Save keeps the saved key for an empty or unchanged field, stores a new key, rejects unusable text (%ld bad)\n",
+                   sdBad == 0 ? "PASS" : "FAIL", (long)sdBad);
+
+            // --- Window shortcuts (item 8): Caps Lock ignored; Cmd+W / Cmd+F on non-Latin layouts; Dvorak keeps its own letters ---
+            const NSEventModifierFlags cmd = NSEventModifierFlagCommand, caps = NSEventModifierFlagCapsLock;
+            struct { NSEventModifierFlags flags; unsigned short keyCode; NSString *chars; NSString *plain; NSInteger want; } sc[] = {
+                {cmd, 13, @"w", @"w", 1}, {cmd, 3, @"f", @"f", 2},
+                {cmd | caps, 13, @"W", @"W", 1}, {cmd | caps, 3, @"f", @"f", 2},                       // Caps Lock on
+                {cmd | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction, 13, @"w", @"w", 1},
+                {cmd, 13, @"\u0446", @"\u0446", 1}, {cmd, 3, @"\u0430", @"\u0430", 2},                // Russian layout reporting Cyrillic
+                {cmd, 13, @"w", @"\u0446", 1},                                                         // Russian layout reporting Latin under Cmd
+                {cmd, 13, @",", @",", 0}, {cmd, 43, @"w", @"w", 1},                                    // Dvorak: W is on another key
+                {cmd, 13, @"w", @",", 1}, {cmd, 43, @",", @"w", 0},                                    // Dvorak with QWERTY under Cmd
+                {cmd | NSEventModifierFlagShift, 13, @"W", @"W", 0}, {cmd | NSEventModifierFlagOption, 13, @"w", @"w", 0},
+                {cmd | NSEventModifierFlagControl, 3, @"f", @"f", 0}, {0, 13, @"w", @"w", 0}, {caps, 3, @"F", @"F", 0},
+                {cmd, 12, @"q", @"q", 0}, {cmd, 12, @"\u0439", @"\u0439", 0},
+            };
+            NSInteger scBad = 0;
+            for (size_t i = 0; i < sizeof(sc) / sizeof(sc[0]); i++) {
+                if (GFWindowShortcutForKey(sc[i].flags, sc[i].keyCode, sc[i].chars, sc[i].plain) != sc[i].want) scBad++;
+            }
+            if (scBad == 0) passed++; else failed++;
+            printf("%s: Cmd+W / Cmd+F are recognised with Caps Lock on and on Cyrillic and Dvorak layouts, and nothing else is (%ld bad)\n",
+                   scBad == 0 ? "PASS" : "FAIL", (long)scBad);
+
+            // --- Custom hit targets (item 4): a click needs mouse-down and mouse-up on the same target ---
+            BOOL pureClickOk = GFClickTargetForDownUp(3, 3) == 3 && GFClickTargetForDownUp(-1, -1) == -1 && GFClickTargetForDownUp(3, 4) == 0 &&
+                               GFClickTargetForDownUp(0, 3) == 0 && GFClickTargetForDownUp(3, 0) == 0 && GFClickTargetForDownUp(0, 0) == 0;
+            NSEvent *(^mouse)(NSEventType, NSView *, NSPoint) = ^NSEvent *(NSEventType type, NSView *v, NSPoint inView) {
+                return [NSEvent mouseEventWithType:type location:[v convertPoint:inView toView:nil] modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1.0];
+            };
+            // Four made-up entries: the open row (#8) has a long title and a long timestamp, so its title wraps
+            NSArray<NSDictionary *> *synth = @[
+                @{@"cycle": @9, @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 10:30", @"title": @"Latest entry", @"highlights": @[@"One short line."]},
+                @{@"cycle": @8, @"scope": @"engine", @"timestamp": @"28 September \u00B7 23:59",
+                  @"title": @"A deliberately long row title that has to wrap onto a second line once the full timestamp sits beside it in an open row",
+                  @"highlights": @[@"First bullet with enough words to wrap onto a second line at the narrower widths this test walks through.",
+                                   @"Second bullet, also long enough that it will not fit on a single line in a narrow window.",
+                                   @"Third bullet at the very bottom of the open row."]},
+                @{@"cycle": @7, @"scope": @"mac", @"timestamp": @"11 Nov \u00B7 08:00", @"title": @"Row seven", @"highlights": @[@"Seven."]},
+                @{@"cycle": @6, @"scope": @"engine", @"timestamp": @"10 Nov \u00B7 08:00", @"title": @"Row six", @"highlights": @[@"Six."]},
+            ];
+            GFChangelogDocumentView *cv = [[GFChangelogDocumentView alloc] initWithFrame:NSMakeRect(0, 0, 520, 500)];
+            cv.allEntries = synth;
+            [cv relayoutForWidth:520.0]; // a layout pass only: nothing has been drawn
+            NSRect r8 = [cv targetRectForCycle:8], r7 = [cv targetRectForCycle:7];
+            BOOL targetsWithoutDraw = !NSIsEmptyRect(r8) && !NSIsEmptyRect(r7) && NSIsEmptyRect([cv targetRectForCycle:9]) &&
+                                      NSIsEmptyRect([cv targetRectForCycle:-1]);
+            NSPoint c8 = NSMakePoint(NSMidX(r8), NSMidY(r8)), c7 = NSMakePoint(NSMidX(r7), NSMidY(r7));
+            [cv mouseDown:mouse(NSEventTypeLeftMouseDown, cv, c8)];
+            [cv mouseUp:mouse(NSEventTypeLeftMouseUp, cv, c7)];                 // pressed on #8, released on #7
+            BOOL dragCancels = cv.expandedCycles.count == 0;
+            [cv mouseDown:mouse(NSEventTypeLeftMouseDown, cv, NSMakePoint(5, 5))];
+            [cv mouseUp:mouse(NSEventTypeLeftMouseUp, cv, c8)];                 // pressed on empty space, released on #8
+            BOOL outsideCancels = cv.expandedCycles.count == 0;
+            [cv mouseUp:mouse(NSEventTypeLeftMouseUp, cv, c8)];                 // a release with no press at all
+            BOOL strayUpIgnored = cv.expandedCycles.count == 0;
+            [cv mouseDown:mouse(NSEventTypeLeftMouseDown, cv, c8)];
+            [cv mouseUp:mouse(NSEventTypeLeftMouseUp, cv, c8)];                 // a real click
+            BOOL clickToggles = cv.expandedCycles.count == 1 && [cv.expandedCycles containsObject:@8];
+            NSRect r7open = [cv targetRectForCycle:7], rCollapse = [cv targetRectForCycle:-1];
+            BOOL targetsFollowLayout = r7open.origin.y > r7.origin.y + 30.0 && !NSIsEmptyRect(rCollapse); // rebuilt by the toggle, still no draw
+            NSPoint cc0 = NSMakePoint(NSMidX(rCollapse), NSMidY(rCollapse));
+            [cv mouseDown:mouse(NSEventTypeLeftMouseDown, cv, cc0)];
+            [cv mouseUp:mouse(NSEventTypeLeftMouseUp, cv, cc0)];                // Collapse all
+            BOOL collapseAll = cv.expandedCycles.count == 0 && NSEqualRects([cv targetRectForCycle:7], r7);
+            BOOL clOk = pureClickOk && targetsWithoutDraw && dragCancels && outsideCancels && strayUpIgnored && clickToggles && targetsFollowLayout && collapseAll;
+            if (clOk) passed++; else failed++;
+            printf("%s: Changelog rows toggle only when pressed and released on the same row; targets exist after layout without a draw "
+                   "(%d%d%d%d%d%d%d%d)\n", clOk ? "PASS" : "FAIL", pureClickOk, targetsWithoutDraw, dragCancels, outsideCancels, strayUpIgnored,
+                   clickToggles, targetsFollowLayout, collapseAll);
+
+            // --- Expanded row (item 5): measured and drawn at ONE title width. Rendered offscreen at many widths: the last bullet line
+            // sits right above the row's bottom padding, and nothing is drawn from that padding down to the next row's text. ---
+            NSBitmapImageRep *(^renderDoc)(GFChangelogDocumentView *) = ^NSBitmapImageRep *(GFChangelogDocumentView *v) {
+                NSInteger pw = (NSInteger)v.bounds.size.width, ph = (NSInteger)v.bounds.size.height;
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:pw pixelsHigh:ph bitsPerSample:8
+                    samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:pw * 4 bitsPerPixel:32];
+                NSAppearance *aqua = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+                v.appearance = aqua;
+                [aqua performAsCurrentDrawingAppearance:^{
+                    [NSGraphicsContext saveGraphicsState];
+                    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]];
+                    [v displayRectIgnoringOpacity:v.bounds inContext:[NSGraphicsContext currentContext]];
+                    [NSGraphicsContext restoreGraphicsState];
+                }];
+                return rep;
+            };
+            NSInteger (^inkRows)(NSBitmapImageRep *, NSInteger, NSInteger, NSInteger, NSInteger) =
+                ^NSInteger(NSBitmapImageRep *r, NSInteger y0, NSInteger y1, NSInteger x0, NSInteger x1) {
+                    NSInteger n = 0; // pixels clearly darker than the white page (text; the 1 px row divider is far lighter than this)
+                    for (NSInteger y = MAX(0, y0); y < y1 && y < r.pixelsHigh; y++)
+                        for (NSInteger x = MAX(0, x0); x < x1 && x < r.pixelsWide; x++) {
+                            const unsigned char *px = r.bitmapData + y * r.bytesPerRow + x * 4;
+                            if (px[0] < 200 || px[1] < 200 || px[2] < 200) n++;
+                        }
+                    return n;
+                };
+            [cv.expandedCycles addObject:@8];
+            NSInteger widthsTried = 0, overruns = 0, gaps = 0, rowHeights = 0; CGFloat lastRowH = 0;
+            for (CGFloat w = 480.0; w <= 900.0; w += 12.0) {
+                [cv relayoutForWidth:w];
+                NSRect row = [cv targetRectForCycle:8];
+                NSInteger rowBottom = (NSInteger)lround(NSMaxY(row) + 1.0); // rows are drawn from y to y + height; the hit rect is inset by 1
+                NSBitmapImageRep *rep = renderDoc(cv);
+                widthsTried++;
+                if (row.size.height != lastRowH) { rowHeights++; lastRowH = row.size.height; }
+                if (inkRows(rep, rowBottom - 12, rowBottom + 8, 78, (NSInteger)w - 24) > 0) overruns++;   // text in the padding or over the next row
+                if (inkRows(rep, rowBottom - 28, rowBottom - 16, 78, (NSInteger)w - 24) == 0) gaps++;     // the last line is not where it was measured
+            }
+            [cv.expandedCycles removeAllObjects];
+            BOOL openRowOk = widthsTried == 36 && overruns == 0 && gaps == 0 && rowHeights >= 3;
+            if (openRowOk) passed++; else failed++;
+            printf("%s: an expanded changelog row holds exactly what is drawn in it at %ld widths (%ld overruns, %ld gaps, %ld different row heights)\n",
+                   openRowOk ? "PASS" : "FAIL", (long)widthsTried, (long)overruns, (long)gaps, (long)rowHeights);
+
+            // --- Short content (item 6): the document view is at least as tall as the scroll view's visible area ---
+            NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 520, 900)];
+            scroll.hasVerticalScroller = YES;
+            scroll.autohidesScrollers = YES;
+            scroll.borderType = NSNoBorder;
+            GFChangelogDocumentView *sv2 = [[GFChangelogDocumentView alloc] initWithFrame:NSMakeRect(0, 0, 520, 540)];
+            sv2.allEntries = synth;
+            scroll.documentView = sv2;
+            CGFloat clipH = scroll.contentSize.height;
+            sv2.searchQuery = @"zzzz-no-such-update";
+            [sv2 relayoutForWidth:520.0];
+            CGFloat noResultsH = sv2.frame.size.height, noResultsContent = [sv2 preferredHeightForWidth:520.0];
+            sv2.searchQuery = @"";
+            sv2.allEntries = GFBuiltInChangelogEntries();
+            for (NSDictionary *e in sv2.allEntries) [sv2.expandedCycles addObject:e[@"cycle"]];
+            [sv2 relayoutForWidth:520.0];
+            CGFloat longH = sv2.frame.size.height, longContent = [sv2 preferredHeightForWidth:520.0];
+            BOOL fillOk = clipH >= 800.0 && noResultsContent < clipH && noResultsH >= clipH && longContent > clipH && longH == ceil(longContent) &&
+                          GFChangelogDocumentHeight(360.0, 515.5) == 515.5 && GFChangelogDocumentHeight(700.2, 500.0) == 701.0 &&
+                          GFChangelogDocumentHeight(360.0, 0.0) == 360.0;
+            if (fillOk) passed++; else failed++;
+            printf("%s: the Changelog document fills the scroll area under short content (%.0f pt content -> %.0f of %.0f pt) and still grows "
+                   "with long content (%.0f pt)\n", fillOk ? "PASS" : "FAIL", noResultsContent, noResultsH, clipH, longH);
+
+            // The window background is the views' own colour in both appearances (it shows in the title strip and on scroll bounce)
+            NSColor *winBg = GFFlatWindowBackgroundColor();
+            __block NSInteger colorBad = 0;
+            for (int dk = 0; dk < 2; dk++) {
+                NSAppearance *ap = [NSAppearance appearanceNamed:(dk ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
+                [ap performAsCurrentDrawingAppearance:^{
+                    NSColor *got = [winBg colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+                    NSColor *want = [GFFlatBackground(dk == 1) colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+                    if (!got || !want || fabs(got.redComponent - want.redComponent) > 0.002 || fabs(got.greenComponent - want.greenComponent) > 0.002 ||
+                        fabs(got.blueComponent - want.blueComponent) > 0.002 || GFAppearanceIsDark(ap) != (dk == 1)) colorBad++;
+                }];
+            }
+            if (colorBad == 0) passed++; else failed++;
+            printf("%s: the window background colour equals the flat view background in Light and Dark\n", colorBad == 0 ? "PASS" : "FAIL");
+
+            // --- Filter field (item 7): typing, the X button (the field's action) and Esc all reset the list ---
+            GFChangelogWindowController *cc = [[GFChangelogWindowController alloc] init]; // a bare controller: no window is created
+            NSSearchField *sf = nil;
+            NSSegmentedControl *seg = nil;
+            GFFlatHeaderView *hdrView = GFMakeChangelogHeader(NSMakeRect(0, 0, 520, kGFChangelogHeaderHeight), cc, &sf, &seg);
+            cc.searchField = sf;
+            cc.scrollView = scroll;
+            cc.docView = sv2;
+            [sv2.expandedCycles removeAllObjects];
+            BOOL wired = hdrView != nil && sf.target == cc && sf.action == @selector(searchFieldChanged:) && sf.sendsSearchStringImmediately;
+            sf.stringValue = @"zzzz-no-such-update";
+            [cc controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:sf]];
+            BOOL typed = [sv2.searchQuery isEqualToString:@"zzzz-no-such-update"];
+            CGFloat filteredH = [sv2 preferredHeightForWidth:520.0];
+            sf.stringValue = @""; // what the X button does, followed by the field's action
+            [cc searchFieldChanged:sf];
+            BOOL xResets = [sv2.searchQuery isEqualToString:@""] && [sv2 preferredHeightForWidth:520.0] > filteredH + 100.0;
+            sf.stringValue = @"prompt";
+            [cc searchFieldChanged:sf];
+            NSTextView *fieldEditor = [[NSTextView alloc] initWithFrame:NSZeroRect]; // stands in for the field editor
+            BOOL escHandled = [cc control:sf textView:fieldEditor doCommandBySelector:@selector(cancelOperation:)];
+            BOOL escClears = escHandled && sf.stringValue.length == 0 && [sv2.searchQuery isEqualToString:@""];
+            BOOL escOnEmpty = [cc control:sf textView:fieldEditor doCommandBySelector:@selector(cancelOperation:)]; // closes the window
+            BOOL othersPass = ![cc control:sf textView:fieldEditor doCommandBySelector:@selector(insertNewline:)] && ![cc clearSearchIfNeeded];
+            BOOL searchOk = wired && typed && xResets && escClears && escOnEmpty && othersPass;
+            if (searchOk) passed++; else failed++;
+            printf("%s: the Changelog filter resets the list from the X button and from Esc (Esc on an empty field closes) (%d%d%d%d%d%d)\n",
+                   searchOk ? "PASS" : "FAIL", wired, typed, xResets, escClears, escOnEmpty, othersPass);
+
+            // --- Setup window (items 1, 4, 9) ---
+            GFSetupState fresh = {NO, 0, NO, 0, NO}, ready = {YES, 3, YES, 3, YES};
+            NSInteger copyBad = 0;
+            for (int k = 0; k < 2; k++) {
+                for (NSDictionary *row in GFSetupRows(k ? ready : fresh)) {
+                    for (NSString *field in @[@"title", @"subtitle", @"button"]) {
+                        NSString *t = row[field];
+                        if (t.length == 0 || [t hasSuffix:@"..."] || [t rangeOfString:@"\u2014"].location != NSNotFound ||
+                            [t rangeOfString:@"\u2013"].location != NSNotFound || [t rangeOfString:@"\u2026"].location != NSNotFound) copyBad++;
+                    }
+                }
+            }
+            BOOL speechCopy = [GFSetupSpeechSubtitle(NO, 0) isEqualToString:@"Required without an API key"] &&
+                              [GFSetupSpeechSubtitle(NO, 1) isEqualToString:@"Required without an API key"] &&
+                              [GFSetupSpeechSubtitle(YES, 0) isEqualToString:@"Recommended for offline fallback"] &&
+                              [GFSetupSpeechSubtitle(NO, 3) isEqualToString:@"Ready (offline safety net)"] &&
+                              [GFSetupRows(fresh)[3][@"subtitle"] isEqualToString:@"Required without an API key"] &&
+                              [GFSetupRows(fresh)[3][@"button"] isEqualToString:@"Allow"] && GFSetupRows(fresh).count == 5 && copyBad == 0;
+            if (speechCopy) passed++; else failed++;
+            printf("%s: Setup says Speech Recognition is required while no API key is set (recommended with a key); copy has no dashes or trailing dots\n",
+                   speechCopy ? "PASS" : "FAIL");
+
+            GFSetupContentView *su = [[GFSetupContentView alloc] initWithFrame:NSMakeRect(0, 0, 470, 424)];
+            NSMutableArray<NSNumber *> *fired = [NSMutableArray array];
+            su.onAction = ^(NSInteger actionId) { [fired addObject:@(actionId)]; };
+            su.state = fresh; // nothing has been drawn
+            NSRect micBtn = [su rectForAction:2], doneBtn = [su rectForAction:6];
+            NSPoint micPt = NSMakePoint(NSMidX(micBtn), NSMidY(micBtn)), donePt = NSMakePoint(NSMidX(doneBtn), NSMidY(doneBtn));
+            BOOL suTargets = !NSIsEmptyRect(micBtn) && NSEqualRects(doneBtn, NSMakeRect(370, 380, 76, 28)) && micBtn.origin.y == 94.0 + 54.0 + 14.0 &&
+                             [su acceptsFirstMouse:nil];
+            [su mouseDown:mouse(NSEventTypeLeftMouseDown, su, micPt)];
+            [su mouseUp:mouse(NSEventTypeLeftMouseUp, su, donePt)];             // pressed Allow, released on Done: nothing
+            [su mouseDown:mouse(NSEventTypeLeftMouseDown, su, NSMakePoint(200, 300))];
+            [su mouseUp:mouse(NSEventTypeLeftMouseUp, su, donePt)];             // pressed on empty space, released on Done: nothing
+            BOOL suCancels = fired.count == 0;
+            [su mouseDown:mouse(NSEventTypeLeftMouseDown, su, micPt)];
+            [su mouseUp:mouse(NSEventTypeLeftMouseUp, su, micPt)];
+            [su mouseDown:mouse(NSEventTypeLeftMouseDown, su, donePt)];
+            [su mouseUp:mouse(NSEventTypeLeftMouseUp, su, donePt)];
+            BOOL suClicks = [fired isEqualToArray:@[@2, @6]];
+            GFSetupState denied = fresh; denied.micStatus = 2; // "Open Settings" is a wider button than "Allow"
+            su.state = denied;
+            BOOL suRelayout = [su rectForAction:2].size.width > micBtn.size.width + 4.0 && NSMaxX([su rectForAction:2]) == NSMaxX(micBtn);
+            BOOL suOk = suTargets && suCancels && suClicks && suRelayout;
+            if (suOk) passed++; else failed++;
+            printf("%s: Setup buttons fire only on press + release on the same button, take the first click, and follow the state without a draw (%d%d%d%d)\n",
+                   suOk ? "PASS" : "FAIL", suTargets, suCancels, suClicks, suRelayout);
+
+            GFSetupWindowController *sw = [[GFSetupWindowController alloc] init]; // a bare controller: no window, no timer
+            GFSetupContentView *su2 = [[GFSetupContentView alloc] initWithFrame:NSMakeRect(0, 0, 470, 424)];
+            sw.contentView = su2;
+            __block NSInteger trustedCalls = 0;
+            sw.onAccessibilityTrusted = ^{ trustedCalls++; };
+            GFSetupState st = fresh;
+            [sw applyState:st]; [sw applyState:st];
+            BOOL edge0 = trustedCalls == 0 && su2.stateChangeCount == 0;      // the initial state again: no redraw
+            st.axTrusted = YES;
+            [sw applyState:st]; [sw applyState:st]; [sw applyState:st];
+            BOOL edge1 = trustedCalls == 1 && su2.stateChangeCount == 1;      // NO -> YES once, however often the timer fires
+            st.axTrusted = NO; [sw applyState:st];
+            st.axTrusted = YES; [sw applyState:st]; [sw applyState:st];
+            BOOL edge2 = trustedCalls == 2 && su2.stateChangeCount == 3;
+            BOOL axClick = GFSetupAccessibilityClickPrompts(NO, NO) && !GFSetupAccessibilityClickPrompts(NO, YES) &&
+                           !GFSetupAccessibilityClickPrompts(YES, NO) && !GFSetupAccessibilityClickPrompts(YES, YES);
+            BOOL swOk = edge0 && edge1 && edge2 && axClick;
+            if (swOk) passed++; else failed++;
+            printf("%s: Setup refresh calls onAccessibilityTrusted only on the NO->YES edge and redraws only on a change; the Accessibility button "
+                   "prompts once, then opens Settings (%d%d%d%d)\n", swOk ? "PASS" : "FAIL", edge0, edge1, edge2, axClick);
+
+            // --- Focus hand-back (item 3): only when no GeminiFlow window is left, we are the active app and there is an app to return to ---
+            BOOL focusOk = GFShouldReturnFocus(NO, YES, YES) && !GFShouldReturnFocus(YES, YES, YES) && !GFShouldReturnFocus(NO, NO, YES) &&
+                           !GFShouldReturnFocus(NO, YES, NO);
+            if (focusOk) passed++; else failed++;
+            printf("%s: focus goes back to the previous app only when the last GeminiFlow window is gone and GeminiFlow is still active\n",
+                   focusOk ? "PASS" : "FAIL");
+
+            // --- VoiceOver (item 10): the custom-drawn buttons and rows are real accessibility elements with a press action ---
+            NSArray *suKids = su.accessibilityChildren;
+            NSInteger suButtons = 0, suPressable = 0;
+            for (GFAXElement *e in suKids) {
+                if ([e.accessibilityRole isEqualToString:NSAccessibilityButtonRole]) suButtons++;
+                if ([e isAccessibilitySelectorAllowed:@selector(accessibilityPerformPress)] && e.isAccessibilityElement && e.isAccessibilityEnabled) suPressable++;
+            }
+            [fired removeAllObjects];
+            BOOL donePressed = [(GFAXElement *)suKids.lastObject accessibilityPerformPress] && [fired isEqualToArray:@[@6]];
+            BOOL textNotPressable = ![(GFAXElement *)suKids.firstObject accessibilityPerformPress] && fired.count == 1;
+            NSString *micLabel = suKids.count > 2 ? [(GFAXElement *)suKids[2] accessibilityLabel] : @"";
+            BOOL suAX = suKids.count == 7 && suButtons == 6 && suPressable == 6 && donePressed && textNotPressable &&
+                        [micLabel isEqualToString:@"Microphone. Required to hear your voice while holding Fn. Open Settings"] &&
+                        [[(GFAXElement *)suKids.lastObject accessibilityLabel] isEqualToString:@"Done"] &&
+                        [(GFAXElement *)suKids.lastObject accessibilityParent] == su && su.accessibilityChildren == suKids &&
+                        [su.accessibilityRole isEqualToString:NSAccessibilityGroupRole];
+            su.state = ready;
+            BOOL suAXRebuilt = su.accessibilityChildren != suKids && su.accessibilityChildren.count == 7;
+            [cv relayoutForWidth:520.0];
+            NSArray *clKids = cv.accessibilityChildren; // latest entry (text) + three rows (buttons)
+            GFAXElement *row8 = nil;
+            for (GFAXElement *e in clKids) if ([e.accessibilityLabel hasPrefix:@"Cycle 8,"]) row8 = e;
+            BOOL clAX = clKids.count == 4 && [[(GFAXElement *)clKids[0] accessibilityRole] isEqualToString:NSAccessibilityStaticTextRole] &&
+                        [[(GFAXElement *)clKids[0] accessibilityValue] hasPrefix:@"Latest. Cycle 9, 13 Nov. Latest entry. One short line."] &&
+                        row8 != nil && [row8.accessibilityLabel hasSuffix:@", collapsed"] && [row8 accessibilityPerformPress] &&
+                        [cv.expandedCycles containsObject:@8];
+            NSArray *clOpenKids = cv.accessibilityChildren; // + "Collapse all" (button) + the open row's details (text)
+            NSInteger clOpenButtons = 0; BOOL sawExpanded = NO;
+            for (GFAXElement *e in clOpenKids) {
+                if ([e.accessibilityRole isEqualToString:NSAccessibilityButtonRole]) clOpenButtons++;
+                if ([e.accessibilityLabel hasPrefix:@"Cycle 8,"] && [e.accessibilityLabel hasSuffix:@", expanded"]) sawExpanded = YES;
+            }
+            clAX = clAX && clOpenKids.count == 6 && clOpenButtons == 4 && sawExpanded;
+            [cv.expandedCycles removeAllObjects];
+            BOOL axOk = suAX && suAXRebuilt && clAX;
+            if (axOk) passed++; else failed++;
+            printf("%s: VoiceOver gets a button per Setup row + Done and per Changelog row (label, role, press), and text for what is only drawn (%d%d%d)\n",
+                   axOk ? "PASS" : "FAIL", suAX, suAXRebuilt, clAX);
+
+            // --- Item 11: automated e2e runs build the menu but put no icon in the user's menu bar ---
+            AppDelegate *e2eD = [[AppDelegate alloc] init];
+            e2eD.unitTestMode = YES;
+            e2eD.e2eMode = @"file";
+            [e2eD setupMenu];
+            [e2eD setMenuIconState:2];
+            BOOL noIcon = e2eD.statusItem == nil && e2eD.menu.numberOfItems >= 8 && e2eD.statusMenuItem != nil && e2eD.menuIconState == 2;
+            [e2eD returnToIdleWithStatusTitle:nil notice:nil mode:HUDModeNotice dismissAfter:0.0];
+            noIcon = noIcon && e2eD.menuIconState == 0 && [e2eD.statusMenuItem.title isEqualToString:@"Ready: Hold or Double-Tap Fn"];
+            if (noIcon) passed++; else failed++;
+            printf("%s: in e2e mode the menu is built and the icon state tracked, but no status item is created in the menu bar\n", noIcon ? "PASS" : "FAIL");
+        }
+        // Custom Words window: everything goes through a temp file (never the user's custom-words.json), no window is opened, and
+        // no word is ever printed (only counts and flags).
+        {
+            NSFileManager *wfm = [NSFileManager defaultManager];
+            NSString *wDir = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"gf-words-ui-" stringByAppendingString:[NSUUID UUID].UUIDString]];
+            NSString *wFile = [wDir stringByAppendingPathComponent:@"custom-words.json"];
+            NSArray *(^fileWords)(NSString *) = ^NSArray *(NSString *path) {
+                NSData *d = [NSData dataWithContentsOfFile:path];
+                return d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+            };
+            GFCustomWordsWindowController *wc = [[GFCustomWordsWindowController alloc] initWithPath:wFile];
+            GFCustomWordsContentView *wv = wc.contentView;
+            void (^typeAndAdd)(NSString *) = ^(NSString *text) {
+                wv.inputField.stringValue = text;
+                [wc addFromField:nil];
+            };
+            BOOL startsEmpty = wc.window == nil && wc.store.words.count == 0 && wv.notice.length == 0 && [wv.footerText isEqualToString:@"0 of 100"] &&
+                               ![wfm fileExistsAtPath:wFile] && ![wFile isEqualToString:GFCustomWordsPath()];
+            typeAndAdd(@"Siobhan");
+            NSDictionary *wAttrs = [wfm attributesOfItemAtPath:wFile error:nil];
+            BOOL addOne = [wc.store.words isEqual:@[@"Siobhan"]] && [fileWords(wFile) isEqual:@[@"Siobhan"]] && wv.inputField.stringValue.length == 0 &&
+                          wv.notice.length == 0 && [wv.footerText isEqualToString:@"1 of 100"] && [wv.listView.words isEqual:wc.store.words] &&
+                          ([wAttrs[NSFilePosixPermissions] unsignedShortValue] & 0777) == 0600; // saved at once, private file
+            typeAndAdd(@"   Zyphra  ");
+            BOOL newestFirst = [wc.store.words isEqual:(@[@"Zyphra", @"Siobhan"])];
+            typeAndAdd(@"siobhan");
+            BOOL duplicate = [wc.store.words isEqual:(@[@"Zyphra", @"Siobhan"])] && [wv.notice isEqualToString:@"Already in the list."] &&
+                             [wv.inputField.stringValue isEqualToString:@"siobhan"]; // case-insensitive; the entry stays in the field
+            typeAndAdd([@"" stringByPaddingToLength:65 withString:@"x" startingAtIndex:0]);
+            BOOL tooLong = wc.store.words.count == 2 && [wv.notice isEqualToString:@"Too long (64 characters at most)."];
+            typeAndAdd(@"   ");
+            typeAndAdd(@"");
+            BOOL emptyIgnored = wc.store.words.count == 2 && [fileWords(wFile) isEqual:(@[@"Zyphra", @"Siobhan"])];
+            typeAndAdd([NSString stringWithFormat:@"Kristoffer, Mary   Anne\nzyphra\n\n%@,", [@"" stringByPaddingToLength:70 withString:@"y" startingAtIndex:0]]);
+            BOOL multiPaste = [wc.store.words isEqual:(@[@"Kristoffer", @"Mary Anne", @"Zyphra", @"Siobhan"])] && wv.inputField.stringValue.length == 0 &&
+                              [wv.notice isEqualToString:@"Skipped: 1 already listed, 1 too long."] && [wv.footerText isEqualToString:@"4 of 100"];
+            wv.inputField.stringValue = @"Aoife\nNiamh"; // a pasted multi-line list is added as soon as it lands in the field
+            [wc controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:wv.inputField]];
+            BOOL pasteLines = wc.store.words.count == 6 && [wc.store.words[0] isEqualToString:@"Aoife"] && [wc.store.words[1] isEqualToString:@"Niamh"] &&
+                              wv.inputField.stringValue.length == 0 && wv.notice.length == 0;
+            wv.inputField.stringValue = @"Wojciech"; // typing without a line break adds nothing until Return
+            [wc controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:wv.inputField]];
+            NSTextView *wEditor = [[NSTextView alloc] initWithFrame:NSZeroRect];
+            BOOL notYet = wc.store.words.count == 6;
+            BOOL returnAdds = [wc control:wv.inputField textView:wEditor doCommandBySelector:@selector(insertNewline:)] && wc.store.words.count == 7 &&
+                              [wc.store.words[0] isEqualToString:@"Wojciech"];
+            wv.inputField.stringValue = @"half typed";
+            BOOL escClears = [wc control:wv.inputField textView:wEditor doCommandBySelector:@selector(cancelOperation:)] && wv.inputField.stringValue.length == 0 &&
+                             [wc control:wv.inputField textView:wEditor doCommandBySelector:@selector(cancelOperation:)] && // empty: closes the window
+                             ![wc control:wv.inputField textView:wEditor doCommandBySelector:@selector(insertTab:)] && wc.store.words.count == 7;
+            [wc removeWord:@"zyphra"];
+            BOOL removed = wc.store.words.count == 6 && ![wc.store.words containsObject:@"Zyphra"] && [fileWords(wFile) isEqual:wc.store.words] &&
+                           [wv.footerText isEqualToString:@"6 of 100"] && wv.notice.length == 0;
+            GFCustomWordsWindowController *wc2 = [[GFCustomWordsWindowController alloc] initWithPath:wFile]; // "next launch"
+            BOOL persisted = [wc2.store.words isEqual:wc.store.words] && [wc2.contentView.listView.words isEqual:wc.store.words];
+            BOOL logicOk = startsEmpty && addOne && newestFirst && duplicate && tooLong && emptyIgnored && multiPaste && pasteLines && notYet &&
+                           returnAdds && escClears && removed && persisted;
+            if (logicOk) passed++; else failed++;
+            printf("%s: Custom Words adds (newest first), refuses duplicates / too-long / empty entries, takes a pasted list, removes, and saves "
+                   "every change at once (%d%d%d%d%d%d%d%d%d%d%d%d%d)\n", logicOk ? "PASS" : "FAIL", startsEmpty, addOne, newestFirst, duplicate, tooLong,
+                   emptyIgnored, multiPaste, pasteLines, notYet, returnAdds, escClears, removed, persisted);
+
+            // The 100-term limit: what does not fit is refused with a message, never dropped silently
+            NSString *wFullFile = [wDir stringByAppendingPathComponent:@"full.json"];
+            NSMutableArray<NSString *> *ninetyNine = [NSMutableArray array];
+            for (int i = 1; i <= 99; i++) [ninetyNine addObject:[NSString stringWithFormat:@"Term %d", i]];
+            GFSaveCustomWordsToPath(ninetyNine, wFullFile, NULL);
+            GFCustomWordsWindowController *wf = [[GFCustomWordsWindowController alloc] initWithPath:wFullFile];
+            wf.contentView.inputField.stringValue = @"Alpha One, Beta Two";
+            [wf addFromField:nil];
+            BOOL lastSlot = wf.store.words.count == 100 && [wf.store.words[0] isEqualToString:@"Alpha One"] && ![wf.store.words containsObject:@"Beta Two"] &&
+                            [wf.contentView.notice isEqualToString:@"Skipped: 1 over the limit of 100."] && [wf.store.words.lastObject isEqualToString:@"Term 99"];
+            wf.contentView.inputField.stringValue = @"Gamma Three";
+            [wf addFromField:nil];
+            BOOL fullMsg = wf.store.words.count == 100 && [wf.contentView.notice isEqualToString:@"The list is full (100)."] &&
+                           [wf.contentView.footerText isEqualToString:@"100 of 100"] && [fileWords(wFullFile) count] == 100;
+            BOOL scrolls = wf.contentView.listView.frame.size.height == 100 * 32.0 && wf.contentView.scrollView.contentSize.height == 8 * 32.0 &&
+                           wv.listView.frame.size.height == 8 * 32.0; // 100 rows scroll; a short list still fills the visible area
+            BOOL fullOk = lastSlot && fullMsg && scrolls;
+            if (fullOk) passed++; else failed++;
+            printf("%s: Custom Words stops at 100 terms with a message and scrolls beyond 8 rows (%d%d%d)\n", fullOk ? "PASS" : "FAIL", lastSlot, fullMsg, scrolls);
+
+            // A failed save: the message appears and the list on screen stays equal to the file
+            NSArray<NSString *> *beforeFail = wc.store.words;
+            [wfm setAttributes:@{NSFilePosixPermissions: @(0500)} ofItemAtPath:wDir error:nil]; // the folder becomes read-only
+            typeAndAdd(@"Kubernetes");
+            BOOL addFails = [wc.store.words isEqual:beforeFail] && [fileWords(wFile) isEqual:beforeFail] && [wv.listView.words isEqual:beforeFail] &&
+                            [wv.notice isEqualToString:@"Could not save the list."] && [wv.inputField.stringValue isEqualToString:@"Kubernetes"];
+            [wc removeWord:beforeFail.firstObject];
+            BOOL removeFails = [wc.store.words isEqual:beforeFail] && [fileWords(wFile) isEqual:beforeFail] && [wv.notice isEqualToString:@"Could not save the list."];
+            [wfm setAttributes:@{NSFilePosixPermissions: @(0700)} ofItemAtPath:wDir error:nil];
+            typeAndAdd(@"Kubernetes");
+            BOOL recovers = wc.store.words.count == beforeFail.count + 1 && wv.notice.length == 0 && wv.inputField.stringValue.length == 0;
+            GFCustomWordsWindowController *wBad = [[GFCustomWordsWindowController alloc] initWithPath:[wFile stringByAppendingPathComponent:@"x.json"]];
+            wBad.contentView.inputField.stringValue = @"Siobhan"; // this "folder" is a file: nothing can ever be written there
+            [wBad addFromField:nil];
+            BOOL neverSaved = wBad.store.words.count == 0 && [wBad.contentView.notice isEqualToString:@"Could not save the list."] &&
+                              [wBad.contentView.footerText isEqualToString:@"0 of 100"];
+            BOOL failOk = addFails && removeFails && recovers && neverSaved;
+            if (failOk) passed++; else failed++;
+            printf("%s: Custom Words shows 'Could not save the list.' when a save fails and keeps the list equal to the file (%d%d%d%d)\n",
+                   failOk ? "PASS" : "FAIL", addFails, removeFails, recovers, neverSaved);
+
+            // Remove controls: press and release on the same control; targets exist after a list change without a draw; real controls
+            NSEvent *(^wMouse)(NSEventType, NSView *, NSPoint) = ^NSEvent *(NSEventType type, NSView *v, NSPoint inView) {
+                return [NSEvent mouseEventWithType:type location:[v convertPoint:inView toView:nil] modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1.0];
+            };
+            GFCustomWordsListView *wl = wv.listView;
+            NSUInteger rowsBefore = wc.store.words.count;
+            NSString *secondWord = wc.store.words[1];
+            NSRect x0 = [wl removeRectForRow:0], x1 = [wl removeRectForRow:1];
+            NSPoint p0 = NSMakePoint(NSMidX(x0), NSMidY(x0)), p1 = NSMakePoint(NSMidX(x1), NSMidY(x1));
+            BOOL wTargets = NSEqualRects(x0, NSMakeRect(440 - 39, 5, 22, 22)) && x1.origin.y == 32.0 + 5.0 &&
+                            NSIsEmptyRect([wl removeRectForRow:(NSInteger)rowsBefore]) && [wl acceptsFirstMouse:nil];
+            [wl mouseDown:wMouse(NSEventTypeLeftMouseDown, wl, p0)];
+            [wl mouseUp:wMouse(NSEventTypeLeftMouseUp, wl, p1)];                    // pressed one remove control, released on another
+            [wl mouseDown:wMouse(NSEventTypeLeftMouseDown, wl, NSMakePoint(60, 16))];
+            [wl mouseUp:wMouse(NSEventTypeLeftMouseUp, wl, p0)];                    // pressed on the word, released on a remove control
+            [wl mouseUp:wMouse(NSEventTypeLeftMouseUp, wl, p0)];                    // a release with no press
+            BOOL wCancels = wc.store.words.count == rowsBefore;
+            [wl mouseDown:wMouse(NSEventTypeLeftMouseDown, wl, p1)];
+            [wl mouseUp:wMouse(NSEventTypeLeftMouseUp, wl, p1)];                    // a real click on row 1's remove control
+            BOOL wClick = wc.store.words.count == rowsBefore - 1 && ![wc.store.words containsObject:secondWord] &&
+                          NSIsEmptyRect([wl removeRectForRow:(NSInteger)rowsBefore - 1]); // the targets follow the shorter list
+            BOOL wControls = [wv.inputField.placeholderString isEqualToString:@"Add a name or term"] && [wv.addButton.title isEqualToString:@"Add"] &&
+                             [wv.doneButton.title isEqualToString:@"Done"] && wv.addButton.target == wc && wv.addButton.action == @selector(addFromField:) &&
+                             wv.doneButton.target == wc && wv.inputField.delegate == (id)wc && wv.inputField.nextKeyView == wv.addButton &&
+                             wv.addButton.nextKeyView == wv.doneButton && wv.doneButton.nextKeyView == wv.inputField;
+            // VoiceOver: a text element per word and a "Remove ..." button per row; the drawn title and footer join the real controls
+            NSArray *wlKids = wl.accessibilityChildren;
+            NSUInteger rowsNow = wc.store.words.count;
+            GFAXElement *firstRemove = wlKids.count > 1 ? wlKids[1] : nil;
+            BOOL wAX = wlKids.count == rowsNow * 2 && [[(GFAXElement *)wlKids[0] accessibilityRole] isEqualToString:NSAccessibilityStaticTextRole] &&
+                       [[(GFAXElement *)wlKids[0] accessibilityValue] isEqual:wc.store.words[0]] &&
+                       [firstRemove.accessibilityRole isEqualToString:NSAccessibilityButtonRole] &&
+                       [firstRemove.accessibilityLabel isEqualToString:[@"Remove " stringByAppendingString:wc.store.words[0]]] &&
+                       [firstRemove accessibilityPerformPress] && wc.store.words.count == rowsNow - 1 && wl.accessibilityChildren.count == (rowsNow - 1) * 2 &&
+                       wv.accessibilityChildren.count == 6 && [wv.accessibilityChildren containsObject:wv.inputField] &&
+                       [wv.accessibilityChildren containsObject:wv.addButton] && [wv.accessibilityChildren containsObject:wv.doneButton];
+            BOOL wUiOk = wTargets && wCancels && wClick && wControls && wAX;
+            if (wUiOk) passed++; else failed++;
+            printf("%s: Custom Words remove controls need press + release on the same control; field, Add and Done are real controls in Tab order; "
+                   "VoiceOver gets every word and remove control (%d%d%d%d%d)\n", wUiOk ? "PASS" : "FAIL", wTargets, wCancels, wClick, wControls, wAX);
+            [wfm removeItemAtPath:wDir error:nil];
+
+            // The menu: "Custom Words" right after "Set Gemini API Key", no trailing dots, a key equivalent nobody else uses
+            AppDelegate *wMenuD = [[AppDelegate alloc] init];
+            wMenuD.unitTestMode = YES;
+            wMenuD.e2eMode = @"file"; // builds the menu without putting an icon in the menu bar
+            [wMenuD setupMenu];
+            NSInteger keyIdx = [wMenuD.menu indexOfItemWithTitle:@"Set Gemini API Key"], wordsIdx = [wMenuD.menu indexOfItemWithTitle:@"Custom Words"];
+            NSMenuItem *wordsItem = wordsIdx >= 0 ? [wMenuD.menu itemAtIndex:wordsIdx] : nil;
+            NSMutableSet<NSString *> *keys = [NSMutableSet set];
+            NSInteger keyClashes = 0, dotted = 0;
+            for (NSMenuItem *it in wMenuD.menu.itemArray) {
+                if (it.keyEquivalent.length > 0) { if ([keys containsObject:it.keyEquivalent]) keyClashes++; [keys addObject:it.keyEquivalent]; }
+                if ([it.title hasSuffix:@"..."] || [it.title hasSuffix:@"\u2026"]) dotted++;
+            }
+            BOOL menuOk = keyIdx >= 0 && wordsIdx == keyIdx + 1 && wordsItem.action == @selector(showCustomWordsWindow) &&
+                          [wMenuD respondsToSelector:@selector(showCustomWordsWindow)] && keyClashes == 0 && dotted == 0 &&
+                          ![@[@"w", @"q", @"l", @"p", @"k", @"d", @"c", @"v", @"x", @"a", @"z"] containsObject:wordsItem.keyEquivalent];
+            if (menuOk) passed++; else failed++;
+            printf("%s: the menu has Custom Words right after Set Gemini API Key, with no clashing key equivalent and no trailing dots\n", menuOk ? "PASS" : "FAIL");
+
+            // Offscreen render (made-up sample terms): the window-button strip is empty, the title sits below it, Light is light, Dark is dark
+            NSBitmapImageRep *wLight = GFRenderCustomWordsSnapshot(NO, @[], @"");
+            NSBitmapImageRep *wDark = GFRenderCustomWordsSnapshot(YES, @[@"Siobhan", @"Zyphra", @"Kristoffer"], @"Already in the list.");
+            BOOL wStripClear = wLight != nil;
+            for (NSInteger y = 0; wStripClear && y < 26 * 2; y++)
+                for (NSInteger x = 76 * 2; x < wLight.pixelsWide; x++) {
+                    const unsigned char *px = wLight.bitmapData + y * wLight.bytesPerRow + x * 4;
+                    if (px[0] < 235 || px[1] < 235 || px[2] < 235) { wStripClear = NO; break; }
+                }
+            NSInteger wTitleInk = 0, wRowInk[2] = {0, 0};
+            for (NSInteger y = 28 * 2; wLight && y < 62 * 2; y++)
+                for (NSInteger x = 24 * 2; x < 200 * 2; x++) {
+                    const unsigned char *px = wLight.bitmapData + y * wLight.bytesPerRow + x * 4;
+                    if (px[0] < 90 && px[1] < 90 && px[2] < 90) wTitleInk++;
+                }
+            for (int k = 0; k < 2; k++) { // bright ink in the first three list rows of the dark render (words), none in rows 5 to 8 (no words there)
+                for (NSInteger y = (150 + (k ? 128 : 0)) * 2; wDark && y < (150 + (k ? 256 : 96)) * 2; y++)
+                    for (NSInteger x = 24 * 2; x < 300 * 2; x++) {
+                        const unsigned char *px = wDark.bitmapData + y * wDark.bytesPerRow + x * 4;
+                        if (px[0] > 200 && px[1] > 200 && px[2] > 200) wRowInk[k]++;
+                    }
+            }
+            const unsigned char *wdp = wDark.bitmapData;
+            BOOL wRenderOk = wLight.pixelsWide == 880 && wLight.pixelsHigh == 464 * 2 && wDark.pixelsWide == 880 && wStripClear && wTitleInk > 200 &&
+                             wdp != NULL && wdp[0] < 35 && wdp[1] < 35 && wdp[2] < 40 && wRowInk[0] > 300 && wRowInk[1] == 0;
+            if (wRenderOk) passed++; else failed++;
+            printf("%s: Custom Words renders with its title below the window buttons (button row empty; title ink %ld px) in Light and Dark\n",
+                   wRenderOk ? "PASS" : "FAIL", (long)wTitleInk);
+        }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
     }
@@ -9307,12 +11841,15 @@ int main(int argc, const char * argv[]) {
                 GFRenderChangelogSnapshot(YES, @"", @"all", [NSSet setWithObject:@(33)]),
                 GFRenderSetupSnapshot(NO, freshSt),
                 GFRenderSetupSnapshot(YES, readySt),
-                GFRenderBrandPreview(@[[delegate menuBarIconForState:0], [delegate menuBarIconForState:1], [delegate menuBarIconForState:2]])
+                GFRenderBrandPreview(@[[delegate menuBarIconForState:0], [delegate menuBarIconForState:1], [delegate menuBarIconForState:2]]),
+                // Made-up sample terms only: a preview never reads the user's custom words file
+                GFRenderCustomWordsSnapshot(NO, @[], @""),
+                GFRenderCustomWordsSnapshot(YES, @[@"Siobhan", @"Zyphra", @"Kristoffer", @"Aoife Byrne", @"Wojciech", @"Kubernetes", @"Nguyen Thi Minh"], @"")
             };
             NSString *names[] = {@"changelog-light.png", @"changelog-dark-expanded.png", @"setup-first-run-light.png", @"setup-ready-dark.png",
-                                 @"brand-preview.png"};
+                                 @"brand-preview.png", @"custom-words-empty-light.png", @"custom-words-filled-dark.png"};
             int bad = 0;
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 7; i++) {
                 NSData *png = [reps[i] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
                 NSString *path = [dir stringByAppendingPathComponent:names[i]];
                 if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);
@@ -9352,9 +11889,13 @@ int main(int argc, const char * argv[]) {
                 GFLiveProbeCloseLine(NO, 2, NO, 400, 0, nil, NSURLErrorDomain, NSURLErrorBadServerResponse),
                 GFLiveProbeCloseLine(YES, 3, YES, 101, 1011, @"Internal error\nencountered.", nil, 0),
                 GFLiveProbeErrorFrameLine(@{@"error": @{@"code": @400, @"status": @"INVALID_ARGUMENT", @"message": @"Unsupported \"mode\" value."}}, NO),
-                GFLiveProbeFieldsLine(seen)];
+                GFLiveProbeFieldsLine(seen),
+                GFLiveProbeInterimLine(12, 840.4, 2, 9100.0),
+                GFLiveProbeInterimLine(0, 0, 0, 0)];
             for (NSString *l in lines) printf("%s\n", l.UTF8String);
             printf("E2E LIVE RAW: \"%s\"\n", "sample raw text");
+            NSData *sampleSegs = [NSJSONSerialization dataWithJSONObject:@[@"sample raw", @"text with \"quotes\"\nand a line break"] options:0 error:nil];
+            printf("E2E LIVE RAW SEGMENTS: %s\n", [[NSString alloc] initWithData:sampleSegs encoding:NSUTF8StringEncoding].UTF8String);
             return 0;
         }
         if (argc > 2 && strcmp(argv[1], "--replay") == 0) {
@@ -9417,6 +11958,14 @@ int main(int argc, const char * argv[]) {
                     i += 1;
                     continue;
                 }
+                // optional, test-only (custom vocabulary): the list ("a|b|c") this run sends; without it an e2e run sends none (the user's lists are never read in e2e mode)
+                if (strcmp(argv[i], "--e2e-vocabulary") == 0 && i + 1 < argc) {
+                    delegate.e2eVocabulary = GFCleanVocabulary([@(argv[i + 1]) componentsSeparatedByString:@"|"]);
+                    i += 1;
+                    continue;
+                }
+                // optional, test-only: the first Live session that sends a vocabulary is rejected, see e2eMaybeSimulateVocabularyRejectionSession:task:
+                if (strcmp(argv[i], "--e2e-live-vocab-reject") == 0) delegate.e2eLiveVocabReject = YES;
                 // optional, test-only (backlog 0y-probe): a JSON object deep-merged into the Live `setup` object, see GFLiveSetupMessage
                 if (strcmp(argv[i], "--e2e-live-setup-extra") == 0 && i + 1 < argc) {
                     delegate.e2eLiveSetupExtra = GFParseLiveSetupExtra(@(argv[i + 1]));
@@ -9473,6 +12022,9 @@ int main(int argc, const char * argv[]) {
         [app setMainMenu:mainMenu];
 
         [app setDelegate:delegate];
+        // Busy marker: only the real app publishes it (nil path for e2e runs); one left behind by an earlier process is removed.
+        delegate.busyMarkerPath = GFBusyMarkerPathForRun(delegate.e2eMode, delegate.unitTestMode);
+        GFBusyMarkerWrite(delegate.busyMarkerPath, NO);
         [app run];
     }
     return 0;

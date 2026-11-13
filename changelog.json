@@ -3,6 +3,27 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 39,
+      "scope": "engine",
+      "timestamp": "13 Nov · 12:15",
+      "title": "Custom Words: names and unusual terms spelled your way",
+      "highlights": [
+        "A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.",
+        "On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."
+      ]
+    },
+    {
+      "cycle": 38,
+      "scope": "mac",
+      "timestamp": "13 Nov · 12:10",
+      "title": "Sturdier Setup, Changelog and API key windows",
+      "highlights": [
+        "First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.",
+        "Buttons need a press and release on the same spot, the search box clears with its X or Esc, long changelog titles no longer overlap, VoiceOver can read both windows, and test runs no longer flash extra icons in the menu bar.",
+        "An update no longer restarts the app while you are dictating: it waits until your text has been delivered."
+      ]
+    },
+    {
       "cycle": 37,
       "scope": "engine",
       "timestamp": "13 Nov · 11:35",

@@ -40,6 +40,23 @@ cd ~/GeminiFlow && ./update.sh
 
 Updating keeps your API key, permissions and settings.
 
+## Custom vocabulary (names and unusual words)
+
+If GeminiFlow keeps misspelling a name or a product term, add it to your custom words list. The easiest way is **Custom Words** in the menu bar menu: it opens a small window where you add and remove terms, keeps the list outside the project folder, and the list is sent to Google with each dictation, like the audio. The list is a small file that lives **outside** the GeminiFlow folder:
+
+`~/Library/Application Support/GeminiFlow/custom-words.json`
+
+```json
+["Siobhan", "Zyphra", "Kristoffer"]
+```
+
+- It applies from your next dictation. You don't need to restart.
+- Use it for **names and unusual terms only**. A common word in the list replaces words that sound like it: in testing, adding "build" turned a spoken "bill" into "build".
+- Up to 100 terms of up to 64 characters each. Longer or extra entries are ignored.
+- Your words stay in that file on your Mac and are sent to Gemini Live with each dictation. Because the file is not in the GeminiFlow folder, the names in it are never committed or published with the code. They are never written to the log; only the number of terms is.
+- It works with Gemini Live, the main engine. The two backup engines don't use it.
+- Advanced: `rules.json` also accepts a `"customVocabulary": [...]` list, which is added after the words from the file. `rules.json` is part of the GeminiFlow folder, so keep private names out of it if you share that folder.
+
 ## Troubleshooting
 
 | Problem | Fix |

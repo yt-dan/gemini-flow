@@ -68,6 +68,10 @@ Runs offline and unattended against a candidate binary BEFORE it is installed:
                  The gate detail reports the app's "Live tail check" line(s) (numbers only).
   T29 click-tail fixture (offline) - that clip is what the online case needs: >= 9 s of speech, and a tail whose only audio
                  above the app's 150-RMS voice-scan floor is the click (1-4 frames of 20 ms, loudest frame RMS 350-1200).
+  T31 busy-marker (offline, user-approved 2026-11-13) - only the REAL app publishes "dictation in progress"
+                 (~/Library/Application Support/GeminiFlow/busy, holding its pid) for the restart script. An --e2e-file run must
+                 never write it: polled every 20 ms during a short run, the marker never holds the test process's pid (the real
+                 app may be dictating meanwhile, so the file itself may exist).
   T14 live-server-turn-end - the Live server ends the open turn on its own while Fn is still held (test-only hook: a raw
                   activityEnd with no client bookkeeping, its echo hidden), in the pause between two sentences. The speech
                   after it must still be transcribed ON LIVE (no REST fallback), full recall, within the T8 limit (backlog 0c)
@@ -90,14 +94,37 @@ Runs offline and unattended against a candidate binary BEFORE it is installed:
   Offline T23 long-mode selection - the long cases are selected only with the flag (pure check, no TTS, no network).
   T28 live-setup-probe (online, OPT-IN; backlog 0y-probe) - runs ONLY when the flag file .autoimprove/tests/RUN_PROBE exists
                   (gitignored; same opt-in pattern as RUN_LONG), AFTER all the regular online gates, which run unchanged. A PROBE,
-                  not a quality gate: it asks the real Live server whether the `setup` message accepts fields nobody has verified
-                  (inputAudioTranscription with languageCodes / customVocabulary / mode, and a few other placements), through the
-                  e2e-only hook --e2e-live-setup-extra <json> (deep-merged into `setup`; never used by the normal app). Each case
-                  runs short TTS clips and passes as long as the dictation is delivered (exit 0, recall >= 0.60, by any path);
-                  its line REPORTS accepted (setupComplete yes/no), the close code / close reason / HTTP status when the server
-                  rejected the setup, via (live/rest/ondevice), latency, and the clip's output (Live's raw text and the final text).
-                  A summary table is printed after the cases. The coordinator: touch RUN_PROBE, run_online_tests.sh --bin
-                  /tmp/gf-cand.app/..., rm RUN_PROBE. Adds ~4 min.
+                  not a quality gate: it asks the real Live server what setup.inputAudioTranscription does, through the e2e-only
+                  hooks --e2e-live-setup-extra <json> (deep-merged into `setup`), --e2e-vocabulary and --e2e-live-vocab-reject.
+                  Round 1 (2026-11-13): the field is accepted at setup level only; customVocabulary and mode SMART work.
+                  Round 2 (informational rows, each compared with its control run of the same clip):
+                  - SMART A/B over EVERY T6 Live clip: recall, latency, raw text, and flags for fillers left, a meaningful
+                    "like" removed, words dropped where the app joins two Live segments, line breaks, list markers, digits and
+                    symbols introduced, the last character; mean recall and median latency of control vs SMART.
+                  - SMART on repetition, emphasis and self-correction, the documentation's own two examples, spoken commands
+                    ("new line", "comma", "period"), an amount / date / time, and a self-correction that straddles the app's
+                    activity split; for every SMART row, what the app's own polish then does to the server's text.
+                  - Vocabulary safety: 50 unspoken names on every T6 clip (should change nothing), a name that sounds like a
+                    spoken word, a list without "build", 100 terms, a 64-character term, a term with a space and one with an
+                    apostrophe, vocabulary + languageCodes, SMART + vocabulary, 500 / 1001 raw terms and a 200-character term
+                    (server limits), and the app's rejection safety net against the real server (simulated close 1007).
+                  - How often and how early interim text (serverContent.interimInputTranscription) arrives. Numbers only.
+                  A run passes when a text was delivered (exit 0, not empty, recall >= 0.60; clips where a rewrite is the point
+                  have no recall floor); everything else is REPORTED in the run's line and in the summary printed at the end.
+                  The coordinator: touch RUN_PROBE, run_online_tests.sh --bin /tmp/gf-cand.app/..., rm RUN_PROBE.
+  T30 live-vocabulary (online, regular suite) - custom vocabulary (the user's custom-words.json + rules.json
+                  "customVocabulary" -> Live setup.inputAudioTranscription.customVocabulary; the server's behaviour was measured by
+                  the T28 probe on 2026-11-13). With the test-only list "Siobhan|Zyphra" (--e2e-vocabulary; e2e runs never read
+                  the user's own lists): the name
+                  and product clips must come back ON LIVE with those spellings, recall >= 0.85, within the T8 limit; the fillers
+                  clip (no listed word in it) must come back on Live with a recall not below its T6 run in the same suite run.
+                  The log may only hold the NUMBER of terms, never a term.
+  T30 live-vocabulary/offline-reject (offline) - the server "rejects" the setup that carries the vocabulary (test-only hook
+                  --e2e-live-vocab-reject: close 1007 "Invalid JSON payload" before setupComplete): the app must reconnect once
+                  WITHOUT the list (not the key-in-URL auth retry), log the rejection with counts and codes only, and still
+                  deliver the dictation.
+  T30 live-vocabulary/offline-isolated (offline) - test isolation: an e2e press WITHOUT --e2e-vocabulary sends no vocabulary
+                  and logs "0 terms" (the user's custom-words.json and rules.json list are never read in e2e mode).
   Offline T28 probe-mode selection - the probe cases are selected only with the flag, RUN_PROBE is gitignored, every probed clip
                   has a control run, and the runner's parser reads the app's own probe log lines (--dump-live-probe-lines: accepted,
                   closed before/after setupComplete with close code + reason + HTTP status, error frame). No TTS, no network.
@@ -313,18 +340,22 @@ def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
     cmd = [binary, "--e2e-file", wav] + ([model] if model else []) + (list(extra) if extra else [])
     t0 = time.time()
     peak_rss = None
+    std = None  # stdout alone (the plain subprocess.run path)
     if rusage:  # long-dictation mode only (backlog 0m): the regular cases keep the plain subprocess.run path below
         out, code, peak_rss = _run_with_rusage(cmd, timeout)
     else:
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             out, code = p.stdout + p.stderr, p.returncode
+            std = p.stdout
         except subprocess.TimeoutExpired as e:
             out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
             code = "timeout"
     stats = re.findall(r"Press stats: ([\d.]+) s of audio; Live session age at release (n/a|[\d.]+ s); reconnects (\d+); "
                        r"Live activities (\d+)", out)
-    m = re.search(r'E2E RESULT: "(.*)"', out, re.S)
+    # The result line is on stdout; the app's log (stderr, appended after it in `out`) can hold double quotes (a server close
+    # reason quotes field names), which this greedy match would run into. So read the result from stdout alone when it is at hand.
+    m = re.search(r'E2E RESULT: "(.*)"', out if std is None else std, re.S)
     lat = re.search(r"release->result latency: (\d+) ms", out)
     early = re.search(r'E2E EARLY DELIVERY: "(.*?)"\nE2E early delivery latency: (\d+) ms', out, re.S)
     res = {
@@ -379,6 +410,14 @@ def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
         "reconnect_scheduled": len(re.findall(r"Live: connection lost at [\d.]+s sent while recording", out)),
         "peak_rss_mb": round(peak_rss / 1048576.0, 1) if peak_rss else None,
         "tail": "\n".join(out.strip().splitlines()[-8:]),
+        # custom vocabulary: the number of terms each Live session's setup carried, the rejection safety net, auth retries
+        "vocab_terms": [int(n) for n in re.findall(r"Live: setup carries a custom vocabulary of (\d+) terms", out)],
+        "vocab_e2e_terms": [int(n) for n in re.findall(r"E2E: custom vocabulary: (\d+) terms from --e2e-vocabulary", out)],
+        "vocab_rejected": "Live: the server rejected the setup with the custom vocabulary" in out,
+        "vocab_reject_simulated": "E2E: simulating the server's rejection of the custom vocabulary" in out,
+        "auth_retry": "Live: header auth rejected before setupComplete" in out,
+        "live_connects": len(re.findall(r"Live: connecting \(", out)),
+        "vocab_leak": _vocab_terms_in_log(out, extra),
     }
     if PROBE_LOG_MARK in out:  # backlog 0y-probe: only runs with --e2e-live-setup-extra log these lines; other runs are unchanged
         res["probe"] = parse_probe(out)
@@ -386,6 +425,18 @@ def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
 
 
 PROBE_LOG_MARK = "E2E: Live setup probe:"
+VOCAB_FLAG = "--e2e-vocabulary"
+
+
+def _vocab_terms_in_log(out, extra):
+    """Terms of the run's --e2e-vocabulary list that appear in the app's LOG lines (NSLog lines; the E2E RESULT / E2E LIVE RAW
+    lines on stdout are the test clip's text and may contain them). Must be empty: only the number of terms may be logged."""
+    extra = list(extra or [])
+    if VOCAB_FLAG not in extra or extra.index(VOCAB_FLAG) + 1 >= len(extra):
+        return []
+    terms = [t.strip() for t in extra[extra.index(VOCAB_FLAG) + 1].split("|") if t.strip()]
+    log = "\n".join(l for l in out.splitlines() if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+ \S+\[\d+:\d+\] ", l)).lower()
+    return [t for t in terms if re.search(r"(?<![a-z0-9])" + re.escape(t.lower()) + r"(?![a-z0-9])", log)]
 
 
 def parse_probe(out):
@@ -409,8 +460,20 @@ def parse_probe(out):
     fields = sorted({f for line in re.findall(r"E2E: Live setup probe: server message fields seen: \[(.*?)\]", out)
                      for f in line.split(", ") if f})
     raw = re.search(r'^E2E LIVE RAW: "(.*)"$', out, re.M)
+    # the per-turn texts exactly as the server sent them (a JSON array on stdout; line breaks and quotes survive)
+    segs = re.search(r"^E2E LIVE RAW SEGMENTS: (\[.*\])$", out, re.M)
+    try:
+        segments = json.loads(segs.group(1)) if segs else None
+    except ValueError:
+        segments = None
+    if not isinstance(segments, list) or not all(isinstance(x, str) for x in segments):
+        segments = None
+    # interim / final transcript messages per Live session, and how long after that session's first audio the first one came
+    interim = [{"count": int(m[0]), "first_ms": int(m[1]), "finals": int(m[2]), "first_final_ms": int(m[3])}
+               for m in re.findall(r"E2E: Live setup probe: interim transcripts: (\d+) messages, first (-?\d+) ms after the first audio was "
+                                   r"sent; final transcripts: (\d+) messages, first (-?\d+) ms after the first audio was sent", out)]
     return {"sent": sent, "accepted": bool(done), "setup_complete": done, "closes": closes, "error_frames": errors,
-            "server_fields": fields, "raw": raw.group(1) if raw else None}
+            "server_fields": fields, "raw": raw.group(1) if raw else None, "segments": segments, "interim": interim}
 
 
 def run_e2e_two(binary, wav_a, wav_b, phase, model, timeout=150, extra=None):
@@ -545,6 +608,11 @@ def main():
          f"without flag={online_probe_ids(False)} with flag={len(online_probe_ids(True))} runs in {len(PROBE_CASES)} cases "
          f"(flag present now: {probe_mode_enabled()})" + (f"; problems: {probe_bad}" if probe_bad else "; parser reads the app's probe lines"))
 
+    # T30 vocabulary gates self-test: the three online T30 gates, run here with canned results (no app, no TTS, no network), pass
+    # for the expected outcome and fail for each outcome they guard against (default spelling, rejection, fallback, a term in the log...).
+    vocab_bad = vocabulary_gates_selftest()
+    gate("T30 vocabulary gates self-test", not vocab_bad, "9 canned outcomes ok" if not vocab_bad else f"problems: {vocab_bad}")
+
     # T24 duplicate-phrase check self-test (backlog 0o): the T18/T23 "no phrase duplicated at a seam" check must catch a real seam
     # repeat (also one more repeat of a phrase the expected text already repeats) and must NOT report recognizer variants, dropped words at a
     # sentence join, or a phrase repeated in the expected text the same number of times. Pure Python: no TTS, no network.
@@ -557,6 +625,11 @@ def main():
     for cid, text in ONLINE_SILENT_TAIL:
         fx_ok, fx_detail = click_tail_fixture(silent_tail_wav(text))
         gate(f"T29 click-tail fixture/{cid}", fx_ok, fx_detail)
+
+    # T31 busy-marker: a test process (--e2e-file) never publishes the real app's "dictation in progress" marker.
+    _, bm_voice, bm_rate, bm_text, _ = next(c for c in CORPUS if c[0] == "short")
+    bm_ok, bm_detail = busy_marker_e2e_check(a.bin, tts("short", bm_voice, bm_rate, bm_text))
+    gate("T31 busy-marker not written by e2e", bm_ok, bm_detail)
 
     report["loadavg_start"] = os.getloadavg()[0]
     if report["loadavg_start"] > 2 * os.cpu_count():
@@ -731,6 +804,28 @@ def main():
         gate("T28 live-setup-probe/offline", r["exit"] == 0 and sent_ok and delivered and res.endswith(" "),
              f"setup fields logged={pr['sent'][0]['fields'] if pr['sent'] else None} {probe_outcome(pr)} via={probe_via(r)} "
              f"lat={r['latency_ms']}ms exit={r['exit']} -> {res!r}" + ("" if sent_ok and delivered else f"\n      tail: {r['tail']}"))
+
+        # T30 offline (test isolation): that run had no --e2e-vocabulary, so it must have sent NO vocabulary and said so ("0 terms"):
+        # in e2e mode the user's custom-words.json and rules.json list are never read, whatever they hold.
+        iso_ok = bool(r["vocab_e2e_terms"]) and all(n == 0 for n in r["vocab_e2e_terms"]) and r["vocab_terms"] == []
+        gate("T30 live-vocabulary/offline-isolated", r["exit"] == 0 and iso_ok,
+             f"terms from --e2e-vocabulary per connect={r['vocab_e2e_terms']} (want all 0) setups that carried a vocabulary={r['vocab_terms']} (want none)")
+
+        # T30 offline (custom vocabulary safety net): the first Live session carries the test list (2 terms) and is "rejected"
+        # like an unknown setup field (test-only hook: close 1007 before setupComplete). The app must reconnect once without the
+        # list, must NOT take the key-in-URL auth retry, must log only counts and codes (no term), and the dictation must still
+        # be delivered (REST answers a canned text, test-only; with a network the second session delivers on Live).
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model=LIVE_MODEL, timeout=120,
+                    extra=[VOCAB_FLAG, ONLINE_VOCAB, "--e2e-live-vocab-reject", "--e2e-rest-fake-ok", "1"])
+        res = r["result"] or ""
+        delivered = "canned gemini transcript" in res.lower() or recall(expected, res) >= OFFLINE_RECALL_FLOOR
+        ok = (r["exit"] == 0 and r["vocab_terms"] == [2] and r["vocab_e2e_terms"] == [2, 0] and r["vocab_reject_simulated"]
+              and r["vocab_rejected"] and r["live_connects"] == 2 and not r["auth_retry"] and not r["vocab_leak"] and delivered
+              and res.endswith(" "))
+        gate("T30 live-vocabulary/offline-reject", ok,
+             f"terms sent per session={r['vocab_terms']} rejected={r['vocab_rejected']} connects={r['live_connects']} (want 2) "
+             f"auth_retry={r['auth_retry']} terms in log={r['vocab_leak']} via={probe_via(r)} lat={r['latency_ms']}ms exit={r['exit']} "
+             f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
 
     # T15 bounded wait (user-approved 2026-11-10): a slow REST answer (test-only canned HTTP 200, no network) must not hold the
     # dictation: the on-device text comes ~3 s after release, then the REST text as the final result. A fast REST, or a press
@@ -1208,6 +1303,35 @@ def silent_tail_wav(text):
     return derived_wav("click_tail", "release_silence_src", [text])
 
 
+BUSY_MARKER = os.path.expanduser("~/Library/Application Support/GeminiFlow/busy")
+
+
+def busy_marker_e2e_check(binary, wav, timeout=60):
+    """T31: run a short --e2e-file dictation and poll the real busy-marker path. Returns (ok, detail). The marker may exist (the
+    real app may be mid-dictation); it must never hold THIS test process's pid."""
+    import tempfile
+    seen = polls = 0
+    with tempfile.TemporaryFile(mode="w+") as log:
+        p = subprocess.Popen([binary, "--e2e-file", wav], stdout=log, stderr=subprocess.STDOUT)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            polls += 1
+            try:
+                with open(BUSY_MARKER) as f:
+                    if f.read().strip() == str(p.pid):
+                        seen += 1
+            except OSError:
+                pass
+            time.sleep(0.02)
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+        log.seek(0)
+        finished = "E2E RESULT" in log.read()
+    return (finished and seen == 0 and polls >= 5,
+            f"e2e run finished={finished} exit={p.returncode}; polled {polls} times, marker with the test process's pid seen {seen} times")
+
+
 def click_tail_fixture(path):
     """T29 offline: numbers of the click-tail clip on the app's 20 ms frame grid (frames start at sample 0). Returns (ok, detail).
     The tail is measured from 0.3 s after the speech clip's end (TTS clips can end on a breath of noise); the app itself measures
@@ -1312,19 +1436,25 @@ def first_pause_start(path, min_gap=1.5, level=150):
     return None
 
 
+# T30 custom vocabulary: the test-only list of the online gates (--e2e-vocabulary; the user's rules.json is never touched).
+ONLINE_VOCAB = "Siobhan|Zyphra"
+ONLINE_VOCAB_SPELLING = [("name", "Siobhan"), ("product", "Zyphra")]  # (T28 probe clip, spelling that must come back)
+
 # T28 (backlog 0y-probe, OPT-IN via the RUN_PROBE flag file; see the docstring). A probe of the REAL Live server, not a quality
-# gate: does the `setup` message accept fields that were only ever seen in web-search summaries? NOTHING here is verified: the field
-# names below are guesses to be tested. The e2e-only hook --e2e-live-setup-extra <json> deep-merges the object into `setup`.
+# gate. Round 1 (2026-11-13) answered whether the `setup` message accepts inputAudioTranscription (yes, at setup level only;
+# customVocabulary and mode SMART work). Round 2 measures what is still unknown before SMART could become the default and before a
+# long user vocabulary is trusted: SMART on every T6 clip and on deliberate repetition, a big names-only vocabulary on every T6
+# clip, sound-alike names, the limits (100 / 500 terms, long terms), and the rejection safety net against the real server.
+# The e2e-only hooks: --e2e-live-setup-extra <json> (deep-merged into `setup`), --e2e-vocabulary "a|b" (the app's own vocabulary
+# path), --e2e-live-vocab-reject (simulated rejection).
 RUN_PROBE_FLAG = os.path.join(HERE, "RUN_PROBE")
 PROBE_FLAG = "--e2e-live-setup-extra"
 PROBE_MIN_RECALL = 0.60  # "the dictation was delivered": by any path (Live, REST or on-device)
-# Terms for customVocabulary. The clips are chosen so that the default output is likely a different, plausible spelling:
-# "Siobhan" (spoken "shi-vawn"; often written Shivaun / Chevonne), "Kristoffer" (the clip says "Christopher": the usual spelling is
-# the wrong one here), "Zyphra" (invented product name; Apple on-device writes "Zepher"), and "build" (the user's "build" is often
-# heard as "bill"; the "bill" clip really says "bill", to see how hard the vocabulary pulls a similar-sounding word).
+# Terms for customVocabulary. The clips are chosen so that the default output is a different, plausible spelling (round 1:
+# "Shavon", "Christopher", "Zyfra", and "bill" for the spoken "build").
 PROBE_VOCAB = ["Siobhan", "Kristoffer", "Zyphra", "build"]
 _PROBE_REPEAT_EXP = "I am so happy with my new app."
-# clip id -> (audio builder, expected text for the delivery check, wanted spelling or None)
+# clip id -> (audio builder, expected text for the delivery check, wanted spelling: None, a word, or a tuple of phrases)
 PROBE_CLIPS = {
     "name": (lambda: tts("probe_name", None, None, "Please send the report to Siobhan before lunch."),
              "Please send the report to Siobhan before lunch.", "Siobhan"),
@@ -1337,22 +1467,92 @@ PROBE_CLIPS = {
     "fillers": (lambda: tts(*CORPUS[0][:4]), CORPUS[0][4], None),
     "keep_like": (lambda: tts(*CORPUS[3][:4]), CORPUS[3][4], None),
     "repeat": (lambda: tts("probe_repeat", None, None, "I am so happy with my with my new app."), _PROBE_REPEAT_EXP, None),
+    # a name with a space and one with an apostrophe (the clip says the usual spellings "Mary Ann O'Neal")
+    "mary_anne": (lambda: tts("probe_mary_anne", None, None, "Please invite Mary Ann O'Neal to the review."),
+                  "Please invite Mary Ann O'Neal to the review.", ("Mary Anne", "O'Neil")),
 }
+# Every clip of the regular T6 Live gates (same audio, same expected text), under its T6 id.
+PROBE_T6_IDS = list(ONLINE_LIVE_IDS)
+for _cid in PROBE_T6_IDS:
+    if _cid in PROBE_CLIPS:
+        continue
+    _c = {c[0]: c for c in CORPUS}.get(_cid)
+    if _c is not None:
+        PROBE_CLIPS[_cid] = ((lambda c=_c: tts(*c[:4])), _c[4], None)
+    else:
+        _x = {c[0]: c for c in ONLINE_EXTRA}[_cid]
+        PROBE_CLIPS[_cid] = (_x[1], _x[2], None)
+# Deliberate repetition, emphasis, self-correction and spoken digits: does SMART delete emphasis or numbers?
+PROBE_EMPHASIS = {
+    "know_know": "I know, I know, it is late.",
+    "no_no_no": "No, no, no.",
+    "self_correct": "Meet at two, wait no, three p.m.",
+    "thanks_thanks": "Thank you, thank you so much.",
+    "phone_digits": "Call five five five one two one two.",
+}
+# SMART is documented (Google Cloud "Gemini 3.5 Transcribe", read 2026-11-13) as Experimental, with inline self-correction and
+# AUTOMATIC STRUCTURED FORMATTING (paragraphs, numbered lists, bullets, dates, currencies, numbers), per utterance. The first two
+# clips are the documentation's own examples; the others are what this app would meet: spoken commands the app's polish handles
+# itself ("new line"), spoken punctuation, an amount / date / time, and a self-correction that STRADDLES the app's own activity
+# split (>= 0.6 s pause after >= 8 s of speech: the thought then spans two activities, i.e. two utterances for the server).
+PROBE_EMPHASIS.update({
+    "doc_selfcorrect": "Um, so for the meeting, I think we should, uh, invite Alice and, wait no, Bob and Carol.",
+    "doc_list": "First item review budget second item finalize timeline third item send recap.",
+    "cmd_newline": "First point new line second point.",
+    "cmd_punct": "Hello comma this is a test period",
+    "amount_date": "Send twenty five dollars on March third at four thirty p m.",
+})
+_PROBE_STRADDLE = ["For the offsite next month I think we should book the large meeting room on the third floor for the whole afternoon, "
+                   "and we should definitely invite Alice from the design team,",
+                   "wait no, invite Bob and Carol instead."]
+for _k, _t in PROBE_EMPHASIS.items():
+    PROBE_CLIPS[_k] = ((lambda k=_k, t=_t: tts("probe_" + k, None, None, t)), _t, None)
+PROBE_CLIPS["straddle"] = (lambda: derived_wav("pause", "probe_straddle", _PROBE_STRADDLE), " ".join(_PROBE_STRADDLE), None)
+PROBE_SMART_EXTRA_IDS = ["repeat"] + list(PROBE_EMPHASIS) + ["straddle"]
+# Delivery check per clip: recall >= PROBE_MIN_RECALL, except where a rewrite by the server is the thing being looked at.
+PROBE_CLIP_MIN_RECALL = {k: 0.0 for k in list(PROBE_EMPHASIS) + ["straddle"]}
+# ~50 realistic names and terms, none of them spoken in a T6 clip (probe_selftest checks that): unusual spellings, common first
+# names that sound like ordinary words, and tool names.
+PROBE_NAMES_50 = [
+    "Saoirse", "Aoife", "Niamh", "Caoimhe", "Xiomara", "Joaquin", "Thandiwe", "Oluwaseun", "Nguyen", "Anneliese",
+    "Matthias", "Katarzyna", "Priyanka", "Venkatesh", "Hiroshi", "Tadeusz", "Ximena", "Dmitri", "Svetlana", "Ngozi",
+    "Yusuf", "Leilani", "Kristoffer", "Siobhan", "Zyphra",
+    "Sue", "Hugh", "Reed", "Dawn", "Rose", "Miles", "Penny", "Rich", "Bea", "Marc", "Wade", "Glen", "Cliff", "Lane", "Kay",
+    "Jean", "Lou", "Dee", "Gene", "Earl",
+    "Kubernetes", "Grafana", "Terraform", "Figma", "Okta",
+]
+_PROBE_MORE_50 = [
+    "Abernathy", "Balakrishnan", "Castellanos", "Dragomir", "Eriksson", "Fitzgerald", "Gunawardena", "Hashimoto", "Ivanovic",
+    "Jankowski", "Kowalczyk", "Lindqvist", "Mukherjee", "Nakamura", "Okonkwo", "Papadopoulos", "Quispe", "Rasmussen",
+    "Szczepanski", "Takahashi", "Udoka", "Vasquez", "Wojciechowski", "Xu", "Yamamoto", "Zielinski", "Achterberg",
+    "Bhattacharya", "Czerwinski", "Dimitrov", "Esposito", "Fernandes", "Grzegorz", "Haddad", "Ishikawa", "Jovanovic",
+    "Kuznetsov", "Lombardi", "Mbeki", "Novak", "Oyelaran", "Petrov", "Qureshi", "Rodrigues", "Stoyanov", "Tanaka", "Uzun",
+    "Villanueva", "Wickramasinghe", "Yilmaz",
+]
+# 100 terms = the app's limit (kVocabularyMaxTerms); the name the clip needs comes LAST, so a hit shows all 100 were used.
+PROBE_VOCAB_100 = [t for t in PROBE_NAMES_50 if t != "Siobhan"] + _PROBE_MORE_50 + ["Siobhan"]
+# 64 characters = the app's per-term limit (kVocabularyMaxTermLength)
+PROBE_TERM_64 = "Wickramasinghe Papadopoulos Wojciechowski Bhattacharya Attorneys"
+# Beyond the app's limits, sent raw through the setup extra (the app's cleaning would cut them): what does the server do?
+# (the documentation says "up to 1000 terms", best results "with up to 100": 500 should pass, 1001 shows how a bad VALUE is refused)
+PROBE_VOCAB_500 = PROBE_VOCAB_100[:-1] + [f"Vocab{i:03d}term" for i in range(400)] + ["Siobhan"]
+PROBE_VOCAB_1001 = PROBE_VOCAB_100[:-1] + [f"Vocab{i:03d}term" for i in range(901)] + ["Siobhan"]
+PROBE_TERM_200 = " ".join(_PROBE_MORE_50)[:200].strip()
 _IAT = "inputAudioTranscription"
-# (case id, extra `setup` object, clip ids, what the case asks). "control" = {} = today's setup message with the probe's logging;
-# it runs every clip another case uses, so each output has a control to compare with.
+_SMART = {_IAT: {"mode": "SMART"}}
+# (case id, extra `setup` object, clip ids, what the case asks). "control" = {} and no vocabulary = today's setup message with the
+# probe's logging; it runs every clip another case uses, so each output has a control to compare with.
 PROBE_CASES = [
-    ("control", {}, ["name", "name_spelling", "product", "build", "bill", "fillers", "keep_like", "repeat"],
-     "today's setup message (baseline)"),
+    ("control", {}, ["name", "name_spelling", "product", "build", "bill", "mary_anne"] + PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
+     "today's setup message, no vocabulary (baseline)"),
     ("iat_empty", {_IAT: {}}, ["build"], "is setup.inputAudioTranscription itself accepted (empty object)?"),
     ("language_codes", {_IAT: {"languageCodes": ["en-US"]}}, ["build"], "languageCodes only"),
     ("custom_vocabulary", {_IAT: {"customVocabulary": PROBE_VOCAB}}, ["name", "name_spelling", "product", "build", "bill"],
      "customVocabulary: does the wanted spelling appear?"),
-    ("mode_smart", {_IAT: {"mode": "SMART"}}, ["fillers", "keep_like", "repeat"],
-     "mode SMART: are fillers / the repeated phrase removed by the server, is a meaningful 'like' kept?"),
+    ("mode_smart", _SMART, PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
+     "mode SMART on every T6 clip, and on repetition, emphasis, self-correction, lists, spoken commands, amounts and dates"),
     ("mode_verbatim", {_IAT: {"mode": "VERBATIM"}}, ["fillers"], "mode VERBATIM: same as the default?"),
-    # Other placements / names of the same object (guesses from how the protocol names things: generationConfig and
-    # realtimeInputConfig are the two config objects the app already sends; the server's answers call the text inputTranscription)
+    # Other placements / names of the same object (round 1: all three are rejected with close 1007)
     ("alt_generation_config", {"generationConfig": {_IAT: {"customVocabulary": PROBE_VOCAB}}}, ["name"],
      "the same object inside generationConfig"),
     ("alt_realtime_input_config", {"realtimeInputConfig": {_IAT: {"customVocabulary": PROBE_VOCAB}}}, ["name"],
@@ -1361,7 +1561,38 @@ PROBE_CASES = [
      "setup.inputTranscription (the name the server's answers use)"),
     ("alt_speech_config_language", {"generationConfig": {"speechConfig": {"languageCode": "en-US"}}}, ["build"],
      "a language hint as generationConfig.speechConfig.languageCode"),
+    # Round 2: vocabulary safety. These go through the app's own vocabulary path (--e2e-vocabulary), not the setup extra.
+    ("vocab_names50", {}, PROBE_T6_IDS,
+     "50 names/terms, none spoken, on every T6 clip: the outputs should be the SAME as the control"),
+    ("vocab_name_bill", {}, ["build", "bill", "fillers"], "a NAME that sounds like a spoken word: 'Bill' vs a spoken build / bill"),
+    ("vocab_no_build", {}, ["bill", "build"], "a list WITHOUT 'build': the output should stay as in the control ('bill')"),
+    ("vocab_100", {}, ["name"], "100 terms (the app's limit), the wanted name last: accepted? latency? still effective?"),
+    ("vocab_shapes", {}, ["mary_anne"], "a 64-character term, a term with a space ('Mary Anne'), a term with an apostrophe (O'Neil)"),
+    ("smart_vocab", _SMART, ["name"], "mode SMART and a vocabulary together"),
+    ("vocab_reject_sim", {}, ["name"],
+     "the rejection safety net against the real server: the first session is 'rejected' (simulated close 1007), the app must "
+     "reconnect without the list and still deliver ON LIVE (control spelling expected)"),
+    ("vocab_language", {_IAT: {"customVocabulary": PROBE_VOCAB, "languageCodes": ["en-US"]}},
+     ["name", "name_spelling", "product", "build", "bill"],
+     "vocabulary + languageCodes en-US (the documentation: vocabulary is followed 'more reliably' with a language): compare with custom_vocabulary"),
+    ("raw_500_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_500}}, ["name"],
+     "server limit: 500 terms sent raw in the setup extra (the app itself never sends more than 100)"),
+    ("raw_1001_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_1001}}, ["name"],
+     "server limit: 1001 terms (documented maximum 1000): HOW does the server refuse a bad value (close code / reason)?"),
+    ("raw_long_term", {_IAT: {"customVocabulary": [PROBE_TERM_200, "Siobhan"]}}, ["name"],
+     "server limit: one 200-character term sent raw in the setup extra (the app itself drops terms over 64)"),
 ]
+# Per case: the vocabulary given to the app (--e2e-vocabulary) and extra e2e flags. Cases not listed run with NO vocabulary
+# (e2e runs never read the user's own custom-words.json / rules.json list, so nothing private can get into a probe run).
+PROBE_CASE_OPTS = {
+    "vocab_names50": {"vocab": PROBE_NAMES_50},
+    "vocab_name_bill": {"vocab": ["Bill", "Siobhan"]},
+    "vocab_no_build": {"vocab": ["Siobhan", "Kristoffer", "Zyphra"]},
+    "vocab_100": {"vocab": PROBE_VOCAB_100},
+    "vocab_shapes": {"vocab": [PROBE_TERM_64, "Mary Anne", "O'Neil"]},
+    "smart_vocab": {"vocab": ["Siobhan", "Kristoffer", "Zyphra"]},
+    "vocab_reject_sim": {"vocab": ["Siobhan", "Zyphra"], "flags": ["--e2e-live-vocab-reject"]},
+}
 
 
 def probe_mode_enabled():
@@ -1375,8 +1606,15 @@ def online_probe_ids(flag_present):
 
 
 def probe_extra_args(extra):
-    """The e2e arguments for one probe run: the hook flag and the extra `setup` object as compact JSON."""
+    """The hook flag and the extra `setup` object as compact JSON."""
     return [PROBE_FLAG, json.dumps(extra, separators=(",", ":"))]
+
+
+def probe_run_args(case, extra):
+    """The e2e arguments of one probe run: the setup extra, the case's vocabulary (when it has one) and its flags."""
+    opts = PROBE_CASE_OPTS.get(case, {})
+    vocab = opts.get("vocab", [])
+    return probe_extra_args(extra) + ([VOCAB_FLAG, "|".join(vocab)] if vocab else []) + list(opts.get("flags", []))
 
 
 def probe_via(r):
@@ -1420,6 +1658,103 @@ def probe_close_cell(pr):
     return cell or "-"
 
 
+def probe_wanted_hit(wanted, text):
+    """None when the clip has no wanted spelling; else True when every wanted word / phrase is in the text (whole words)."""
+    if wanted is None:
+        return None
+    joined = " " + " ".join(words(text or "")) + " "
+    return all((" " + " ".join(words(p)) + " ") in joined for p in ([wanted] if isinstance(wanted, str) else wanted))
+
+
+def probe_shown(w):
+    """The text of a probe row that is compared and shown: Live's raw text when Live delivered, else the final text."""
+    return w["raw"] if w["via"] == "live" and w["raw"] is not None else w["result"]
+
+
+def _clip(s, n=110):
+    """repr of a text, cut to n characters with the full length noted (the report JSON keeps the whole text)."""
+    if s is None:
+        return "None"
+    return repr(s) if len(s) <= n else repr(s[:n]) + f"... ({len(s)} chars)"
+
+
+def _missing_words(expected, text):
+    """Expected words that are not in the text (each text word is used once, like recall)."""
+    pool, miss = words(text or ""), []
+    for w in words(expected):
+        if w in pool:
+            pool.remove(w)
+        else:
+            miss.append(w)
+    return miss
+
+
+def seam_drops(expected, segments):
+    """Expected words that are missing (or replaced) right where two Live segments were joined (the app joins the per-turn
+    texts with a space). The expected words are aligned with the joined output; a gap that touches a join is a seam drop.
+    Returns [{"expected": [...], "got": [...]}]; [] for a single segment."""
+    import difflib, itertools
+    seg_words = [words(s) for s in (segments or [])]
+    if len(seg_words) < 2:
+        return []
+    out_words = [w for sw in seg_words for w in sw]
+    joins = set(itertools.accumulate(len(sw) for sw in seg_words[:-1]))  # index in out_words where the next segment starts
+    exp = words(expected)
+    drops = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, exp, out_words, autojunk=False).get_opcodes():
+        if tag in ("delete", "replace") and any(j1 <= b <= j2 for b in joins):
+            drops.append({"expected": exp[i1:i2], "got": out_words[j1:j2]})
+    return drops
+
+
+def probe_text_flags(expected, text, segments):
+    """Informational facts about one output text (never a gate): fillers left, how many "like" against the expected text, expected
+    words missing, words lost at segment joins, line breaks, digits, unusual symbols, and the last character."""
+    text = text or ""
+    ws, exp = words(text), words(expected)
+    lower = " " + " ".join(ws) + " "
+    plain = set(" .,?!'-\n\t") | {"\u2019"}
+    return {
+        "fillers": [f for f in FILLERS if f" {f} " in lower],
+        "like": ws.count("like"), "like_expected": exp.count("like"),
+        "missing": _missing_words(expected, text),
+        "seam_drops": seam_drops(expected, segments),
+        "segments": len(segments) if segments else None,
+        "linebreaks": sum(s.count("\n") for s in (segments if segments else [text])),
+        "list_markers": re.findall(r"(?m)(?:^|\n)[ \t]*(\d+[.)]|[-*\u2022])[ \t]+\S", "\n".join(segments) if segments else text),
+        "digits": re.findall(r"\d+(?:[.,:/-]\d+)*", text),
+        "symbols": sorted({ch for ch in text if not (ch.isalnum() or ch in plain)}),
+        "trailing": text.strip()[-1:] if text.strip() else "",
+    }
+
+
+def word_diff(a, b, ctx=2, max_spans=10):
+    """Compact word-level difference of two texts: for every changed span, the words around it with [-removed-] and {+added+}.
+    '' when the texts are word-for-word equal (case and punctuation count)."""
+    import difflib
+    aw, bw = (a or "").split(), (b or "").split()
+    spans = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, aw, bw, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        piece = aw[max(0, i1 - ctx):i1]
+        if i2 > i1:
+            piece = piece + ["[-" + " ".join(aw[i1:i2]) + "-]"]
+        if j2 > j1:
+            piece = piece + ["{+" + " ".join(bw[j1:j2]) + "+}"]
+        spans.append(" ".join(piece + aw[i2:i2 + ctx]))
+    more = f" | (+{len(spans) - max_spans} more)" if len(spans) > max_spans else ""
+    return " | ".join(spans[:max_spans]) + more
+
+
+def _probe_timeout(wav):
+    """Harness timeout of a probe run: as the T6 gates (150 s, or the clip + 90 s for the long clips)."""
+    try:
+        return max(150, int(wav_seconds(wav)) + 90)
+    except Exception:
+        return 150
+
+
 def probe_selftest(binary, blob=None):
     """Offline checks of the probe mode (no TTS, no network); returns a list of problems (empty = all good)."""
     bad = []
@@ -1433,23 +1768,72 @@ def probe_selftest(binary, blob=None):
     if not ignored:
         bad.append("RUN_PROBE is not gitignored")
     control = [c for c in PROBE_CASES if c[0] == "control"]
-    if len(control) != 1 or control[0][1] != {} or PROBE_CASES[0][0] != "control":
-        bad.append("the first case must be the control with an empty extra object")
+    if len(control) != 1 or control[0][1] != {} or PROBE_CASES[0][0] != "control" or "control" in PROBE_CASE_OPTS:
+        bad.append("the first case must be the control: empty extra object, no vocabulary, no flags")
+    all_args = []
     for case, extra, clips, _ in PROBE_CASES:
-        if not isinstance(extra, dict) or json.loads(probe_extra_args(extra)[1]) != extra or probe_extra_args(extra)[0] != PROBE_FLAG:
-            bad.append(f"{case}: the extra is not a JSON object")
-        if case != "control" and not extra:
-            bad.append(f"{case}: empty extra outside the control")
+        args = probe_run_args(case, extra)
+        all_args.append(tuple(args))
+        opts = PROBE_CASE_OPTS.get(case, {})
+        if not isinstance(extra, dict) or json.loads(args[1]) != extra or args[0] != PROBE_FLAG or (VOCAB_FLAG in args) != bool(opts.get("vocab")):
+            bad.append(f"{case}: bad arguments")
+        if case != "control" and not extra and not opts:
+            bad.append(f"{case}: nothing differs from the control")
+        vocab = opts.get("vocab", [])
+        if any("|" in t or t != t.strip() or not t or len(t) > 64 for t in vocab) or len(vocab) > 100 \
+                or len({t.lower() for t in vocab}) != len(vocab):
+            bad.append(f"{case}: the vocabulary would be changed by the app's cleaning (or holds a '|')")
         for clip in clips:
             if clip not in PROBE_CLIPS:
                 bad.append(f"{case}: unknown clip {clip}")
             elif control and clip not in control[0][2]:
                 bad.append(f"{case}/{clip}: the clip has no control run")
+    if len(set(all_args)) != len(all_args):
+        bad.append("two cases have the same arguments")
+    if any(c not in [x[0] for x in PROBE_CASES] for c in PROBE_CASE_OPTS):
+        bad.append("PROBE_CASE_OPTS names an unknown case")
     for clip, (_, expected, wanted) in PROBE_CLIPS.items():
-        if wanted is not None and wanted not in PROBE_VOCAB:
+        if isinstance(wanted, str) and wanted not in PROBE_VOCAB:
             bad.append(f"{clip}: wanted spelling {wanted!r} is not in the vocabulary")
         if recall(expected, expected) < 1.0 or not words(expected):
             bad.append(f"{clip}: bad expected text")
+    # round 2 lists: sizes, limits, and "none of the 50 names is spoken in a T6 clip"
+    corpus = {c[0]: c for c in CORPUS}
+    spoken = set()
+    for cid in PROBE_T6_IDS:
+        spoken |= set(words(corpus[cid][3] if cid in corpus else PROBE_CLIPS[cid][1]))
+    said = [t for t in PROBE_NAMES_50 if any(w in spoken for w in words(t))]
+    if said:
+        bad.append(f"names of the 50-term vocabulary are spoken in a T6 clip: {said}")
+    if (len(PROBE_NAMES_50) != 50 or len(PROBE_VOCAB_100) != 100 or PROBE_VOCAB_100[-1] != "Siobhan" or len(PROBE_TERM_64) != 64
+            or len(PROBE_VOCAB_500) != 500 or len({t.lower() for t in PROBE_VOCAB_500}) != 500 or not 150 < len(PROBE_TERM_200) <= 200
+            or len(PROBE_VOCAB_1001) != 1001 or len({t.lower() for t in PROBE_VOCAB_1001}) != 1001
+            or sorted(PROBE_T6_IDS) != sorted(ONLINE_LIVE_IDS) or any(c not in PROBE_CLIPS for c in PROBE_T6_IDS)):
+        bad.append("round 2 lists: wrong sizes")
+    # the text helpers
+    two = ["We agreed to focus on reliability", "then on speed."]
+    checks = [
+        seam_drops("We agreed to focus on reliability first, then on speed.", two) == [{"expected": ["first"], "got": []}],
+        seam_drops("We agreed to focus on reliability then on speed.", two) == [],
+        seam_drops("We agreed to focus on reliability first, then on speed.", ["We agreed to focus on reliability first, then on speed."]) == [],
+        seam_drops("one two three four five six", ["one three", "four five six"]) == [],  # a gap away from the join is not a seam drop
+        word_diff("I have a bill tomorrow.", "I have a build tomorrow.") == "have a [-bill-] {+build+} tomorrow.",
+        word_diff("same text", "same text") == "" and word_diff(None, "a") == "{+a+}",
+        probe_wanted_hit(("Mary Anne", "O'Neil"), "Please invite Mary Anne O'Neil to the review.") is True,
+        probe_wanted_hit(("Mary Anne", "O'Neil"), "Please invite Mary Ann O'Neil to the review.") is False,
+        probe_wanted_hit("build", "I have a Build.") is True and probe_wanted_hit("build", "rebuild it") is False,
+        probe_wanted_hit(None, "x") is None,
+        _clip("x" * 200).endswith("... (200 chars)") and _clip("short") == "'short'" and _clip(None) == "None",
+    ]
+    f = probe_text_flags("I like the new design and I would like to call 5 people.",
+                         "Um, I the new design, you know:\n- I would like to call 5 people at 3:30", ["Um, I the new design, you know:\n- I would", "like to call 5 people at 3:30"])
+    checks += [f["fillers"] == ["um", "you know"], f["like"] == 1 and f["like_expected"] == 2, f["missing"] == ["and", "like"],
+               f["linebreaks"] == 1, f["digits"] == ["5", "3:30"], f["symbols"] == [":"], f["trailing"] == "0", f["segments"] == 2,
+               f["list_markers"] == ["-"],
+               probe_text_flags("x", "1. Review budget\n2. Finalize timeline\n3. Send recap", None)["list_markers"] == ["1.", "2.", "3."],
+               probe_text_flags("x", "Call 555-1212. It costs 3.50 - really.", None)["list_markers"] == []]
+    if not all(checks):
+        bad.append(f"text helpers: checks failed at {[i for i, c in enumerate(checks) if not c]}")
     bad += [f"section: {b}" for b in probe_section_selftest()]
     # The parser against the app's own wording. An older binary without the hook would start the normal app on an unknown flag,
     # so run it only when the flag string is in the binary.
@@ -1476,6 +1860,9 @@ def probe_selftest(binary, blob=None):
         "error_frames": [{"setup_complete": False, "code": 400, "status": "INVALID_ARGUMENT", "message": "Unsupported 'mode' value."}],
         "server_fields": ["serverContent.generationComplete", "serverContent.inputTranscription.text", "setupComplete"],
         "raw": "sample raw text",
+        "segments": ["sample raw", "text with \"quotes\"\nand a line break"],
+        "interim": [{"count": 12, "first_ms": 840, "finals": 2, "first_final_ms": 9100},
+                    {"count": 0, "first_ms": -1, "finals": 0, "first_final_ms": -1}],
     }
     if p.returncode != 0:
         bad.append(f"--dump-live-probe-lines exit {p.returncode}")
@@ -1500,38 +1887,104 @@ def probe_selftest(binary, blob=None):
 
 
 def probe_dry_run():
-    """Offline look at the probe mode (no network, no app run): the plan, the exact flag of each case, and the clips."""
+    """Offline look at the probe mode (no network, no app run): the plan, the exact flags of each case, and the clips."""
     print(f"RUN_PROBE flag ({RUN_PROBE_FLAG}) present now: {probe_mode_enabled()}")
     print(f"probe runs without the flag: {online_probe_ids(False)}; with the flag: {len(online_probe_ids(True))} runs")
     for case, extra, clips, note in PROBE_CASES:
-        print(f"  {case}: {note}\n      {' '.join(probe_extra_args(extra))}\n      clips: {', '.join(clips)}")
+        args = probe_run_args(case, extra)
+        shown = " ".join(a if len(a) <= 160 else a[:160] + f"...({len(a)} chars)" for a in args)
+        print(f"  {case}: {note}\n      {shown}\n      clips ({len(clips)}): {', '.join(clips)}")
     total = 0.0
     for clip, (build, expected, wanted) in PROBE_CLIPS.items():
         wav = build()
         secs = wav_seconds(wav)
         runs = sum(1 for _, _, clips, _ in PROBE_CASES if clip in clips)
         total += secs * runs
-        print(f"  clip {clip}: {secs:.1f}s x {runs} runs, wanted spelling {wanted!r}, expected {expected!r} -> {os.path.basename(wav)}")
+        print(f"  clip {clip}: {secs:.1f}s x {runs} runs, wanted spelling {wanted!r}, expected {_clip(expected, 90)} -> {os.path.basename(wav)}")
     n = len(online_probe_ids(True))
-    print(f"probe mode adds ~{(total + 8.0 * n) / 60:.1f} min to the online run ({n} runs, {total:.0f}s of audio)")
+    print(f"probe mode adds ~{(total + 6.0 * n) / 60:.0f} min to the online run ({n} runs, {total:.0f}s of audio, ~6 s of overhead per run assumed)")
     return 0
 
 
+def _probe_ab_lines(rows, case, clips, title):
+    """Lines of an A/B block: `case` against the control on `clips`, with the informational flags of both outputs."""
+    by = {(w["case"], w["clip"]): w for w in rows}
+    lines, rc_c, rc_s, lat_c, lat_s, flagged = [], [], [], [], [], 0
+    for clip in clips:
+        c, s = by.get(("control", clip)), by.get((case, clip))
+        if c is None or s is None:
+            lines.append(f"    {clip}: no run to compare (control {'ok' if c else 'missing'}, {case} {'ok' if s else 'missing'})")
+            continue
+        expected = PROBE_CLIPS[clip][1]
+        fc = probe_text_flags(expected, probe_shown(c), c.get("segments") if c["via"] == "live" else None)
+        fs = probe_text_flags(expected, probe_shown(s), s.get("segments") if s["via"] == "live" else None)
+        rc_c.append(c["recall"]); rc_s.append(s["recall"])
+        if c["latency_ms"] is not None and s["latency_ms"] is not None:
+            lat_c.append(c["latency_ms"]); lat_s.append(s["latency_ms"])
+        lost = list(fs["missing"])
+        for w in fc["missing"]:
+            if w in lost:
+                lost.remove(w)
+        notes = []
+        if s["via"] != "live" or c["via"] != "live":
+            notes.append(f"NOT ON LIVE (control via {c['via']}, {case} via {s['via']})")
+        if fs["fillers"]:
+            notes.append(f"fillers left {fs['fillers']}")
+        if fs["like"] < fs["like_expected"]:
+            notes.append(f"a meaningful 'like' removed ({fs['like']} of {fs['like_expected']} kept)")
+        elif fs["like"] > fs["like_expected"]:
+            notes.append(f"filler 'like' left ({fs['like']}, expected {fs['like_expected']})")
+        if lost:
+            notes.append(f"words lost against the control {lost[:12]}")
+        new_seams = [d for d in fs["seam_drops"] if d not in fc["seam_drops"]]
+        if new_seams:
+            notes.append(f"words dropped at a segment join {[d['expected'] for d in new_seams][:6]}")
+        if fs["linebreaks"] > fc["linebreaks"]:
+            notes.append(f"{fs['linebreaks']} line break(s) introduced")
+        if fs["list_markers"] and fs["list_markers"] != fc["list_markers"]:
+            notes.append(f"list markers {fs['list_markers'][:6]}")
+        if fs["digits"] != fc["digits"]:
+            notes.append(f"digits {fc['digits'][:6]} -> {fs['digits'][:6]}")
+        new_symbols = [ch for ch in fs["symbols"] if ch not in fc["symbols"]]
+        if new_symbols:
+            notes.append(f"new symbols {new_symbols}")
+        if fs["trailing"] != fc["trailing"]:
+            notes.append(f"last character {fc['trailing']!r} -> {fs['trailing']!r}")
+        flagged += 1 if notes else 0
+        lines.append(f"    {clip:<20} recall {c['recall']:.2f} -> {s['recall']:.2f}  lat {c['latency_ms']} -> {s['latency_ms']} ms  "
+                     f"segments {fc['segments']} -> {fs['segments']}  fillers {fc['fillers']} -> {fs['fillers']}  "
+                     f"seam drops {len(fc['seam_drops'])} -> {len(fs['seam_drops'])}  " + ("FLAGS: " + "; ".join(notes) if notes else "no flags"))
+    head = f"  {title}: {len(rc_c)} clips compared, {flagged} with flags."
+    if rc_c:
+        head += (f" Mean recall (final text) control {statistics.mean(rc_c):.3f} vs {case} {statistics.mean(rc_s):.3f}."
+                 + (f" Median latency control {statistics.median(lat_c):.0f} ms vs {case} {statistics.median(lat_s):.0f} ms." if lat_c else ""))
+    return [head] + lines
+
+
 def print_probe_summary(rows):
-    """The summary table printed after the T28 probe cases (rows = one dict per run), then the rejection reasons, the fields the
-    server's messages carried, and each case's output next to the control's output for the same clip."""
+    """The summary printed after the T28 probe runs (rows = one dict per run): the table, the extra object and vocabulary of each
+    case, what the server said on rejections, the fields of its messages, the SMART A/B block, the vocabulary safety block, and
+    each case's output next to the control's output for the same clip."""
     print("\nT28 LIVE SETUP PROBE SUMMARY (" + LIVE_MODEL + "). accepted = the server answered setupComplete to that setup message. "
-          "close = close code/HTTP status of a close before setupComplete. output = Live's raw text when Live delivered "
-          "(before the app's polish), else the final text of the fallback.")
-    print(f"  {'case/clip':<40} {'accepted':<8} {'close':<22} {'via':<8} {'lat':>8}  {'wanted':<18} output")
+          "close = close code/HTTP status of a close before setupComplete. vocab = terms the app sent per Live session (REJ = its "
+          "safety net fired). output = Live's raw text when Live delivered (before the app's polish), else the final text of the fallback.")
+    print(f"  {'case/clip':<42} {'accepted':<8} {'close':<22} {'via':<8} {'lat':>8}  {'vocab':<10} {'wanted':<22} output")
     for w in rows:
-        wanted = "-" if w["wanted"] is None else f"{w['wanted']}: {'yes' if w['wanted_hit'] else 'no'}"
+        if w["wanted"] is None:
+            wanted = "-"
+        else:
+            wanted = f"{w['wanted'] if isinstance(w['wanted'], str) else '+'.join(w['wanted'])}: {'yes' if w['wanted_hit'] else 'no'}"
         lat = "-" if w["latency_ms"] is None else f"{w['latency_ms']}ms"
-        print(f"  {w['case'] + '/' + w['clip']:<40} {'yes' if w['accepted'] else 'no':<8} {w['close']:<22} {w['via']:<8} {lat:>8}  "
-              f"{wanted:<18} {(w['raw'] if w['via'] == 'live' and w['raw'] is not None else w['result'])!r}")
-    print("  extra setup object per case:")
+        vocab = ("/".join(str(n) for n in w.get("vocab_terms") or []) or "-") + (" REJ" if w.get("vocab_rejected") else "")
+        print(f"  {w['case'] + '/' + w['clip']:<42} {'yes' if w['accepted'] else 'no':<8} {w['close']:<22} {w['via']:<8} {lat:>8}  "
+              f"{vocab:<10} {wanted:<22} {_clip(probe_shown(w))}")
+    print("  extra setup object and vocabulary per case:")
     for case, extra, _, note in PROBE_CASES:
-        print(f"    {case}: {json.dumps(extra, separators=(',', ':'))}   ({note})")
+        js = json.dumps(extra, separators=(",", ":"))
+        opts = PROBE_CASE_OPTS.get(case, {})
+        vocab = opts.get("vocab", [])
+        vtxt = f"; vocabulary {len(vocab)} terms {vocab[:4]}{'...' if len(vocab) > 4 else ''}" if vocab else ""
+        print(f"    {case}: {js if len(js) <= 160 else js[:160] + f'...({len(js)} chars)'}{vtxt}{'; flags ' + str(opts['flags']) if opts.get('flags') else ''}   ({note})")
     seen = set()
     for w in rows:
         for line in w["rejections"]:
@@ -1542,6 +1995,8 @@ def print_probe_summary(rows):
                 print(f"    {w['case']}: {line}")
     if not seen:
         print("  no socket close and no error frame in any probe run")
+    leaks = sorted({(w["case"], t) for w in rows for t in (w.get("terms_in_log") or [])})
+    print("  vocabulary terms found in the app's LOG lines (must be none): " + (str(leaks) if leaks else "none"))
     control = {w["clip"]: w for w in rows if w["case"] == "control"}
     base_fields = sorted({f for w in control.values() for f in w["server_fields"]})
     print(f"  fields in the server's messages, control runs: {base_fields}")
@@ -1550,25 +2005,172 @@ def print_probe_summary(rows):
         added, missing = [f for f in fields if f not in base_fields], [f for f in base_fields if f not in fields]
         if added or missing:
             print(f"    {case}: new fields {added}; fields not seen {missing}")
-    print("  same clip, control vs case (raw Live text when Live delivered):")
+    for line in _probe_ab_lines(rows, "mode_smart", PROBE_T6_IDS, "SMART A/B over every T6 clip (control -> SMART)"):
+        print(line)
+    for line in _probe_ab_lines(rows, "mode_smart", PROBE_SMART_EXTRA_IDS,
+                                "SMART on repetition, emphasis, self-correction, lists, spoken commands, amounts and dates (the texts are in the last block)"):
+        print(line)
+    # What the app's own polish (written for verbatim input) then does to the server's SMART text: raw -> final, per SMART row
+    print("  SMART rows, the server's text -> the app's final text after its own polish ([-server-] {+final+}; 'unchanged' = the polish left it alone):")
+    for w in rows:
+        if w["case"] not in ("mode_smart", "smart_vocab") or w["via"] != "live" or w["raw"] is None:
+            continue
+        server = " ".join(w["segments"]) if w.get("segments") else w["raw"]
+        final = w["result"] or ""
+        changed = word_diff(server.strip(), final.strip())
+        lost_breaks = server.count("\n") - final.count("\n")
+        note = "unchanged" if not changed and not lost_breaks else (changed or "same words")
+        if lost_breaks:
+            note += f" | line breaks {server.count(chr(10))} -> {final.count(chr(10))}"
+        print(f"    {w['case']}/{w['clip']}: {note}")
+    # Interim text (serverContent.interimInputTranscription; the app does not use it): how often and how early it arrives
+    print("  interim transcripts in the control runs (count; first interim and first final text, ms after the first audio was sent):")
+    for w in rows:
+        it = w.get("interim") or []
+        if w["case"] != "control" or not it:
+            continue
+        print(f"    {w['clip']:<20} interim messages {sum(x['count'] for x in it)}, first after {it[0]['first_ms']} ms; "
+              f"final texts {sum(x['finals'] for x in it)}, first after {it[0]['first_final_ms']} ms; Live sessions {len(it)}")
+    for line in _probe_ab_lines(rows, "vocab_names50", PROBE_T6_IDS,
+                                "Vocabulary safety: 50 unspoken names on every T6 clip (control -> with the list; any flag or DIFFERENT below is a side effect)"):
+        print(line)
+    print("  same clip, control vs case (raw Live text when Live delivered; long texts show only the changed words: [-control-] {+case+}):")
     for w in rows:
         c = control.get(w["clip"])
         if w["case"] == "control" or c is None:
             continue
-        text = lambda x: x["raw"] if x["via"] == "live" and x["raw"] is not None else x["result"]
-        same = (text(c) or "").strip() == (text(w) or "").strip()
-        verdict = "NO OUTPUT to compare" if text(c) is None or text(w) is None else ("SAME as control" if same else "DIFFERENT")
-        print(f"    {w['case']}/{w['clip']}: {verdict} (accepted={'yes' if w['accepted'] else 'no'}, "
-              f"via {w['via']}; control via {c['via']})\n        control: {text(c)!r}\n        case:    {text(w)!r}")
+        a, b = probe_shown(c), probe_shown(w)
+        same = (a or "").strip() == (b or "").strip()
+        verdict = "NO OUTPUT to compare" if a is None or b is None else ("SAME as control" if same else "DIFFERENT")
+        head = (f"    {w['case']}/{w['clip']}: {verdict} (accepted={'yes' if w['accepted'] else 'no'}, via {w['via']}; control via {c['via']}; "
+                f"lat {c['latency_ms']} -> {w['latency_ms']} ms)")
+        if verdict != "DIFFERENT":
+            print(head + ("" if verdict != "SAME as control" else f"  {_clip(b, 100)}"))
+        elif max(len(a), len(b)) <= 160:
+            print(head + f"\n        control: {a!r}\n        case:    {b!r}")
+        else:
+            print(head + f"\n        changed: {word_diff(a, b)}")
+
+
+def run_vocabulary_gates(binary, gate, report, runner=None):
+    """T30 (online, regular suite): custom vocabulary on the real Live server, with the test-only list ONLINE_VOCAB.
+    (a) The listed names must come back ON LIVE in the listed spelling (the default output is "Shavon" / "Zyfra"), recall >=
+    ONLINE_MIN_RECALL, within the T8 limit. (b) A clip with no listed word must not change: the fillers clip with the same list
+    comes back on Live with a recall not below its own T6 run earlier in this suite run. In both, exactly one Live session carries
+    the 2 terms, nothing is rejected, and the log shows only the number of terms. `runner` replaces run_e2e in the offline self-test."""
+    runner = runner or run_e2e
+    for clip, wanted in ONLINE_VOCAB_SPELLING:
+        build, expected, _ = PROBE_CLIPS[clip]
+        r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[VOCAB_FLAG, ONLINE_VOCAB])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        spelled = wanted.lower() in words(res)
+        ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and spelled and rc >= ONLINE_MIN_RECALL
+              and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [2] and not r["vocab_rejected"] and not r["vocab_leak"]
+              and res.endswith(" "))
+        r.update({"id": f"vocabulary/{clip}", "model": LIVE_MODEL + "+vocabulary", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T30 live-vocabulary/{clip}", ok,
+             f"spelling {wanted!r}={'yes' if spelled else 'no'} recall={rc:.2f} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+             f"live_ok={r['live_ok']} fell_back={r['fell_back']} terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} "
+             f"terms in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+    cid = "fillers"
+    build, expected, _ = PROBE_CLIPS[cid]
+    t6 = next((t for t in report["tests"] if t.get("id") == cid and t.get("model") == LIVE_MODEL), None)
+    r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[VOCAB_FLAG, ONLINE_VOCAB])
+    res = r["result"] or ""
+    rc = recall(expected, res)
+    lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+    lower = " " + " ".join(words(res)) + " "
+    leaked = [f for f in FILLERS if f" {f} " in lower]
+    ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and rc >= ONLINE_MIN_RECALL and t6 is not None
+          and round(rc, 3) >= t6["recall"] and not leaked and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [2]
+          and not r["vocab_rejected"] and not r["vocab_leak"] and res.endswith(" "))
+    r.update({"id": f"vocabulary/{cid}", "model": LIVE_MODEL + "+vocabulary", "recall": round(rc, 3), "leaked_fillers": leaked})
+    report["tests"].append(r)
+    gate(f"T30 live-vocabulary/no-listed-word/{cid}", ok,
+         f"recall={rc:.2f} (T6 run of the same clip: {t6['recall'] if t6 else None}) lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+         f"live_ok={r['live_ok']} fell_back={r['fell_back']} leaked={leaked} terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} "
+         f"terms in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+
+def _selftest_clip_builders():
+    """For the offline self-tests: replace every PROBE_CLIPS builder by one that returns a token instead of running TTS; returns
+    (the real PROBE_CLIPS to restore, a function mapping a token back to its clip id)."""
+    real = dict(PROBE_CLIPS)
+    tokens = {}
+    for k, v in real.items():
+        token = f"<clip:{k}>"
+        tokens[token] = k
+        PROBE_CLIPS[k] = ((lambda t=token: t), v[1], v[2])
+    return real, lambda wav: tokens[wav]
+
+
+def vocabulary_gates_selftest():
+    """Offline run of run_vocabulary_gates with canned e2e results (no app, no TTS, no network): the three T30 online gates pass
+    for the expected outcome and each fails for the outcome it guards against. Returns a list of problems."""
+    base = {"exit": 0, "latency_ms": 400, "live_ok": True, "fell_back": False, "vocab_terms": [2], "vocab_rejected": False,
+            "vocab_leak": [], "tail": ""}
+    names = ["T30 live-vocabulary/name", "T30 live-vocabulary/product", "T30 live-vocabulary/no-listed-word/fillers"]
+    # mode -> (override of the canned result, text transform, gates that must FAIL)
+    modes = {
+        "good": ({}, lambda t: t, []),
+        "default-spelling": ({}, lambda t: t.replace("Siobhan", "Shavon").replace("Zyphra", "Zyfra"), names[:2]),
+        "rejected": ({"vocab_rejected": True, "vocab_terms": [2]}, lambda t: t, names),
+        "not-sent": ({"vocab_terms": []}, lambda t: t, names),
+        "fell-back": ({"live_ok": False, "fell_back": True}, lambda t: t, names),
+        "slow": ({"latency_ms": USER_MAX_LATENCY_MS + 1}, lambda t: t, names),
+        "term-in-log": ({"vocab_leak": ["Siobhan"]}, lambda t: t, names),
+        "fillers-worse": ({}, lambda t: t.replace("after the review", "after"), names[2:]),
+        "no-result": ({"exit": "timeout", "latency_ms": None}, lambda t: None, names),
+    }
+    bad = []
+    real, clip_of = _selftest_clip_builders()
+    try:
+        for mode, (over, transform, must_fail) in modes.items():
+            def runner(binary, wav, model=None, timeout=90, extra=None):
+                text = transform(real[clip_of(wav)][1])
+                ok_args = model == LIVE_MODEL and list(extra) == [VOCAB_FLAG, ONLINE_VOCAB]
+                return dict(base, result=(text + " ") if text is not None and ok_args else None, **over)
+            gates, report = [], {"tests": [{"id": "fillers", "model": LIVE_MODEL, "recall": 1.0}]}
+            try:
+                run_vocabulary_gates("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), report, runner=runner)
+            except Exception as e:  # any exception here would also end the real online run
+                bad.append(f"{mode}: {type(e).__name__}: {e}")
+                continue
+            failed = [n for n, ok in gates if not ok]
+            if [n for n, _ in gates] != names or failed != must_fail:
+                bad.append(f"{mode}: failed gates {failed}, want {must_fail}")
+            try:
+                json.dumps(report)
+            except (TypeError, ValueError) as e:
+                bad.append(f"{mode}: the report is not JSON-serializable ({e})")
+        # without a T6 run of the fillers clip in the report there is nothing to compare with: the gate must fail, not crash
+        gates = []
+        run_vocabulary_gates("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), {"tests": []},
+                             runner=lambda binary, wav, model=None, timeout=90, extra=None: dict(base, result=real[clip_of(wav)][1] + " "))
+        if [ok for _, ok in gates] != [True, True, False]:
+            bad.append(f"no-T6-run: {gates}")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
+    finally:
+        PROBE_CLIPS.clear()
+        PROBE_CLIPS.update(real)
+    if len(ONLINE_VOCAB.split("|")) != 2 or any(w not in ONLINE_VOCAB.split("|") for _, w in ONLINE_VOCAB_SPELLING):
+        bad.append("ONLINE_VOCAB must hold exactly the 2 spellings the gates check")
+    return bad
 
 
 def run_probe_section(binary, gate, report, runner=None):
     """The T28 probe runs (online_main calls this only while RUN_PROBE exists). One gate per run: passes when the dictation was
-    delivered (exit 0, recall >= PROBE_MIN_RECALL, by any path); the probe outcome is reported in the gate line and in the
-    summary table. `runner` replaces run_e2e in the offline self-test. Returns the rows (also stored in report["probe"])."""
+    delivered (exit 0, a non-empty text, recall >= the clip's delivery floor, by any path); everything else is informational and
+    goes to the gate line and the summary. `runner` replaces run_e2e in the offline self-test. Returns the rows (also stored in
+    report["probe"])."""
     runner = runner or run_e2e
     probe_rows, hook_missing = [], False
     for case, extra, clips, note in PROBE_CASES:
+        args = probe_run_args(case, extra)
         for clip in clips:
             name = f"T28 live-setup-probe/{case}/{clip}"
             if hook_missing:
@@ -1576,7 +2178,7 @@ def run_probe_section(binary, gate, report, runner=None):
                 continue
             build, expected, wanted = PROBE_CLIPS[clip]
             wav = build()
-            r = runner(binary, wav, model=LIVE_MODEL, timeout=150, extra=probe_extra_args(extra))
+            r = runner(binary, wav, model=LIVE_MODEL, timeout=_probe_timeout(wav), extra=args)
             res = r["result"] or ""
             rc = recall(expected, res)
             pr = r.get("probe")
@@ -1585,13 +2187,14 @@ def run_probe_section(binary, gate, report, runner=None):
                 # (no API key / on-device engine). Nothing can be learned from further runs.
                 hook_missing = True
                 gate(name, False, "the app logged no 'Live setup probe' line: the binary has no --e2e-live-setup-extra hook (build the "
-                     f"candidate from the commit that adds it) or Live did not start. exit={r['exit']} -> {res!r}\n      tail: {r['tail']}")
+                     f"candidate from the commit that adds it) or Live did not start. exit={r['exit']} -> {_clip(res, 200)}\n      tail: {r['tail']}")
                 continue
             via = probe_via(r)
             raw = pr["raw"]
             shown = raw if via == "live" and raw is not None else res
-            hit = None if wanted is None else wanted.lower() in words(shown)
-            ok = r["exit"] == 0 and r["result"] is not None and rc >= PROBE_MIN_RECALL
+            hit = probe_wanted_hit(wanted, shown)
+            floor = PROBE_CLIP_MIN_RECALL.get(clip, PROBE_MIN_RECALL)
+            ok = r["exit"] == 0 and r["result"] is not None and res.strip() not in ("", "<NO SPEECH>") and rc >= floor
             rejections = [f"closed {c['when']} setupComplete: close code {c['close_code']}, HTTP {c['http']}, error {c['error']}/{c['error_code']}, "
                           f"key via {c['key_via']}, reason {c['reason']!r}" for c in pr["closes"]]
             rejections += [f"error frame: code {e['code']}, status {e['status']}, message {e['message']!r}" for e in pr["error_frames"]]
@@ -1599,80 +2202,130 @@ def run_probe_section(binary, gate, report, runner=None):
                    "latency_ms": r["latency_ms"], "recall": round(rc, 3), "wanted": wanted, "wanted_hit": hit, "raw": raw,
                    "result": r["result"], "rejections": rejections, "server_fields": pr["server_fields"],
                    "setup_fields": pr["sent"][0]["fields"], "closes": pr["closes"], "error_frames": pr["error_frames"],
-                   "setup_complete": pr["setup_complete"], "exit": r["exit"]}
+                   "setup_complete": pr["setup_complete"], "exit": r["exit"], "segments": pr.get("segments"),
+                   "vocab_terms": r.get("vocab_terms"), "vocab_rejected": r.get("vocab_rejected"),
+                   "terms_in_log": r.get("vocab_leak"), "live_connects": r.get("live_connects"), "delivery_floor": floor,
+                   "interim": pr.get("interim"), "split_count": r.get("split_count")}
             probe_rows.append(row)
             r.update({"id": f"probe/{case}/{clip}", "model": LIVE_MODEL + "+probe", "recall": round(rc, 3)})
             report["tests"].append(r)
+            wanted_txt = "" if wanted is None else f"wanted {wanted!r} in output={'yes' if hit else 'no'} "
+            vocab_txt = ""
+            if r.get("vocab_terms") or r.get("vocab_rejected"):
+                vocab_txt = (f"vocabulary terms sent per session={r.get('vocab_terms')} rejected={r.get('vocab_rejected')} "
+                             f"connects={r.get('live_connects')} terms in log={r.get('vocab_leak')} ")
             gate(name, ok,
-                 f"{probe_outcome(pr)} | via={via} lat={r['latency_ms']}ms recall={rc:.2f} (delivered if >= {PROBE_MIN_RECALL}) "
-                 + ("" if wanted is None else f"wanted {wanted!r} in output={'yes' if hit else 'no'} ")
-                 + f"setup fields={pr['sent'][0]['fields']} raw={raw!r} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+                 f"{probe_outcome(pr)} | via={via} lat={r['latency_ms']}ms recall={rc:.2f} (delivered if a text came back with recall >= {floor}) "
+                 + wanted_txt + vocab_txt + f"setup fields={pr['sent'][0]['fields']} raw={_clip(raw, 300)} -> {_clip(res, 300)}"
+                 + ("" if ok else f"\n      tail: {r['tail']}"))
     if probe_rows:
         report["probe"] = probe_rows
-        print_probe_summary(probe_rows)
+        try:
+            print_probe_summary(probe_rows)
+        except Exception as e:  # the summary is a convenience: a slip in it must not cost the run (the rows are in the report)
+            import traceback
+            print(f"T28 PROBE SUMMARY FAILED ({type(e).__name__}: {e}); every row is in the report JSON under \"probe\".\n{traceback.format_exc()}")
     return probe_rows
 
 
 def probe_section_selftest():
     """Offline run of run_probe_section with canned e2e results (no app, no TTS, no network), so the one online probe run cannot
-    trip over the section's own code: every outcome shape goes through the gates, the rows and the summary table. Returns problems."""
+    trip over the section's own code: every outcome shape goes through the gates, the rows and the summary. Returns problems."""
     import contextlib, io
     L = "2026-11-13 10:00:00.000 GeminiFlow[1:2] " + PROBE_LOG_MARK + " "
-    sent = lambda extra: L + f"session 1 sends the setup with 1 extra field(s) [setup.x] (200 bytes, key via header)\n"
+    sent = L + "session 1 sends the setup with 1 extra field(s) [setup.x] (200 bytes, key via header)\n"
     done = L + "setupComplete=1 (session 1, key via header, 150 ms after the setup was sent)\n"
     fields = L + "server message fields seen: [serverContent.generationComplete, serverContent.inputTranscription.text, setupComplete]\n"
-    closed = lambda sid, via: L + (f"socket closed before setupComplete (setupComplete=0, session {sid}, key via {via}, HTTP 0, close code 1007, "
+    closed = lambda sid, via: L + (f"socket closed before setupComplete (setupComplete=0, session {sid}, key via {via}, HTTP 101, close code 1007, "
                                    f"error NSPOSIXErrorDomain 57) close reason \"Unknown name 'languageCodes' at 'setup'\"\n")
-    base = {"exit": 0, "latency_ms": 400, "rest_ok": False, "ondevice_fallback": False, "live_ok": False, "tail": ""}
+    base = {"exit": 0, "latency_ms": 400, "rest_ok": False, "ondevice_fallback": False, "live_ok": False, "tail": "",
+            "vocab_terms": [], "vocab_rejected": False, "vocab_leak": [], "live_connects": 1}
+    case_of = {tuple(probe_run_args(case, extra)): case for case, extra, _, _ in PROBE_CASES}
 
-    def fake(mode):
+    def split2(text):
+        """Two 'Live segments' for a longer text (so the seam analysis runs), one for a short text."""
+        ws = text.split()
+        return [text] if len(ws) <= 12 else [" ".join(ws[:8]), " ".join(ws[8:])]
+
+    def live(text, segments=None, extra_fields="", final=None, interim="", **over):
+        segments = segments or split2(text)
+        out = (sent + done + fields.replace("setupComplete]", "setupComplete" + extra_fields + "]") + interim
+               + 'E2E LIVE RAW: "' + " ".join(segments).replace("\n", " ") + '"\n' + "E2E LIVE RAW SEGMENTS: " + json.dumps(segments) + "\n")
+        return dict(base, live_ok=True, result=(final if final is not None else " ".join(segments)) + " ", probe=parse_probe(out), **over)
+
+    def fake(mode, real, clip_of):
         def runner(binary, wav, model=None, timeout=90, extra=None):
-            ex = json.loads(extra[1])
-            case = [c[0] for c in PROBE_CASES if c[1] == ex][0]
-            clip = [k for k, v in PROBE_CLIPS.items() if v[0] is wav][0]
-            expected, wanted = PROBE_CLIPS[clip][1], PROBE_CLIPS[clip][2]
+            case, clip = case_of[tuple(extra)], clip_of(wav)
+            expected = real[clip][1]
             if mode == "nohook":
                 return dict(base, result=expected + " ")
             if mode == "lost":
-                return dict(base, exit="timeout", result=None, probe=parse_probe(sent(ex)))
-            spelled = expected.replace("Siobhan", "Shivaun").replace("Zyphra", "Zepher")
-            if case in ("control", "iat_empty"):
-                out = sent(ex) + done + fields + f'E2E LIVE RAW: "{spelled}"\n'
-                return dict(base, live_ok=True, result=spelled + " ", probe=parse_probe(out))
+                return dict(base, exit="timeout", result=None, latency_ms=None, probe=parse_probe(sent))
+            spelled = expected.replace("Siobhan", "Shavon").replace("Zyphra", "Zyfra").replace("a build", "a bill")
+            vocab = PROBE_CASE_OPTS.get(case, {}).get("vocab", [])
+            sent_terms = {"vocab_terms": [len(vocab)]} if vocab else {}
+            if case == "control":
+                stats = (L + "interim transcripts: 30 messages, first 900 ms after the first audio was sent; final transcripts: 3 messages, "
+                         "first 9000 ms after the first audio was sent\n") if clip == "handsfree_long" else ""
+                return live("So like " + spelled[0].lower() + spelled[1:] if clip == "fillers" else spelled, interim=stats)
             if case == "custom_vocabulary":
-                text = expected.replace("Christopher", "Kristoffer").replace("bill", "build")
-                out = sent(ex) + done + fields.replace("setupComplete]", "setupComplete, usageMetadata]") + f'E2E LIVE RAW: "{text}"\n'
-                return dict(base, live_ok=True, result=text + " ", probe=parse_probe(out))
+                return live(expected.replace("Christopher", "Kristoffer").replace("bill", "build"), extra_fields=", usageMetadata")
             if case == "language_codes":
-                out = sent(ex) + closed(1, "header") + sent(ex).replace("session 1", "session 2").replace("header", "URL") + closed(2, "URL")
-                return dict(base, rest_ok=True, latency_ms=2100, result=spelled + " ", probe=parse_probe(out))
-            if case == "mode_smart":
-                out = (sent(ex) + done + L + "server error frame (setupComplete=1, code 400, status INVALID_ARGUMENT) message \"Bad 'mode'\"\n"
+                out = sent + closed(1, "header") + sent.replace("session 1", "session 2").replace("header", "URL") + closed(2, "URL")
+                return dict(base, rest_ok=True, latency_ms=2100, live_connects=2, result=spelled + " ", probe=parse_probe(out))
+            if case == "mode_verbatim":
+                out = (sent + done + L + "server error frame (setupComplete=1, code 400, status INVALID_ARGUMENT) message \"Bad 'mode'\"\n"
                        + L + "socket closed after setupComplete (setupComplete=1, session 1, key via header, HTTP 101, close code 1011, "
                        "error none 0) close reason \"\"\n")
                 return dict(base, rest_ok=True, result=spelled + " ", probe=parse_probe(out))
-            return dict(base, ondevice_fallback=True, latency_ms=None, result=spelled + " ", probe=parse_probe(sent(ex)))
+            if case == "mode_smart":
+                if clip == "long":       # a word lost exactly where two segments join
+                    ws = spelled.split()
+                    return live(" ".join(ws[:8] + ws[9:]), segments=[" ".join(ws[:8]), " ".join(ws[9:])])
+                if clip == "keep_like":  # a meaningful "like" removed
+                    return live(spelled.replace("I like the", "I the"))
+                if clip == "pause":      # a line break introduced
+                    return live(spelled, segments=[spelled.replace(". ", ".\n")])
+                if clip == "phone_digits":
+                    return live("Call 555-1212.")
+                if clip == "no_no_no":
+                    return live("No.")
+                if clip == "doc_list":   # a numbered list with line breaks; the app's polish then flattens it
+                    return live("x", segments=["1. Review budget\n2. Finalize timeline\n3. Send recap"],
+                                final="1. Review budget 2. Finalize timeline 3. Send recap.")
+                return live(spelled)
+            if case == "vocab_names50":
+                return live(spelled.replace("design doc", "Dee sign doc") if clip == "question" else spelled, **sent_terms)
+            if case == "vocab_reject_sim":
+                return live(spelled, vocab_terms=[2], vocab_rejected=True, live_connects=2)
+            if case == "vocab_shapes":
+                return live(expected.replace("Mary Ann O'Neal", "Mary Anne O'Neil"), vocab_leak=["Mary Anne"], **sent_terms)
+            if case in ("vocab_100", "smart_vocab"):
+                return live(expected, **sent_terms)
+            if case.startswith("alt_"):
+                return dict(base, ondevice_fallback=True, latency_ms=None, result=spelled + " ", probe=parse_probe(sent))
+            return live(spelled, **sent_terms)
         return runner
 
     bad = []
-    real_clips = dict(PROBE_CLIPS)
+    real, clip_of = _selftest_clip_builders()
     try:
-        for k, v in real_clips.items():  # no TTS in the self-test: the "builder" returns itself, which the fake runner maps back
-            holder = []
-            holder.append(lambda h=holder: h[0])
-            PROBE_CLIPS[k] = (holder[0], v[1], v[2])
         n = len(online_probe_ids(True))
         for mode, want_pass in (("answers", n), ("nohook", 0), ("lost", 0)):
             gates, report, buf = [], {"tests": []}, io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
-                    rows = run_probe_section("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok), detail)), report, runner=fake(mode))
+                    rows = run_probe_section("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok), detail)), report,
+                                             runner=fake(mode, real, clip_of))
             except Exception as e:  # any exception here would also end the real probe run
                 bad.append(f"{mode}: {type(e).__name__}: {e}")
                 continue
             text = buf.getvalue()
+            if "PROBE SUMMARY FAILED" in text:
+                bad.append(f"{mode}: the summary raised: {text[text.index('PROBE SUMMARY FAILED'):][:300]}")
             if len(gates) != n or sum(1 for g in gates if g[1]) != want_pass or len({g[0] for g in gates}) != n:
-                bad.append(f"{mode}: {sum(1 for g in gates if g[1])}/{len(gates)} gates passed, want {want_pass}/{n}")
+                bad.append(f"{mode}: {sum(1 for g in gates if g[1])}/{len(gates)} gates passed, want {want_pass}/{n}: "
+                           f"{[g[0] for g in gates if g[1] != (want_pass > 0)][:4]}")
             if mode == "nohook" and (rows or "no --e2e-live-setup-extra hook" not in gates[0][2]):
                 bad.append("nohook: not reported")
             if mode != "answers":
@@ -1683,15 +2336,31 @@ def probe_section_selftest():
                 by[("control", "name")]["accepted"] and by[("control", "name")]["via"] == "live" and by[("control", "name")]["wanted_hit"] is False,
                 by[("custom_vocabulary", "name")]["wanted_hit"] is True and by[("custom_vocabulary", "name_spelling")]["wanted_hit"] is True,
                 by[("custom_vocabulary", "bill")]["wanted_hit"] is True and by[("control", "bill")]["wanted_hit"] is False,
-                by[("control", "build")]["wanted_hit"] is True and by[("control", "fillers")]["wanted_hit"] is None,
-                not by[("language_codes", "build")]["accepted"] and by[("language_codes", "build")]["close"] == "1007/http0 x2"
+                by[("control", "fillers")]["wanted_hit"] is None and by[("control", "long")]["segments"] is not None
+                and len(by[("control", "long")]["segments"]) == 2,
+                not by[("language_codes", "build")]["accepted"] and by[("language_codes", "build")]["close"] == "1007/http101 x2"
                 and by[("language_codes", "build")]["via"] == "rest" and len(by[("language_codes", "build")]["rejections"]) == 2,
-                by[("mode_smart", "fillers")]["accepted"] and by[("mode_smart", "fillers")]["close"] == "after:1011+errframe",
+                by[("mode_verbatim", "fillers")]["accepted"] and by[("mode_verbatim", "fillers")]["close"] == "after:1011+errframe",
                 not by[("alt_generation_config", "name")]["accepted"] and by[("alt_generation_config", "name")]["via"] == "ondevice"
                 and by[("alt_generation_config", "name")]["close"] == "-",
+                by[("vocab_shapes", "mary_anne")]["wanted_hit"] is True and by[("control", "mary_anne")]["wanted_hit"] is False,
+                by[("vocab_reject_sim", "name")]["vocab_rejected"] is True and by[("vocab_names50", "long")]["vocab_terms"] == [50],
+                by[("mode_smart", "no_no_no")]["delivery_floor"] == 0.0 and by[("mode_smart", "fillers")]["delivery_floor"] == PROBE_MIN_RECALL,
                 "T28 LIVE SETUP PROBE SUMMARY" in text and "custom_vocabulary/name: DIFFERENT" in text and "iat_empty/build: SAME as control" in text,
-                "language_codes: closed before setupComplete: close code 1007, HTTP 0" in text and "Unknown name 'languageCodes'" in text,
-                "mode_smart: error frame: code 400, status INVALID_ARGUMENT" in text and "custom_vocabulary: new fields ['usageMetadata']" in text,
+                "language_codes: closed before setupComplete: close code 1007, HTTP 101" in text and "Unknown name 'languageCodes'" in text,
+                "mode_verbatim: error frame: code 400, status INVALID_ARGUMENT" in text and "custom_vocabulary: new fields ['usageMetadata']" in text,
+                "SMART A/B over every T6 clip (control -> SMART): 17 clips compared, 3 with flags." in text,
+                "words dropped at a segment join" in text and "a meaningful 'like' removed (1 of 2 kept)" in text
+                and "1 line break(s) introduced" in text and "fillers ['you know'] -> []" not in text,
+                "digits [] -> ['555-1212']" in text and "words lost against the control ['no', 'no']" in text,
+                "Vocabulary safety: 50 unspoken names on every T6 clip" in text and "17 clips compared, 1 with flags." in text
+                and "vocab_names50/question: DIFFERENT" in text,
+                "vocabulary terms found in the app's LOG lines (must be none): [('vocab_shapes', 'Mary Anne')]" in text,
+                "raw_1001_terms" in text and " chars)" in text and "vocabulary 100 terms" in text,
+                "list markers ['1.', '2.', '3.']" in text and "2 line break(s) introduced" in text
+                and "mode_smart/doc_list: 3. Send [-recap-] {+recap.+} | line breaks 2 -> 0" in text and "mode_smart/fillers: unchanged" in text,
+                "handsfree_long" in text and "interim messages 30, first after 900 ms; final texts 3, first after 9000 ms; Live sessions 1" in text,
+                by[("control", "handsfree_long")]["interim"] == [{"count": 30, "first_ms": 900, "finals": 3, "first_final_ms": 9000}],
             ]
             if not all(checks):
                 bad.append(f"answers: checks failed at {[i for i, c in enumerate(checks) if not c]}")
@@ -1699,9 +2368,11 @@ def probe_section_selftest():
                 json.dumps(report)
             except (TypeError, ValueError) as e:
                 bad.append(f"answers: the report is not JSON-serializable ({e})")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
     finally:
         PROBE_CLIPS.clear()
-        PROBE_CLIPS.update(real_clips)
+        PROBE_CLIPS.update(real)
     return bad
 
 
@@ -1751,7 +2422,7 @@ def online_main(a):
     probe_mode = probe_mode_enabled()
     if probe_mode:
         print(f"PROBE MODE: {RUN_PROBE_FLAG} exists; {len(online_probe_ids(True))} T28 Live setup probe runs follow the regular gates "
-              f"(~4 min more). Delete RUN_PROBE afterwards.", flush=True)
+              f"(~25 min more; --probe-dry-run prints the plan). Delete RUN_PROBE afterwards.", flush=True)
 
     def gate(name, ok, detail):
         # known_failures: pre-existing failures recorded by the coordinator. Reported, not blocking.
@@ -2090,6 +2761,9 @@ def online_main(a):
              f"recall={rc:.2f} lat={r['latency_ms']}ms retried_call={(r['retried_call_s'] or 0):.2f}s retry_overhead={overhead:.0f}ms "
              f"(limits: overhead {overhead_limit_ms}ms, total {total_cap_ms}ms for {dur:.2f}s audio) -> {res!r}"
              + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T30 custom vocabulary (rules.json customVocabulary -> setup.inputAudioTranscription.customVocabulary): see run_vocabulary_gates.
+    run_vocabulary_gates(a.bin, gate, report)
 
     # T23 (backlog 0m, OPT-IN: only while RUN_LONG exists): ~5 and ~10 min hands-free sessions must finish ON LIVE (no REST, no
     # fallback) with recall >= 0.95, no phrase duplicated at a split/reconnect seam, release->text within the T8 limit. Reported
