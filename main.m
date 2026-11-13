@@ -65,7 +65,8 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
-            @{@"cycle": @(43), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 16:15", @"title": @"Instant text polish with compiled regex and rules cache", @"highlights": @[@"Pre-compiles and caches transcription cleanup regular expressions across speech turns, eliminating repeat compilation overhead.", @"Caches configuration rules parsing so dictation finalization and live text cleanup finish up to 100x faster with reduced CPU usage."]},
+            @{@"cycle": @(44), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 21:30", @"title": @"Cleans up mid-sentence self-corrections when you change your mind", @"highlights": @[@"When you correct yourself out loud ('Meet at two, wait no, three p.m.' or 'invite Alice and, wait no, Bob and Carol'), GeminiFlow keeps only what you meant to say.", @"Understands natural backtrack phrases such as 'wait no', 'actually no', 'scratch that', 'sorry I meant', and 'or rather' while leaving everyday conversation untouched."]},
+            @{@"cycle": @(43), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 16:15", @"title": @"Faster text cleanup at the end of every dictation", @"highlights": @[@"Keeps your text cleanup rules ready in memory instead of reloading them each time you speak.", @"Polishes and pastes your finished text almost instantly while using less battery."]},
             @{@"cycle": @(42), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 15:15", @"title": @"Apple on-device speech recognizes your Custom Words", @"highlights": @[@"Your custom words and replacement targets ('Siobhan', 'Eoin') are now provided to Apple's on-device speech recognizer with each dictation.", @"Improves on-device transcription accuracy and offline fallback when you speak names, technical terms, and custom vocabulary."]},
             @{@"cycle": @(41), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 14:15", @"title": @"Faster fallback when a connection drops mid-sentence", @"highlights": @[@"If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.", @"During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."]},
             @{@"cycle": @(40), @"scope": @"engine", @"timestamp": @"13 Nov · 13:20", @"title": @"Custom Words: replacement pairs ('Owen -> Eoin')", @"highlights": @[@"Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).", @"Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."]},
@@ -7675,6 +7676,443 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
     return line;
 }
 
+typedef struct {
+    NSRange range;
+    NSInteger cat;
+    BOOL hasCommaBefore;
+    BOOL isCap;
+} GFBacktrackToken;
+
+static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
+    if (!str || str.length < 6) return NO;
+
+    static NSRegularExpression *fastRe, *cueRe;
+    static NSSet<NSString *> *abbrevSet, *daySet, *monthSet, *numSet, *modSet;
+    static NSSet<NSString *> *strongLeadWords, *softLeadWords, *anchorWords;
+    static NSSet<NSString *> *clauseSubjectPronouns, *finiteAuxVerbs, *nonUnitAfterNumber;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+        fastRe = [NSRegularExpression regularExpressionWithPattern:
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that)\\b"
+                                                           options:ci error:nil];
+        cueRe = [NSRegularExpression regularExpressionWithPattern:
+                 @"(?:[.,]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
+                 @"wait(?:\\s+a\\s+(?:second|minute|sec|moment))?\\s*,?\\s*no|"
+                 @"no\\s*,?\\s*wait(?:\\s+a\\s+(?:second|minute|sec|moment))?|"
+                 @"actually\\s*,?\\s*no|no\\s*,?\\s*actually|actually\\s*,?\\s*wait|wait\\s*,?\\s*actually|"
+                 @"sorry\\s*,?\\s*no|no\\s*,?\\s*sorry|sorry\\s*,?\\s*wait|wait\\s*,?\\s*sorry|"
+                 @"(?:sorry|no|wait|actually|oh|well)\\s*,?\\s*i\\s+(?:mean|meant)|"
+                 @"(?:scratch|strike|disregard)\\s+that|"
+                 @"never\\s*mind\\s+that|"
+                 @"or\\s+rather"
+                 @")\\b)\\s*,?\\s*"
+                 @"|(?:[.,]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that)\\b)\\s*,?\\s*"
+                 @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
+                                                          options:ci error:nil];
+        abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
+                                     @"dept gen gov lt sgt col capt rev hon ave blvd rd jan feb mar apr jun jul aug sep sept oct nov dec");
+        daySet = GFStutterWordSet(@"monday tuesday wednesday thursday friday saturday sunday mondays tuesdays wednesdays "
+                                  @"thursdays fridays saturdays sundays today tomorrow tonight yesterday");
+        monthSet = GFStutterWordSet(@"january february march april may june july august september october november december "
+                                    @"jan feb mar apr jun jul aug sep sept oct nov dec");
+        numSet = GFStutterWordSet(@"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+                                  @"fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty "
+                                  @"ninety hundred thousand million billion half quarter first second third fourth fifth sixth "
+                                  @"seventh eighth ninth tenth eleventh twelfth");
+        modSet = GFStutterWordSet(@"red blue green yellow black white gray grey orange purple pink brown gold silver "
+                                  @"left right north south east west morning afternoon evening night upstairs downstairs "
+                                  @"indoor indoors outdoor outdoors internal external public private minimum maximum "
+                                  @"ascending descending horizontal vertical");
+        softLeadWords = GFStutterWordSet(@"on at in to for with from by into after before under over about a an the my your our this that");
+        strongLeadWords = [softLeadWords setByAddingObjectsFromSet:
+                           GFStutterWordSet(@"of between through around during without within until till near against toward towards upon across behind beyond "
+                                            @"his her their its these those some any no every each another "
+                                            @"i i'm i'll i'd i've we we're we'll we'd we've let's you you're you'll he he's he'll she she's she'll "
+                                            @"they they're they'll it it's there there's who what where when why how "
+                                            @"am is are was were be been have has had do does did can could should would will may might must "
+                                            @"invite invited call called ask asked tell told send sent meet met use using used buy bought get got "
+                                            @"take took make made book booked schedule scheduled need needs needed want wants wanted pick picked "
+                                            @"choose chose bring brought set open opened close closed move moved push pushed ship shipped launch launched "
+                                            @"deploy deployed review reviewed check checked fix fixed update updated write wrote read talk talked "
+                                            @"speak spoke go went come came start started stop stopped turn turned pay paid order ordered text texted "
+                                            @"email emailed ping pinged assign assigned add added remove removed change changed run ran build built "
+                                            @"test tested create created")];
+        anchorWords = GFStutterWordSet(@"to for with from at in on by of about into over after before under between through around during without within "
+                                       @"until near against toward towards across behind beyond like as "
+                                       @"the a an my your our his her their its this that these those "
+                                       @"invite invited call called ask asked tell told send sent meet met use using used buy bought get got "
+                                       @"take took make made book booked schedule scheduled need needs needed want wants wanted pick picked "
+                                       @"choose chose bring brought set open opened close closed move moved push pushed ship shipped launch launched "
+                                       @"deploy deployed review reviewed check checked fix fixed update updated write wrote read talk talked "
+                                       @"speak spoke go went come came start started stop stopped turn turned pay paid order ordered text texted "
+                                       @"email emailed ping pinged assign assigned add added remove removed change changed run ran build built "
+                                       @"test tested create created is are was were be been am have has had");
+        clauseSubjectPronouns = GFStutterWordSet(@"i i'm i'll i'd i've we we're we'll we'd we've let's he he's he'll she she's she'll "
+                                                 @"they they're they'll it's there's that's");
+        finiteAuxVerbs = GFStutterWordSet(@"am is are was were will would can could should must have has had do does did "
+                                          @"don't doesn't didn't won't can't isn't aren't wasn't weren't");
+        nonUnitAfterNumber = GFStutterWordSet(@"and or but so then please thanks instead too also at on in to for with from by of if when while because");
+    });
+
+    if ([fastRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)] == nil) return NO;
+
+    NSUInteger len = str.length;
+    NSInteger (^classifyWord)(NSString *) = ^NSInteger(NSString *w) {
+        if (w.length == 0) return 0;
+        if ([daySet containsObject:w]) return 1;
+        if ([monthSet containsObject:w]) return 2;
+        if ([numSet containsObject:w]) return 3;
+        for (NSUInteger i = 0; i < w.length; i++) {
+            unichar c = [w characterAtIndex:i];
+            if (c >= '0' && c <= '9') return 3;
+        }
+        if ([w containsString:@"-"]) {
+            for (NSString *part in [w componentsSeparatedByString:@"-"]) {
+                if ([numSet containsObject:part]) return 3;
+            }
+        }
+        if ([modSet containsObject:w]) return 4;
+        return 0;
+    };
+
+    NSInteger (^tokenizeRange)(NSRange, GFBacktrackToken *, NSInteger, NSMutableArray<NSString *> *) =
+        ^NSInteger(NSRange r, GFBacktrackToken *outTok, NSInteger maxTok, NSMutableArray<NSString *> *outLow) {
+        [outLow removeAllObjects];
+        NSInteger count = 0;
+        NSUInteger p = r.location, end = NSMaxRange(r), prevEnd = r.location;
+        while (p < end && count < maxTok) {
+            unichar c = [str characterAtIndex:p];
+            BOOL startChar = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                             c == '$' || c == 0x20AC || c == 0x00A3;
+            if (!startChar) { p++; continue; }
+            NSUInteger s = p;
+            BOOL isCap = (c >= 'A' && c <= 'Z');
+            while (p < end) {
+                unichar d = [str characterAtIndex:p];
+                BOOL wordChar = (d >= 'a' && d <= 'z') || (d >= 'A' && d <= 'Z') || (d >= '0' && d <= '9') ||
+                                d == '$' || d == '%' || d == 0x20AC || d == 0x00A3;
+                if (wordChar) { p++; continue; }
+                unichar next = (p + 1 < end) ? [str characterAtIndex:p + 1] : 0;
+                BOOL nextAlpha = (next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z');
+                BOOL nextAlnum = nextAlpha || (next >= '0' && next <= '9');
+                if ((d == '\'' || d == 0x2019) && nextAlpha) { p++; continue; }
+                if (d == '-' && nextAlnum) { p++; continue; }
+                if (d == ':' && (next >= '0' && next <= '9') && p > s && [str characterAtIndex:p - 1] >= '0' && [str characterAtIndex:p - 1] <= '9') {
+                    p++; continue;
+                }
+                if (d == '.') {
+                    BOOL prevDotAlpha = (p >= s + 2 && [str characterAtIndex:p - 2] == '.' &&
+                                         (([str characterAtIndex:p - 1] >= 'a' && [str characterAtIndex:p - 1] <= 'z') ||
+                                          ([str characterAtIndex:p - 1] >= 'A' && [str characterAtIndex:p - 1] <= 'Z')));
+                    if (nextAlnum || prevDotAlpha) { p++; continue; }
+                }
+                break;
+            }
+            BOOL comma = NO;
+            if (count > 0 && s > prevEnd) {
+                for (NSUInteger q = prevEnd; q < s; q++) {
+                    if ([str characterAtIndex:q] == ',') { comma = YES; break; }
+                }
+            }
+            NSString *raw = [str substringWithRange:NSMakeRange(s, p - s)];
+            NSString *low = [[raw lowercaseString] stringByReplacingOccurrencesOfString:@"\u2019" withString:@"'"];
+            while (low.length > 1 && [low hasSuffix:@"."]) {
+                low = [low substringToIndex:low.length - 1];
+            }
+            outTok[count] = (GFBacktrackToken){ NSMakeRange(s, p - s), classifyWord(low), comma, isCap };
+            [outLow addObject:low];
+            count++;
+            prevEnd = p;
+        }
+        return count;
+    };
+
+    void (^capitalizeAtIfNeeded)(NSUInteger, BOOL, BOOL) = ^(NSUInteger loc, BOOL wasCap, BOOL nowCap) {
+        if (!wasCap || nowCap || loc >= str.length) return;
+        unichar ch = [str characterAtIndex:loc];
+        if (ch >= 'a' && ch <= 'z') {
+            // Do not capitalize mixed-case brand words like iPhone / iOS / eBay
+            if (loc + 1 < str.length) {
+                unichar c2 = [str characterAtIndex:loc + 1];
+                if (c2 >= 'A' && c2 <= 'Z') return;
+            }
+            NSString *up = [[str substringWithRange:NSMakeRange(loc, 1)] uppercaseString];
+            [str replaceCharactersInRange:NSMakeRange(loc, 1) withString:up];
+        }
+    };
+
+    // Split into sentence segments (. ? ! ; \n \uE000 \uE001, ignoring dots inside abbreviations/decimals)
+    NSMutableArray<NSValue *> *segments = [NSMutableArray array];
+    NSUInteger segStart = 0;
+    for (NSUInteger i = 0; i < len; i++) {
+        unichar c = [str characterAtIndex:i];
+        BOOL isBreak = (c == '?' || c == '!' || c == ';' || c == '\n' || c == '\r' || c == 0xE000 || c == 0xE001);
+        if (!isBreak && c == '.') {
+            BOOL notBreak = NO;
+            if (i + 1 < len) {
+                unichar next = [str characterAtIndex:i + 1];
+                if ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') ||
+                    (next >= '0' && next <= '9') || next == ',' || next == '.') {
+                    notBreak = YES;
+                }
+            }
+            if (!notBreak && i >= 2 && [str characterAtIndex:i - 2] == '.') {
+                unichar prev = [str characterAtIndex:i - 1];
+                if ((prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z')) notBreak = YES;
+            }
+            if (!notBreak && i > segStart) {
+                NSUInteger ws = i;
+                while (ws > segStart) {
+                    unichar pc = [str characterAtIndex:ws - 1];
+                    if ((pc >= 'a' && pc <= 'z') || (pc >= 'A' && pc <= 'Z')) ws--;
+                    else break;
+                }
+                if (ws < i) {
+                    NSString *w = [[str substringWithRange:NSMakeRange(ws, i - ws)] lowercaseString];
+                    if ([abbrevSet containsObject:w] || (w.length == 1 && ![w isEqualToString:@"i"])) notBreak = YES;
+                }
+            }
+            if (!notBreak && i + 2 < len) {
+                NSTextCheckingResult *cm = [cueRe firstMatchInString:str options:NSMatchingAnchored range:NSMakeRange(i, len - i)];
+                if (cm && ([cm rangeAtIndex:1].location != NSNotFound || [cm rangeAtIndex:2].location != NSNotFound)) {
+                    notBreak = YES;
+                }
+            }
+            if (!notBreak) isBreak = YES;
+        }
+        if (isBreak) {
+            if (i + 1 > segStart) [segments addObject:[NSValue valueWithRange:NSMakeRange(segStart, i + 1 - segStart)]];
+            segStart = i + 1;
+        }
+    }
+    if (segStart < len) [segments addObject:[NSValue valueWithRange:NSMakeRange(segStart, len - segStart)]];
+
+    GFBacktrackToken L[128], R[32];
+    NSMutableArray<NSString *> *Llow = [NSMutableArray arrayWithCapacity:128];
+    NSMutableArray<NSString *> *Rlow = [NSMutableArray arrayWithCapacity:32];
+
+    for (NSValue *segVal in segments) {
+        NSRange segRange = segVal.rangeValue;
+        if (segRange.length < 6) continue;
+        NSArray<NSTextCheckingResult *> *matches = [cueRe matchesInString:str options:0 range:segRange];
+        for (NSTextCheckingResult *match in matches) {
+            NSRange cueRange = match.range;
+            NSRange g1 = [match rangeAtIndex:1];
+            NSRange g2 = [match rangeAtIndex:2];
+            NSRange g3 = [match rangeAtIndex:3];
+            NSRange g4 = [match rangeAtIndex:4];
+            BOOL isStrong = (g1.location != NSNotFound || g2.location != NSNotFound);
+            NSRange coreRange = g1.location != NSNotFound ? g1 : (g2.location != NSNotFound ? g2 : (g3.location != NSNotFound ? g3 : g4));
+            if (coreRange.location == NSNotFound) continue;
+            NSString *cueCore = [[[str substringWithRange:coreRange] lowercaseString]
+                                 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            // Normalize internal whitespace in cueCore
+            BOOL isClauseCue = [cueCore containsString:@"scratch"] || [cueCore containsString:@"strike"] ||
+                               [cueCore containsString:@"forget"] || [cueCore containsString:@"disregard"] ||
+                               [cueCore containsString:@"cancel"] || [cueCore containsString:@"delete"] ||
+                               [cueCore containsString:@"never"];
+
+            // If g2 matched "(?:forget|cancel|delete) that" or "never mind", require a trailing comma after the cue
+            // so " don't forget that file" after a comma doesn't misfire.
+            if (g2.location != NSNotFound && isClauseCue) {
+                NSString *fullCue = [str substringWithRange:cueRange];
+                NSUInteger coreRelEnd = NSMaxRange(g2) - cueRange.location;
+                NSString *afterCore = [fullCue substringFromIndex:coreRelEnd];
+                if (![afterCore containsString:@","]) continue;
+            }
+
+            NSUInteger leftStart = segRange.location;
+            if (cueRange.location - leftStart > 800) leftStart = cueRange.location - 800;
+            NSRange leftRange = NSMakeRange(leftStart, cueRange.location - leftStart);
+            NSRange rightRange = NSMakeRange(NSMaxRange(cueRange), NSMaxRange(segRange) - NSMaxRange(cueRange));
+
+            NSInteger m = tokenizeRange(leftRange, L, 128, Llow);
+            NSInteger k = tokenizeRange(rightRange, R, 32, Rlow);
+            if (m < 1 || k < 1) continue;
+
+            NSInteger m_eff = m;
+            if (m_eff > 1 && ([Llow[m_eff - 1] isEqualToString:@"and"] || [Llow[m_eff - 1] isEqualToString:@"or"]) &&
+                ![Rlow[0] isEqualToString:Llow[m_eff - 1]]) {
+                m_eff--;
+            }
+
+            // Rule 1: Lead-Word / Anchor Match (R[0] repeats an earlier lead word L[j])
+            NSSet<NSString *> *allowedLeads = isStrong ? strongLeadWords : softLeadWords;
+            if ([allowedLeads containsObject:Rlow[0]]) {
+                NSInteger minJ = MAX((NSInteger)0, m_eff - (isStrong ? 7 : 4));
+                NSInteger matchedJ = -1;
+                for (NSInteger j = m_eff - 1; j >= minJ; j--) {
+                    if ([Llow[j] isEqualToString:Rlow[0]]) {
+                        matchedJ = j;
+                        break;
+                    }
+                }
+                if (matchedJ >= 0) {
+                    BOOL rule1Ok = YES;
+                    if (!isStrong) {
+                        if (matchedJ + 1 >= m_eff || k < 2) rule1Ok = NO;
+                        else if ([cueCore isEqualToString:@"no"] || [cueCore isEqualToString:@"wait"]) {
+                            BOOL catMatch = (L[matchedJ + 1].cat > 0 && L[matchedJ + 1].cat == R[1].cat);
+                            BOOL capMatch = (L[matchedJ + 1].isCap && R[1].isCap);
+                            if (!catMatch && !capMatch) rule1Ok = NO;
+                        }
+                    }
+                    if (rule1Ok) {
+                        NSUInteger delLoc = L[matchedJ].range.location;
+                        BOOL wasCap = (matchedJ == 0 && L[0].isCap);
+                        BOOL nowCap = R[0].isCap;
+                        [str deleteCharactersInRange:NSMakeRange(delLoc, R[0].range.location - delLoc)];
+                        capitalizeAtIfNeeded(delLoc, wasCap, nowCap);
+                        return YES;
+                    }
+                }
+            }
+
+            // Rule 2: Semantic Category Match (Day / Month / Number-Time-Amount / Modifier)
+            NSInteger rCat = R[0].cat;
+            BOOL rHasDeicticLead = NO;
+            if (rCat == 0 && k >= 2 && ([Rlow[0] isEqualToString:@"this"] || [Rlow[0] isEqualToString:@"next"] || [Rlow[0] isEqualToString:@"last"]) &&
+                (R[1].cat == 1 || R[1].cat == 2)) {
+                rCat = R[1].cat;
+                rHasDeicticLead = YES;
+            }
+            if (rCat > 0) {
+                NSInteger minIdx = MAX((NSInteger)0, m_eff - 3);
+                NSInteger foundIdx = -1;
+                for (NSInteger idx = m_eff - 1; idx >= minIdx; idx--) {
+                    if (L[idx].cat == rCat) {
+                        foundIdx = idx;
+                        break;
+                    }
+                }
+                if (foundIdx >= 0) {
+                    NSInteger j = foundIdx;
+                    NSInteger jEnd = foundIdx;
+                    if (rCat == 3) {
+                        while (j > 0 && (L[j - 1].cat == 3 ||
+                                         ([Llow[j - 1] isEqualToString:@"a"] &&
+                                          ([Llow[j] isEqualToString:@"hundred"] || [Llow[j] isEqualToString:@"thousand"] ||
+                                           [Llow[j] isEqualToString:@"million"] || [Llow[j] isEqualToString:@"half"] ||
+                                           [Llow[j] isEqualToString:@"quarter"])))) {
+                            j--;
+                        }
+                    } else if ((rCat == 1 || rCat == 2) && rHasDeicticLead && j > 0 &&
+                               ([Llow[j - 1] isEqualToString:@"this"] || [Llow[j - 1] isEqualToString:@"next"] || [Llow[j - 1] isEqualToString:@"last"])) {
+                        j--;
+                    }
+                    BOOL rule2Ok = YES;
+                    if (!isStrong && ([cueCore isEqualToString:@"no"] || [cueCore isEqualToString:@"wait"]) && j == 0) {
+                        rule2Ok = NO;
+                    }
+                    if (rule2Ok) {
+                        if (rCat == 3 && jEnd == m_eff - 2) {
+                            NSInteger rNumEnd = 0;
+                            while (rNumEnd + 1 < k && R[rNumEnd + 1].cat == 3 && !R[rNumEnd + 1].hasCommaBefore) {
+                                rNumEnd++;
+                            }
+                            BOOL rHasUnitOrNoun = (rNumEnd + 1 < k) && !R[rNumEnd + 1].hasCommaBefore &&
+                                                  ![nonUnitAfterNumber containsObject:Rlow[rNumEnd + 1]];
+                            if (!rHasUnitOrNoun) {
+                                NSRange rNumSpan = NSUnionRange(R[0].range, R[rNumEnd].range);
+                                NSMutableString *repNum = [[str substringWithRange:rNumSpan] mutableCopy];
+                                if (j == 0 && L[0].isCap && repNum.length > 0) {
+                                    NSString *firstUpper = [[repNum substringToIndex:1] uppercaseString];
+                                    [repNum replaceCharactersInRange:NSMakeRange(0, 1) withString:firstUpper];
+                                }
+                                NSUInteger tailDelStart = NSMaxRange(L[m_eff - 1].range);
+                                NSUInteger tailDelEnd = NSMaxRange(rNumSpan);
+                                [str deleteCharactersInRange:NSMakeRange(tailDelStart, tailDelEnd - tailDelStart)];
+                                NSRange lNumSpan = NSUnionRange(L[j].range, L[jEnd].range);
+                                [str replaceCharactersInRange:lNumSpan withString:repNum];
+                                return YES;
+                            }
+                        }
+                        NSUInteger delLoc = L[j].range.location;
+                        BOOL wasCap = (j == 0 && L[0].isCap);
+                        BOOL nowCap = R[0].isCap;
+                        [str deleteCharactersInRange:NSMakeRange(delLoc, R[0].range.location - delLoc)];
+                        capitalizeAtIfNeeded(delLoc, wasCap, nowCap);
+                        return YES;
+                    }
+                }
+            }
+
+            // Rule 3: Strong-Cue Phrase / Object / Clause Replacement (Tier 1 only)
+            if (isStrong) {
+                BOOL rStartsNewClause = [clauseSubjectPronouns containsObject:Rlow[0]] ||
+                                        (k >= 2 && !R[1].hasCommaBefore && [finiteAuxVerbs containsObject:Rlow[1]]);
+
+                // Case 3a: Object / complement after an anchor word (verb, preposition, or determiner)
+                if (!rStartsNewClause && m_eff >= 2) {
+                    NSInteger anchorIdx = -1;
+                    if (R[0].isCap) {
+                        NSInteger minCapA = MAX((NSInteger)0, m_eff - 6);
+                        for (NSInteger a = m_eff - 2; a >= minCapA; a--) {
+                            if ([anchorWords containsObject:Llow[a]] && L[a + 1].isCap) {
+                                anchorIdx = a;
+                                break;
+                            }
+                        }
+                    }
+                    if (anchorIdx < 0) {
+                        NSInteger minA = MAX((NSInteger)0, m_eff - 5);
+                        for (NSInteger a = m_eff - 2; a >= minA; a--) {
+                            if ([anchorWords containsObject:Llow[a]]) {
+                                anchorIdx = a;
+                                break;
+                            }
+                        }
+                    }
+                    if (anchorIdx >= 0) {
+                        NSUInteger afterAnchor = NSMaxRange(L[anchorIdx].range);
+                        [str replaceCharactersInRange:NSMakeRange(afterAnchor, R[0].range.location - afterAnchor) withString:@" "];
+                        return YES;
+                    }
+                }
+
+                // Case 3b: Whole-clause retraction for "scratch/strike/forget/disregard that" or when R starts a new clause
+                if (isClauseCue || rStartsNewClause) {
+                    NSInteger clauseStartIdx = 0;
+                    for (NSInteger c = m_eff - 1; c >= 1; c--) {
+                        if (L[c].hasCommaBefore) {
+                            clauseStartIdx = c;
+                            break;
+                        }
+                    }
+                    if (clauseStartIdx > 0 && clauseStartIdx + 1 < m_eff &&
+                        ([Llow[clauseStartIdx] isEqualToString:@"and"] || [Llow[clauseStartIdx] isEqualToString:@"but"] ||
+                         [Llow[clauseStartIdx] isEqualToString:@"so"]) &&
+                        ![Llow[clauseStartIdx] isEqualToString:Rlow[0]]) {
+                        clauseStartIdx++;
+                    }
+                    NSUInteger delLoc = L[clauseStartIdx].range.location;
+                    BOOL wasCap = (clauseStartIdx == 0 && L[0].isCap);
+                    BOOL nowCap = R[0].isCap;
+                    [str deleteCharactersInRange:NSMakeRange(delLoc, R[0].range.location - delLoc)];
+                    capitalizeAtIfNeeded(delLoc, wasCap, nowCap);
+                    return YES;
+                }
+
+                // Case 3c: 1-to-2 word noun/name at the start of a sentence before a strong cue
+                if (m_eff <= 2) {
+                    NSUInteger delLoc = L[0].range.location;
+                    BOOL wasCap = L[0].isCap;
+                    BOOL nowCap = R[0].isCap;
+                    [str deleteCharactersInRange:NSMakeRange(delLoc, R[0].range.location - delLoc)];
+                    capitalizeAtIfNeeded(delLoc, wasCap, nowCap);
+                    return YES;
+                }
+            }
+        }
+    }
+    return NO;
+}
+
+static void GFRemoveConversationalBacktracks(NSMutableString *str) {
+    for (int pass = 0; pass < 8 && GFRemoveConversationalBacktrackOnce(str); pass++) {}
+}
+
 - (NSString *)polishOnDeviceTranscript:(NSString *)rawText {
     if (!rawText || rawText.length == 0) return @"";
 
@@ -7684,6 +8122,7 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
     BOOL cleanLike = YES;
     BOOL cleanVocal = YES;
     BOOL cleanStutter = YES;
+    BOOL cleanBacktracks = YES;
     BOOL autoCap = YES;
     BOOL autoPunct = YES;
     NSArray *extraFillers = nil;
@@ -7702,6 +8141,7 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
         if (rules[@"cleanLikeFiller"] != nil) cleanLike = [rules[@"cleanLikeFiller"] boolValue];
         if (rules[@"cleanVocalFillers"] != nil) cleanVocal = [rules[@"cleanVocalFillers"] boolValue];
         if (rules[@"cleanStutterWords"] != nil) cleanStutter = [rules[@"cleanStutterWords"] boolValue];
+        if (rules[@"cleanBacktracks"] != nil) cleanBacktracks = [rules[@"cleanBacktracks"] boolValue];
         if (rules[@"autoCapitalize"] != nil) autoCap = [rules[@"autoCapitalize"] boolValue];
         if (rules[@"autoPunctuate"] != nil) autoPunct = [rules[@"autoPunctuate"] boolValue];
         if ([rules[@"extraFillers"] isKindOfClass:[NSArray class]]) {
@@ -7753,6 +8193,9 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
         replaceRegex(str, @",\\s*like,\\s*", @" ", NSRegularExpressionCaseInsensitive);
         replaceRegex(str, @"\\b(am|is|are|was|were|be|been|i'm|it's|that's|we're|they're|you're|he's|she's)\\s+like,\\s*", @"$1 ", NSRegularExpressionCaseInsensitive);
     }
+
+    // 4b. Conversational backtrack / self-correction removal (before step 5 strips "i mean")
+    if (cleanBacktracks) GFRemoveConversationalBacktracks(str);
 
     // 5. Remove extra custom fillers from rules.json (e.g. "you know", "i mean"; "sort of" / "kind of" were handled in step 2b)
     if (extraFillers && extraFillers.count > 0) {
@@ -12422,6 +12865,55 @@ static NSString *GFLastSentence(NSString *line, BOOL *afterQuestion) {
             if (wRenderOk) passed++; else failed++;
             printf("%s: Custom Words renders with its title below the window buttons (button row empty; title ink %ld px) in Light and Dark\n",
                    wRenderOk ? "PASS" : "FAIL", (long)wTitleInk);
+
+            // Cycle 44: Conversational Backtrack / Self-Correction Removal (GFRemoveConversationalBacktracks + polishOnDeviceTranscript:)
+            {
+                NSArray<NSArray<NSString *> *> *btCases = @[
+                    // 3 probe clips from run_tests.py
+                    @[@"Meet at two, wait no, three p.m.", @"Meet at three p.m. "],
+                    @[@"Um, so for the meeting, I think we should, uh, invite Alice and, wait no, Bob and Carol.",
+                      @"So for the meeting, I think we should invite Bob and Carol. "],
+                    @[@"For the offsite next month I think we should book the large meeting room on the third floor for the whole afternoon, and we should definitely invite Alice from the design team, wait no, invite Bob and Carol instead.",
+                      @"For the offsite next month I think we should book the large meeting room on the third floor for the whole afternoon, and we should definitely invite Bob and Carol instead. "],
+                    // Day / time / person / amount / clause / number-before-noun / multi-correction cases
+                    @[@"Let's meet on Tuesday, actually no, Wednesday.", @"Let's meet on Wednesday. "],
+                    @[@"Let's meet on Tuesday, actually no, on Wednesday.", @"Let's meet on Wednesday. "],
+                    @[@"Let's meet on Tuesday, I mean, Wednesday.", @"Let's meet on Wednesday. "],
+                    @[@"Send the file to John, actually no, Sarah.", @"Send the file to Sarah. "],
+                    @[@"The budget is 50k, scratch that, 75k.", @"The budget is 75k. "],
+                    @[@"I'll call him tomorrow, scratch that, I'll just text him now.", @"I'll just text him now. "],
+                    @[@"We should use Postgres, or rather, SQLite for local storage.", @"We should use SQLite for local storage. "],
+                    @[@"Two coffees, make that three.", @"Three coffees. "],
+                    @[@"Let's meet on Monday, wait no, Tuesday at 2 PM, sorry, 3 PM.", @"Let's meet on Tuesday at 3 PM. "],
+                    // Cross-period self-corrections (when ASR puts a period before a strong correction cue)
+                    @[@"Let's meet on Tuesday. Wait, no, Wednesday.", @"Let's meet on Wednesday. "],
+                    @[@"The budget is 50k. Scratch that, 75k.", @"The budget is 75k. "],
+                    @[@"I'll call him tomorrow. Scratch that, I'll just text him now.", @"I'll just text him now. "],
+                    // False-positive guards
+                    @[@"I actually think that works.", @"I actually think that works. "],
+                    @[@"Wait for me at the lobby.", @"Wait for me at the lobby. "],
+                    @[@"Should we ship it? Or wait", @"Should we ship it? Or wait? "],
+                    @[@"No, thank you.", @"No, thank you. "],
+                    @[@"I'm sorry, I was on mute.", @"I'm sorry, I was on mute. "],
+                    @[@"It is, I mean, really fast.", @"It is really fast. "],
+                ];
+                int btPass = 0, btTotal = (int)btCases.count;
+                for (NSArray<NSString *> *pair in btCases) {
+                    NSString *inStr = pair[0];
+                    NSString *want = pair[1];
+                    NSString *got = [self polishOnDeviceTranscript:inStr];
+                    if ([got isEqualToString:want]) {
+                        btPass++;
+                    } else {
+                        printf("  [BT FAIL] in=\"%s\"\n            got=\"%s\"\n           want=\"%s\"\n",
+                               inStr.UTF8String, got.UTF8String, want.UTF8String);
+                    }
+                }
+                BOOL btOk = (btPass == btTotal);
+                if (btOk) passed++; else failed++;
+                printf("%s: conversational backtrack removal cleans self-corrections and preserves non-corrections (%d/%d)\n",
+                       btOk ? "PASS" : "FAIL", btPass, btTotal);
+            }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;

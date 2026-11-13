@@ -3,13 +3,23 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 44,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 21:30",
+      "title": "Cleans up mid-sentence self-corrections when you change your mind",
+      "highlights": [
+        "When you correct yourself out loud ('Meet at two, wait no, three p.m.' or 'invite Alice and, wait no, Bob and Carol'), GeminiFlow keeps only what you meant to say.",
+        "Understands natural backtrack phrases such as 'wait no', 'actually no', 'scratch that', 'sorry I meant', and 'or rather' while leaving everyday conversation untouched."
+      ]
+    },
+    {
       "cycle": 43,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 16:15",
-      "title": "Instant text polish with compiled regex and rules cache",
+      "title": "Faster text cleanup at the end of every dictation",
       "highlights": [
-        "Pre-compiles and caches transcription cleanup regular expressions across speech turns, eliminating repeat compilation overhead.",
-        "Caches configuration rules parsing so dictation finalization and live text cleanup finish up to 100x faster with reduced CPU usage."
+        "Keeps your text cleanup rules ready in memory instead of reloading them each time you speak.",
+        "Polishes and pastes your finished text almost instantly while using less battery."
       ]
     },
     {
