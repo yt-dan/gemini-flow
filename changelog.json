@@ -3,6 +3,54 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 173,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:27",
+      "title": "Fixes missing apostrophes in 'cant', 'hed', 'shed', 'wed', and 'aint', plus mid-sentence 'etc.'",
+      "highlights": [
+        "Restores missing apostrophes in 'cant' ('can't'), 'aint' ('ain't'), 'mustnt' ('mustn't'), and 'hed', 'shed', and 'wed' before modal verbs ('he'd like', 'she'd prefer', 'we'd rather', 'he'd been') while keeping nouns like 'garden shed' untouched.",
+        "Adds the missing period to mid-sentence 'etc' after a comma ('1 pax, 2 pax, etc, and so on' becomes '1 pax, 2 pax, etc., and so on')."
+      ]
+    },
+    {
+      "cycle": 172,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:26",
+      "title": "Fixes 'play it by ear', 'touch base', 'rule of thumb', 'fell through the cracks', and 'blessing in disguise'",
+      "highlights": [
+        "Repairs everyday personal and workplace phrases that speech recognizers often spell with the wrong homophone, turning 'play it by year', 'touch bass with', 'cut to the cheese', 'get the bowl rolling', 'rule of dumb', 'out of site, out of mind', 'site unseen', 'on the same Paige', 'fell through the tracks', 'blessing in the skies', and 'a dime a doesn't' into 'play it by ear', 'touch base with', 'cut to the chase', 'get the ball rolling', 'rule of thumb', 'out of sight, out of mind', 'sight unseen', 'on the same page', 'fell through the cracks', 'blessing in disguise', and 'a dime a dozen'."
+      ]
+    },
+    {
+      "cycle": 171,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:25",
+      "title": "Cleans up 'let me reword that', 'wait, that's not right', and 'actually, in other words' self-corrections",
+      "highlights": [
+        "When you reframe an instruction mid-sentence with 'let me reword that,', 'let me phrase that differently,', 'sorry, let me rephrase,', 'wait, that's not right,', or 'actually, in other words,', GeminiFlow removes the earlier draft clause and keeps your revised wording."
+      ]
+    },
+    {
+      "cycle": 170,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:24",
+      "title": "Milestone Cycle 170: Cleans up 'to would/could/should' starts, 'Honestly. I...' pause splits, and '. Without -ing...' fragments",
+      "highlights": [
+        "Cleans up false-start 'to' before modal verbs ('to would have', 'to could be', 'to should work') and repeated modal framing ('would be that it would be' becomes 'that it would be'), and restores the missing 'a' in 'did not register a question mark at the end'.",
+        "Re-joins one-word sentence starters split by a brief thinking pause ('Honestly. I would prefer...' and 'Basically. What I am trying to do...' become 'Honestly, I would prefer...' and 'Basically, what I am trying to do...') and re-attaches trailing '. Without -ing...' and '. Especially when...' fragments."
+      ]
+    },
+    {
+      "cycle": 169,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:23",
+      "title": "Removes filler 'like' in 'a lot like better', 'much like easier', 'focus more like on', and 'think more like about'",
+      "highlights": [
+        "Strips filler 'like' between degree modifiers and comparative or descriptive adjectives ('the output will be a lot like better', 'much like easier', 'way like faster', and 'so like helpful' become 'the output will be a lot better', 'much easier', 'way faster', and 'so helpful') while keeping real comparisons like 'looks a lot like rain' untouched.",
+        "Removes filler 'like' between verbs such as 'focus', 'depend', 'rely', 'base', 'think', 'talk', 'worry', 'refer', 'apply', and 'listen' and their following preposition ('focus more like on personal conversations' becomes 'focus more on personal conversations')."
+      ]
+    },
+    {
       "cycle": 168,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 17:12",
@@ -45,7 +93,7 @@
       "timestamp": "14 Nov \u00b7 17:08",
       "title": "Removes filler 'like' in 'how like I'm speaking', 'see how like fast', and 'in this like thread'",
       "highlights": [
-        "Strips filler 'like' after 'how', 'why', 'where', 'what', and 'who' before subject pronouns ('based on how like I'm speaking to you' and 'see what like I'm trying to do' become 'based on how I'm speaking to you' and 'see what I'm trying to do') and in 'see how like fast' or 'judge how like good'.",
+        "Strips filler 'like' after 'how', 'why', 'where', and 'what' before subject pronouns ('based on how like I'm speaking to you' and 'see what like I'm trying to do' become 'based on how I'm speaking to you' and 'see what I'm trying to do') and in 'see how like fast' or 'judge how like good'.",
         "Removes filler 'like' after 'in this', 'on that', 'for these', and 'with those' before nouns ('in this like thread' and 'on that like part' become 'in this thread' and 'on that part')."
       ]
     },
