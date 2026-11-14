@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(68), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:24", @"title": @"Protects live audio streaming against uneven sample boundaries on reconnects", @"highlights": @[@"Ensures every live audio chunk, reconnect resend, and planned session rotation stays aligned on exact 16-bit audio sample boundaries and within the recorded audio buffer.", @"Prevents audio clicks or range errors if a network reconnect or turn split resumes from an uneven byte offset."]},
+            @{@"cycle": @(67), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:22", @"title": @"Formats spoken filenames, slash compounds, and command-line flags", @"highlights": @[@"Turns spoken developer and document filenames like 'main dot m', 'package dot json', 'readme dot md', 'index dot ts', and 'report dot pdf' into 'main.m', 'package.json', 'README.md', 'index.ts', and 'report.pdf'.", @"Formats spoken slash expressions and command-line flags such as 'and slash or', 'yes slash no', 'CI slash CD', 'TCP slash IP', 'I slash O', 'dash dash help', and 'dash dash dry run' into 'and/or', 'yes/no', 'CI/CD', 'TCP/IP', 'I/O', '--help', and '--dry-run'."]},
+            @{@"cycle": @(66), @"scope": @"mac", @"timestamp": @"14 Nov \u00B7 11:21", @"title": @"Refreshes the microphone automatically when your Mac wakes from sleep", @"highlights": @[@"Detects when your Mac wakes from sleep while GeminiFlow is idle and refreshes the audio input engine right away.", @"Prevents the first dictation after opening your laptop lid from hitting a stale microphone connection or waiting for an automatic retry."]},
+            @{@"cycle": @(65), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:19", @"title": @"Shared iOS and Mac support for app-aware formatting, mid-sentence continuation, and voice undo", @"highlights": @[@"Extends app-aware formatting to recognize popular iOS email, chat, and terminal apps alongside Mac apps.", @"Adds cross-platform engine hooks so iOS keyboards and host apps can supply surrounding cursor text for mid-sentence lowercase continuation and handle 'Scratch that' voice undo automatically."]},
+            @{@"cycle": @(64), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:16", @"title": @"Queues on-device audio file fallback when a new dictation is already recording", @"highlights": @[@"When an earlier dictation falls back to Apple's on-device audio file recognizer while you are already speaking a new dictation, GeminiFlow now waits until you release the key before running the file recognizer so the two never compete for the on-device speech engine.", @"Preserves your exact dictation order by processing the queued recording right before delivering deferred pastes."]},
             @{@"cycle": @(63), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:39", @"title": @"Zero-warning macOS 27 build and online slow split-turn test verification", @"highlights": @[@"Updates audio tap compilation so GeminiFlow builds cleanly with zero compiler warnings on the latest macOS 27 SDK.", @"Adds an online test mode to simulate slow mid-dictation turn responses and verify that no spoken words are dropped while waiting."]},
             @{@"cycle": @(62), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:38", @"title": @"Finishes rapid back-to-back dictations in parallel on Gemini Live", @"highlights": @[@"When you release Fn and immediately start a new dictation before the previous one finishes, GeminiFlow now keeps the previous live connection open in the background for up to 1.5 seconds while starting a fresh connection for your new press.", @"Delivers the first dictation in a fraction of a second without having to re-send its entire audio recording to the slower backup service."]},
             @{@"cycle": @(61), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:30", @"title": @"Fixes 'bill' vs 'build' in software phrases and formats spoken versions and ports", @"highlights": @[@"When you dictate software phrases like 'ship the new build' or 'deploy the staging build', GeminiFlow now writes 'build' instead of 'bill', while leaving everyday sentences like 'pay the bill' or 'I have a bill tomorrow' untouched.", @"Formats spoken software version numbers and local ports such as 'version 2 point 4', 'version 1 point 0 point 2', 'localhost colon 3000', and 'port 80 80' into 'version 2.4', 'version 1.0.2', 'localhost:3000', and 'port 8080'."]},
@@ -2880,6 +2885,7 @@ typedef struct {
 @property (nonatomic, assign) NSUInteger busyMarkerWrites;      // times the marker was created (tests)
 @property (nonatomic, strong) NSMutableArray<GFDictation *> *busySuperseded; // superseded while thinking, result not delivered yet
 @property (nonatomic, strong) NSMutableArray<GFDictation *> *detachedLiveDictations; // backlog 21: superseded dictations finishing on a detached Live socket
+@property (nonatomic, strong) NSMutableArray<GFDictation *> *deferredWAVFallbacks; // backlog 22: superseded WAV fallbacks waiting for active streaming recognizer to end
 @property (nonatomic, assign) NSUInteger hudDismissalsHonored;  // counters for the --test suite / diagnostics
 @property (nonatomic, assign) NSUInteger hudDismissalsDropped;
 @property (nonatomic, assign) BOOL unitTestMode;                // --test: keep the user's log file quiet
@@ -2893,6 +2899,9 @@ typedef struct {
 @property (nonatomic, copy) NSString *lastPastedText;    // Most recently pasted dictation text (Cycle 50 voice undo)
 @property (nonatomic, assign) NSTimeInterval lastPasteTimestamp;
 @property (nonatomic, assign) pid_t lastPasteAppPID;
+@property (nonatomic, copy) NSString *hostCursorBeforeText; // Cycle 65: cross-platform host cursor context before caret (iOS / Mac seam)
+@property (nonatomic, copy) NSString *hostCursorAfterText;  // Cycle 65: cross-platform host cursor context after caret (iOS / Mac seam)
+@property (nonatomic, copy) BOOL (^hostVoiceUndoHandler)(NSString *undoneText); // Cycle 65: cross-platform voice undo handler
 
 // Hotkey state machine
 @property (nonatomic, assign) BOOL isRecording;
@@ -2936,6 +2945,7 @@ typedef struct {
 @property (nonatomic, assign) NSUInteger releasePCMBytesAtFnUp; // backlog 27: recordedPCMData length at that Fn up
 @property (nonatomic, assign) NSUInteger micWatchdogGeneration;
 @property (nonatomic, assign) BOOL micRebuildTried;          // this press already used its one automatic engine rebuild
+@property (nonatomic, assign) NSTimeInterval lastWakeRewarmTime; // Cycle 66: timestamp of last post-wake idle audio engine rewarm
 @property (nonatomic, copy) NSString *lastMicNotice;         // notice of the last mic failure (diagnostics / --test)
 @property (nonatomic, copy) NSString *e2eMicFail;            // test hook (e2e only): start | start-once | nobuffers | denied
 @property (nonatomic, assign) NSUInteger e2eMicStartAttempts;
@@ -4407,14 +4417,19 @@ static BOOL GFShouldShieldPasteOnWindowSwitch(pid_t pressStartPid, pid_t current
 //  2) Prepends a leading space if `beforeCursor` ends flush on a word or comma (no space before the cursor).
 //  3) Strips the auto-appended statement period (and duplicate trailing space) if `afterCursor` continues the same sentence.
 static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *beforeCursor, NSString *afterCursor, NSArray<NSString *> *customWords) {
-    if (!text || text.length == 0 || !beforeCursor || beforeCursor.length == 0) return text ?: @"";
+    if (!text || text.length == 0) return text ?: @"";
+    if (beforeCursor.length == 0 && afterCursor.length == 0) return text;
     if (GFIsStandaloneVoiceUndoCommand(text)) return text;
 
-    NSRange lastNL = [beforeCursor rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet] options:NSBackwardsSearch];
-    NSString *lineBefore = (lastNL.location != NSNotFound) ? [beforeCursor substringFromIndex:NSMaxRange(lastNL)] : beforeCursor;
     NSCharacterSet *horizWS = [NSCharacterSet characterSetWithCharactersInString:@" \t"];
-    NSString *trimmedBefore = [lineBefore stringByTrimmingCharactersInSet:horizWS];
-    if (trimmedBefore.length == 0) return text;
+    NSString *lineBefore = @"";
+    NSString *trimmedBefore = @"";
+    if (beforeCursor.length > 0) {
+        NSRange lastNL = [beforeCursor rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet] options:NSBackwardsSearch];
+        lineBefore = (lastNL.location != NSNotFound) ? [beforeCursor substringFromIndex:NSMaxRange(lastNL)] : beforeCursor;
+        trimmedBefore = [lineBefore stringByTrimmingCharactersInSet:horizWS];
+    }
+    if (trimmedBefore.length == 0 && afterCursor.length == 0) return text;
 
     static NSRegularExpression *nonTermDotRe, *firstWordRe;
     static NSSet<NSString *> *properLowerSet;
@@ -4437,55 +4452,57 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
         ]];
     });
 
-    unichar lastChar = [trimmedBefore characterAtIndex:trimmedBefore.length - 1];
-    if (lastChar == '!' || lastChar == '?') return text;
-    if (lastChar == '.') {
-        if ([nonTermDotRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] == nil) {
-            return text;
-        }
-    }
-    BOOL isMidSentence = ((lastChar >= 'a' && lastChar <= 'z') || (lastChar >= 'A' && lastChar <= 'Z') ||
-                          (lastChar >= '0' && lastChar <= '9') || lastChar == ',' || lastChar == ';' ||
-                          lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '/' || lastChar == '.');
-    if (!isMidSentence) return text;
-
     NSMutableString *out = [NSMutableString stringWithString:text];
 
-    NSTextCheckingResult *fw = [firstWordRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
-    if (fw) {
-        NSRange wRange = [fw rangeAtIndex:2];
-        NSString *word = [out substringWithRange:wRange];
-        unichar c0 = [word characterAtIndex:0];
-        if (c0 >= 'A' && c0 <= 'Z') {
-            BOOL hasLaterUpper = NO;
-            for (NSUInteger i = 1; i < word.length; i++) {
-                unichar ci = [word characterAtIndex:i];
-                if (ci >= 'A' && ci <= 'Z') { hasLaterUpper = YES; break; }
-            }
-            NSString *wLow = word.lowercaseString;
-            BOOL isCustomProper = NO;
-            for (NSString *cw in customWords) {
-                NSString *tcw = [cw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                if (tcw.length > 0 && [tcw.lowercaseString isEqualToString:wLow] &&
-                    [tcw characterAtIndex:0] >= 'A' && [tcw characterAtIndex:0] <= 'Z') {
-                    isCustomProper = YES;
-                    break;
-                }
-            }
-            if (!hasLaterUpper && ![properLowerSet containsObject:wLow] && !isCustomProper) {
-                NSString *firstLow = [[word substringToIndex:1] lowercaseString];
-                [out replaceCharactersInRange:NSMakeRange(wRange.location, 1) withString:firstLow];
+    if (trimmedBefore.length > 0) {
+        unichar lastChar = [trimmedBefore characterAtIndex:trimmedBefore.length - 1];
+        if (lastChar == '!' || lastChar == '?') return text;
+        if (lastChar == '.') {
+            if ([nonTermDotRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] == nil) {
+                return text;
             }
         }
-    }
+        BOOL isMidSentence = ((lastChar >= 'a' && lastChar <= 'z') || (lastChar >= 'A' && lastChar <= 'Z') ||
+                              (lastChar >= '0' && lastChar <= '9') || lastChar == ',' || lastChar == ';' ||
+                              lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '/' || lastChar == '.');
+        if (!isMidSentence) return text;
 
-    unichar rawLast = [lineBefore characterAtIndex:lineBefore.length - 1];
-    BOOL flushAfterWordOrComma = ((rawLast >= 'a' && rawLast <= 'z') || (rawLast >= 'A' && rawLast <= 'Z') ||
-                                  (rawLast >= '0' && rawLast <= '9') || rawLast == ',' || rawLast == ';' || rawLast == ':');
-    if (flushAfterWordOrComma && out.length > 0) {
-        unichar firstOut = [out characterAtIndex:0];
-        if (firstOut != ' ' && firstOut != '\n' && firstOut != ',' && firstOut != '.' && firstOut != '?' && firstOut != '!' && firstOut != ';' && firstOut != ':') {
-            [out insertString:@" " atIndex:0];
+        NSTextCheckingResult *fw = [firstWordRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
+        if (fw) {
+            NSRange wRange = [fw rangeAtIndex:2];
+            NSString *word = [out substringWithRange:wRange];
+            unichar c0 = [word characterAtIndex:0];
+            if (c0 >= 'A' && c0 <= 'Z') {
+                BOOL hasLaterUpper = NO;
+                for (NSUInteger i = 1; i < word.length; i++) {
+                    unichar ci = [word characterAtIndex:i];
+                    if (ci >= 'A' && ci <= 'Z') { hasLaterUpper = YES; break; }
+                }
+                NSString *wLow = word.lowercaseString;
+                BOOL isCustomProper = NO;
+                for (NSString *cw in customWords) {
+                    NSString *tcw = [cw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (tcw.length > 0 && [tcw.lowercaseString isEqualToString:wLow] &&
+                        [tcw characterAtIndex:0] >= 'A' && [tcw characterAtIndex:0] <= 'Z') {
+                        isCustomProper = YES;
+                        break;
+                    }
+                }
+                if (!hasLaterUpper && ![properLowerSet containsObject:wLow] && !isCustomProper) {
+                    NSString *firstLow = [[word substringToIndex:1] lowercaseString];
+                    [out replaceCharactersInRange:NSMakeRange(wRange.location, 1) withString:firstLow];
+                }
+            }
+        }
+
+        unichar rawLast = [lineBefore characterAtIndex:lineBefore.length - 1];
+        BOOL flushAfterWordOrComma = ((rawLast >= 'a' && rawLast <= 'z') || (rawLast >= 'A' && rawLast <= 'Z') ||
+                                      (rawLast >= '0' && rawLast <= '9') || rawLast == ',' || rawLast == ';' || rawLast == ':');
+        if (flushAfterWordOrComma && out.length > 0) {
+            unichar firstOut = [out characterAtIndex:0];
+            if (firstOut != ' ' && firstOut != '\n' && firstOut != ',' && firstOut != '.' && firstOut != '?' && firstOut != '!' && firstOut != ';' && firstOut != ':') {
+                [out insertString:@" " atIndex:0];
+            }
         }
     }
 
@@ -5565,6 +5582,12 @@ static CGEventRef GFEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     self.permissionWatchTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
         [weakSelf refreshHotkeyListenersIfPermissionsChanged];
     }];
+    [[[NSWorkspace sharedWorkspace] notificationCenter] addObserverForName:NSWorkspaceDidWakeNotification
+                                                                    object:nil
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *note) {
+        [weakSelf rewarmAudioEngineAfterSystemWakeIfNeeded];
+    }];
 }
 
 - (void)logPermissionState:(NSString *)context {
@@ -6330,6 +6353,29 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     self.audioEngine = [[AVAudioEngine alloc] init];
 }
 
+// Cycle 66: Proactive AVAudioEngine re-warm after system sleep/wake (shared decision helper with iOS via transplant.py).
+// Re-creates and pre-warms the idle AVAudioEngine after system wake (with a 2.0 s debounce) so the first Fn press after
+// clamshell wake never hits a stale CoreAudio input node or waits 800 ms for the no-buffer watchdog.
+static BOOL GFShouldRewarmAudioEngineOnSystemWake(BOOL isRecording, BOOL hasAudioEngine, BOOL isE2EMode, NSTimeInterval secondsSinceLastWake) {
+    if (isRecording || !hasAudioEngine || isE2EMode) return NO;
+    return secondsSinceLastWake >= 2.0;
+}
+
+- (BOOL)rewarmAudioEngineAfterSystemWakeIfNeeded {
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    NSTimeInterval elapsed = (self.lastWakeRewarmTime > 0) ? (now - self.lastWakeRewarmTime) : 1000.0;
+    if (!GFShouldRewarmAudioEngineOnSystemWake(self.isRecording, self.audioEngine != nil, self.e2eMode.length > 0, elapsed)) {
+        return NO;
+    }
+    self.lastWakeRewarmTime = now;
+    if (!self.unitTestMode) {
+        GFLog(@"Audio engine: system wake detected while idle; rebuilding and pre-warming input node");
+        [self rebuildAudioEngineForMicRetry];
+        [self prewarmAudioEngine];
+    }
+    return YES;
+}
+
 // No-buffer watchdog for the current press (cancelled by a newer press, by any end of this press, or by the first buffer).
 - (void)armMicWatchdogAfter:(NSTimeInterval)seconds {
     self.micWatchdogGeneration += 1;
@@ -6644,6 +6690,15 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
 
 - (void)startGeminiLiveWebSocket { [self startGeminiLiveWebSocketResuming:NO]; }
 
+// Cycle 68: Clamps a Live WebSocket PCM byte offset to [0, totalPCMBytes] and aligns it down to an even 2-byte
+// 16-bit sample boundary, so no reconnect resend, planned rotation resume, pre-roll rewind, or audio chunk slice
+// can ever underflow, exceed recordedPCMData.length, or split an int16_t sample across WebSocket messages.
+static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInteger totalPCMBytes) {
+    NSUInteger evenTotal = totalPCMBytes & ~(NSUInteger)1;
+    NSUInteger clamped = MIN(requestedOffset, evenTotal);
+    return clamped & ~(NSUInteger)1;
+}
+
 // Per-socket protocol state. A fresh press resets everything; a mid-press reconnect (resume) keeps the press's coverage, voice
 // scan and the text of finished turns, drops text of a turn the server never finished (its audio is resent), and resends from
 // the covered byte. All byte offsets stay offsets into recordedPCMData, so coverage accounting spans sessions.
@@ -6662,7 +6717,8 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
     } else if (self.liveSegments.count > self.liveCoveredSegments) {
         [self.liveSegments removeObjectsInRange:NSMakeRange(self.liveCoveredSegments, self.liveSegments.count - self.liveCoveredSegments)];
     }
-    self.liveSentBytes = resume ? self.liveCoveredBytes : 0;
+    NSUInteger resumeBound = self.recordedPCMData ? self.recordedPCMData.length : self.liveCoveredBytes;
+    self.liveSentBytes = resume ? GFSafeAlignedLiveByteOffset(self.liveCoveredBytes, resumeBound) : 0;
     self.liveSpeechActive = NO;
     self.liveFinalizing = NO;
     self.liveActivityEnded = NO;
@@ -7167,7 +7223,8 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
 - (void)pumpLiveAudioForce:(BOOL)force {
     if (!self.liveWebSocketConnected || (!self.liveWebSocketTask && !self.liveTestSocketless)) return;
     if ([self e2eMaybeSimulateLifetimeClose]) return;
-    NSUInteger total = self.recordedPCMData.length;
+    NSUInteger total = self.recordedPCMData.length & ~(NSUInteger)1;
+    self.liveSentBytes = GFSafeAlignedLiveByteOffset(self.liveSentBytes, total);
     if (total <= self.liveSentBytes) return;
     if (!force && total - self.liveSentBytes < 3200) return; // send ~100 ms chunks
     if (!self.liveActivityOpen) {
@@ -7212,7 +7269,8 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
     NSURLSessionWebSocketTask *sendTask = self.liveWebSocketTask;
     __weak typeof(self) weakSelf = self;
     while (self.liveSentBytes < total) {
-        NSUInteger pending = MIN(maxChunk, total - self.liveSentBytes);
+        NSUInteger pending = (MIN(maxChunk, total - self.liveSentBytes)) & ~(NSUInteger)1;
+        if (pending == 0) break;
         NSData *chunk = [self.recordedPCMData subdataWithRange:NSMakeRange(self.liveSentBytes, pending)];
         self.liveSentBytes += pending;
         NSDictionary *msg = @{@"realtimeInput": @{@"audio": @{@"mimeType": @"audio/pcm;rate=16000",
@@ -7296,7 +7354,8 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
     self.liveSocketIsRotation = YES;
     self.liveQuietResume = quiet;
     if (quiet) {
-        NSUInteger pos = MAX(self.liveCoveredBytes, MIN(heldBack, self.recordedPCMData.length));
+        NSUInteger bound = self.recordedPCMData ? self.recordedPCMData.length : MAX(self.liveCoveredBytes, heldBack);
+        NSUInteger pos = GFSafeAlignedLiveByteOffset(MAX(self.liveCoveredBytes, MIN(heldBack, bound)), bound);
         self.liveSentBytes = pos;
         self.liveActivityStartByte = pos;
     }
@@ -9694,6 +9753,7 @@ static GFAppContextCategory GFAppContextCategoryForBundleID(NSString *bundleId) 
     if (![bundleId isKindOfClass:[NSString class]] || bundleId.length == 0) return GFAppContextGeneral;
     NSString *b = bundleId.lowercaseString;
     if ([b isEqualToString:@"com.apple.mail"] || [b isEqualToString:@"com.apple.mobilemail"] ||
+        [b isEqualToString:@"com.google.gmail"] || [b isEqualToString:@"com.microsoft.office.outlook"] ||
         [b containsString:@"superhuman"] || [b containsString:@"mimestream"] ||
         [b containsString:@"outlook"] || [b containsString:@"smartemail"] ||
         [b containsString:@"thunderbird"] || [b containsString:@"postbox"] ||
@@ -9702,12 +9762,15 @@ static GFAppContextCategory GFAppContextCategoryForBundleID(NSString *bundleId) 
         [b containsString:@"protonmail"] || [b containsString:@"hey.app"]) {
         return GFAppContextEmail;
     }
-    if ([b isEqualToString:@"com.tinyspeck.slackmacgap"] || [b containsString:@"slack"] ||
-        [b isEqualToString:@"com.apple.mobilesms"] || [b containsString:@"discord"] ||
-        [b containsString:@"telegram"] || [b containsString:@"telegraph"] ||
-        [b containsString:@"whatsapp"] || [b containsString:@"signal-desktop"] ||
-        [b containsString:@"whispersystems.signal"] || [b containsString:@"facebook.archon"] ||
-        [b containsString:@"microsoft.teams"] || [b isEqualToString:@"com.linear"]) {
+    if ([b isEqualToString:@"com.tinyspeck.slackmacgap"] || [b isEqualToString:@"com.tinyspeck.chatlyio"] ||
+        [b containsString:@"slack"] || [b isEqualToString:@"com.apple.mobilesms"] ||
+        [b isEqualToString:@"com.hammerandchisel.discord"] || [b containsString:@"discord"] ||
+        [b isEqualToString:@"ph.telegra.telegraph"] || [b containsString:@"telegram"] || [b containsString:@"telegraph"] ||
+        [b isEqualToString:@"net.whatsapp.whatsapp"] || [b containsString:@"whatsapp"] ||
+        [b containsString:@"signal-desktop"] || [b containsString:@"whispersystems.signal"] ||
+        [b containsString:@"facebook.archon"] || [b containsString:@"microsoft.teams"] ||
+        [b isEqualToString:@"com.atebits.tweetie2"] || [b isEqualToString:@"com.burbn.instagram"] ||
+        [b isEqualToString:@"com.linear"]) {
         return GFAppContextChat;
     }
     if ([b isEqualToString:@"com.microsoft.vscode"] || [b containsString:@"vscode"] ||
@@ -9717,7 +9780,9 @@ static GFAppContextCategory GFAppContextCategoryForBundleID(NSString *bundleId) 
         [b isEqualToString:@"com.apple.terminal"] || [b containsString:@"warp-stable"] ||
         [b isEqualToString:@"dev.warp.warp"] || [b containsString:@"kovidgoyal.kitty"] ||
         [b containsString:@"alacritty"] || [b containsString:@"wezterm"] ||
-        [b containsString:@"jetbrains."] || [b containsString:@"sublimetext"]) {
+        [b containsString:@"jetbrains."] || [b containsString:@"sublimetext"] ||
+        [b isEqualToString:@"com.panic.prompt"] || [b isEqualToString:@"sh.blink.blink"] ||
+        [b containsString:@"termius"]) {
         return GFAppContextCode;
     }
     return GFAppContextGeneral;
@@ -9975,6 +10040,79 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     }
 }
 
+// Cycle 67: Spoken Technical Filenames, Slash Compounds & CLI Flags (shared with iOS via transplant.py).
+//  - Spoken source & document filenames ("main dot m" -> "main.m", "package dot json" -> "package.json", "readme dot md" -> "README.md",
+//    "index dot ts" -> "index.ts", "app dot swift" -> "app.swift", "config dot yaml" -> "config.yaml", "report dot pdf" -> "report.pdf").
+//  - Spoken slash compounds ("and slash or" -> "and/or", "yes slash no" -> "yes/no", "true slash false" -> "true/false",
+//    "read slash write" -> "read/write", "client slash server" -> "client/server", "CI slash CD" -> "CI/CD", "TCP slash IP" -> "TCP/IP",
+//    "I slash O" -> "I/O", "A slash B test" -> "A/B test").
+//  - Spoken CLI double-dash flags ("dash dash help" -> "--help", "dash dash version" -> "--version", "dash dash dry run" -> "--dry-run").
+static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
+    if (!str || str.length < 5) return;
+    NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+    if ([str rangeOfString:@" dot " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        static NSRegularExpression *fileExtRe;
+        static NSSet<NSString *> *nonFileLeadWords;
+        static dispatch_once_t onceFile;
+        dispatch_once(&onceFile, ^{
+            fileExtRe = [NSRegularExpression regularExpressionWithPattern:
+                         @"(?<![@.\\w-])\\b([a-z0-9_-]{2,40})\\s+dot\\s+(swift|py|js|ts|tsx|jsx|json|yaml|yml|toml|md|txt|html|css|scss|"
+                         @"sql|go|rs|rb|java|kt|cpp|hpp|mm|m|h|c|plist|xcodeproj|pdf|csv|png|jpg|jpeg|svg|gif|mp4|wav|zip|tar|gz|log|env|gitignore)"
+                         @"(?:\\s+dot\\s+(gz|xz|bz2|map|bak))?\\b"
+                                                                  options:ci error:nil];
+            nonFileLeadWords = [NSSet setWithArray:@[
+                @"the", @"a", @"an", @"this", @"that", @"is", @"was", @"are", @"were", @"be", @"in", @"on", @"at", @"to", @"of",
+                @"for", @"with", @"by", @"from", @"as", @"or", @"and", @"not", @"no", @"so", @"if", @"it", @"we", @"he", @"me",
+                @"us", @"my", @"up", @"do", @"go", @"plan", @"vitamin", @"type", @"option", @"point", @"grade", @"class",
+                @"part", @"section", @"group", @"exhibits", @"exhibit", @"item", @"figure", @"table", @"appendix"
+            ]];
+        });
+        NSArray<NSTextCheckingResult *> *matches = [fileExtRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [matches reverseObjectEnumerator]) {
+            NSString *rawStem = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *stemLow = rawStem.lowercaseString;
+            NSString *extLow = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            NSRange ext2Range = [m rangeAtIndex:3];
+            NSString *ext2Low = (ext2Range.location != NSNotFound) ? [[str substringWithRange:ext2Range] lowercaseString] : nil;
+            if ([nonFileLeadWords containsObject:stemLow]) continue;
+            NSString *stemOut = [stemLow isEqualToString:@"readme"] ? @"README" : rawStem;
+            if ([stemOut isEqualToString:[stemOut capitalizedString]] && ![stemLow isEqualToString:@"readme"]) {
+                stemOut = stemLow;
+            }
+            NSString *fullExt = ext2Low.length > 0 ? [NSString stringWithFormat:@"%@.%@", extLow, ext2Low] : extLow;
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@.%@", stemOut, fullExt]];
+        }
+    }
+    if ([str rangeOfString:@"slash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(and)\\s+slash\\s+(or)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(yes)\\s+slash\\s+(no)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(true)\\s+slash\\s+(false)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(read)\\s+slash\\s+(write)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(client)\\s+slash\\s+(server)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(pass)\\s+slash\\s+(fail)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(on)\\s+slash\\s+(off)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(input)\\s+slash\\s+(output)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\bci\\s+slash\\s+cd\\b", @"CI/CD", ci);
+        replaceRegex(str, @"\\btcp\\s+slash\\s+ip\\b", @"TCP/IP", ci);
+        replaceRegex(str, @"\\bi\\s+slash\\s+o\\b", @"I/O", ci);
+        replaceRegex(str, @"\\ba\\s+slash\\s+b(?=\\s+(?:test|testing|tests|split|experiment|comparison)\\b)", @"A/B", ci);
+    }
+    if ([str rangeOfString:@"dash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bdash\\s+dash\\s+dry\\s+run\\b", @"--dry-run", ci);
+        static NSRegularExpression *flagRe;
+        static dispatch_once_t onceFlag;
+        dispatch_once(&onceFlag, ^{
+            flagRe = [NSRegularExpression regularExpressionWithPattern:@"\\bdash\\s+dash\\s+([a-z][a-z0-9-]{1,24})\\b"
+                                                               options:ci error:nil];
+        });
+        NSArray<NSTextCheckingResult *> *fMatches = [flagRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [fMatches reverseObjectEnumerator]) {
+            NSString *flagName = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            [str replaceCharactersInRange:m.range withString:[@"--" stringByAppendingString:flagName]];
+        }
+    }
+}
+
 // Cycle 51: Upgrades a trailing '.' to '?' when the final sentence is a clear grammatical question that ended with an
 // abbreviation dot ("Can we meet at 3:00 p.m." -> "Can we meet at 3:00 p.m.?") or a period left over from a correction
 // fragment ("Can we meet on Tuesday? Wait, no, Wednesday." -> "Can we meet on Wednesday?").
@@ -10176,6 +10314,11 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         }
     }
 
+    // 6i. Spoken technical filenames ("main dot m" -> "main.m"), slash compounds ("CI slash CD" -> "CI/CD"), and CLI flags
+    // ("dash dash help" -> "--help"): runs before step 7 (GFRemoveStutterRepeats) so "dash dash" is formatted as "--" before
+    // single-word stutter deduplication runs.
+    GFFormatSpokenTechnicalTokens(str);
+
     // 7. Remove accidental duplicate stutter words (e.g. "the the", "I I", "we we we") and repeated phrases / mid-thought
     // restarts ("with my with my new app"; backlog 0x). After the fillers, so "with my, um, with my" collapses too.
     if (cleanStutter) GFRemoveStutterRepeats(str);
@@ -10367,6 +10510,15 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     }];
 }
 
+// Cycle 64 (Backlog 22): Defer superseded WAV URL recognition while the newer press's streaming SFSpeechRecognizer task is active,
+// so two SFSpeechRecognitionTasks never compete on the same SFSpeechRecognizer at once. Its paste is already deferred until
+// flushDeferredPastes (at release, cancel, or mic abort), so flushing the WAV fallback right before deferred pastes preserves
+// chronological delivery order. In e2e --e2e-second-press tests (which test immediate concurrent delivery via e2eCompletion),
+// keep immediate execution so test timing hooks stay deterministic.
+static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordingNewPress, BOOL hasActiveStreamingRecognitionTask, BOOL hasE2ESecondPressHook) {
+    return isSuperseded && isRecordingNewPress && hasActiveStreamingRecognitionTask && !hasE2ESecondPressHook;
+}
+
 // Last on-device step for a dictation that a newer press superseded (backlog 6). Its live recognizer was stopped at the new press,
 // so use the transcript saved then. If that is empty, recognize its saved recording, unless the recording is near-silent (then it
 // is no speech, and no second recognition runs next to the newer press's recognizer).
@@ -10386,7 +10538,26 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         [self showNoSpeechDetectedForDictation:d];
         return;
     }
+    if (GFShouldDeferSupersededWAVFallback(d.superseded, self.isRecording, self.recognitionTask != nil, self.e2eSecondPressFile.length > 0)) {
+        if (!self.deferredWAVFallbacks) self.deferredWAVFallbacks = [NSMutableArray array];
+        if (![self.deferredWAVFallbacks containsObject:d]) [self.deferredWAVFallbacks addObject:d];
+        if (!self.unitTestMode) {
+            GFLog(@"Dictation #%lu: deferring WAV URL recognition until the newer press's streaming recognizer ends", (unsigned long)d.serial);
+        }
+        return;
+    }
     [self fallbackToWAVURLRecognitionForDictation:d];
+}
+
+- (void)flushDeferredWAVFallbacks {
+    if (_deferredWAVFallbacks.count == 0) return;
+    NSArray<GFDictation *> *pending = [_deferredWAVFallbacks copy];
+    [_deferredWAVFallbacks removeAllObjects];
+    for (GFDictation *d in pending) {
+        if (!d.finished) {
+            [self fallbackToWAVURLRecognitionForDictation:d];
+        }
+    }
 }
 
 - (void)fallbackToWAVURLRecognitionForDictation:(GFDictation *)dictation {
@@ -10504,6 +10675,35 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     [self applyFinalTranscript:text dictation:nil];
 }
 
+// Cycle 65: Cross-platform engine delivery seam for host-supplied cursor context (e.g. iOS UITextDocumentProxy) and voice undo.
+- (NSString *)applyHostDeliverySeamsToTranscript:(NSString *)text dictation:(GFDictation *)d handledByUndo:(BOOL *)outHandledByUndo {
+    if (outHandledByUndo) *outHandledByUndo = NO;
+    if (!d.superseded && self.hostVoiceUndoHandler && self.lastPastedText.length > 0) {
+        NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - self.lastPasteTimestamp;
+        if (GFShouldUndoLastPaste(text, self.lastPastedText, elapsed, YES)) {
+            NSString *toUndo = self.lastPastedText;
+            if (self.hostVoiceUndoHandler(toUndo)) {
+                self.lastPastedText = nil;
+                self.lastPasteTimestamp = 0;
+                if (outHandledByUndo) *outHandledByUndo = YES;
+                if (!self.unitTestMode) {
+                    [self returnToIdleWithStatusTitle:nil notice:@"Undone" mode:HUDModeNotice dismissAfter:0.9];
+                }
+                return text;
+            }
+        }
+    }
+    if (!d.superseded && (self.hostCursorBeforeText.length > 0 || self.hostCursorAfterText.length > 0)) {
+        text = GFAdaptTextForMidSentenceCursor(text, self.hostCursorBeforeText, self.hostCursorAfterText,
+                                               [self customVocabularyForDictation]) ?: text;
+    }
+    if (!d.superseded && self.hostVoiceUndoHandler && !GFIsStandaloneVoiceUndoCommand(text)) {
+        self.lastPastedText = text;
+        self.lastPasteTimestamp = [NSDate timeIntervalSinceReferenceDate];
+    }
+    return text;
+}
+
 // Delivers a dictation (nil = the current one). A superseded dictation (a newer press started before it finished) is still
 // delivered in full: clipboard, Recent Dictations and auto-paste, in the order the results arrive, but the newer press's HUD and
 // menu icon are left alone and no Accessibility prompt is shown over it (backlog 6).
@@ -10522,6 +10722,11 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         return;
     }
     d.finished = YES;
+    if (self.hostCursorBeforeText.length > 0 || self.hostCursorAfterText.length > 0 || self.hostVoiceUndoHandler != nil) {
+        BOOL handledByHostUndo = NO;
+        text = [self applyHostDeliverySeamsToTranscript:text dictation:d handledByUndo:&handledByHostUndo];
+        if (handledByHostUndo) return;
+    }
     if (!self.unitTestMode) {
         if (d.superseded) GFLog(@"applyFinalTranscript: %lu chars (dictation #%lu, delivered while a newer press is active)",
                                 (unsigned long)text.length, (unsigned long)d.serial);
@@ -10594,6 +10799,7 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
 
 // Called when the newer press is released or cancelled: paste the deferred dictations first, in order.
 - (void)flushDeferredPastes {
+    [self flushDeferredWAVFallbacks];
     if (_deferredPastes.count == 0) return;
     if (!self.unitTestMode) GFLog(@"Pasting %lu deferred dictation(s) before the newer press's text", (unsigned long)_deferredPastes.count);
     NSArray<NSString *> *pending = [_deferredPastes copy];
@@ -15460,6 +15666,126 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
                 if (c63Ok) passed++; else failed++;
                 printf("%s: slow split turn wire delay hook and zero-warning SDK compatibility (%d%d%d%d%d)\n",
                        c63Ok ? "PASS" : "FAIL", s1, s2, s3, s4, s5);
+            }
+            // Cycle 64: Deferred Superseded WAV Fallback Serialization (Backlog 22)
+            {
+                BOOL w1 = GFShouldDeferSupersededWAVFallback(YES, YES, YES, NO);
+                BOOL w2 = !GFShouldDeferSupersededWAVFallback(NO, YES, YES, NO);
+                BOOL w3 = !GFShouldDeferSupersededWAVFallback(YES, NO, YES, NO);
+                BOOL w4 = !GFShouldDeferSupersededWAVFallback(YES, YES, NO, NO);
+                BOOL w5 = !GFShouldDeferSupersededWAVFallback(YES, YES, YES, YES);
+                AppDelegate *wd = [[AppDelegate alloc] init];
+                wd.unitTestMode = YES;
+                wd.isRecording = YES;
+                wd.recognitionTask = (SFSpeechRecognitionTask *)[[NSObject alloc] init];
+                NSMutableData *loudPcm = [NSMutableData dataWithLength:2 * 32000];
+                int16_t *ls = (int16_t *)loudPcm.mutableBytes;
+                for (NSUInteger i = 3200; i < 32000; i++) ls[i] = (int16_t)(2400 * sin(i * 0.1));
+                GFDictation *sup = [[GFDictation alloc] init];
+                sup.serial = 11;
+                sup.superseded = YES;
+                sup.pcm = loudPcm;
+                sup.onDeviceText = @"";
+                NSMutableArray<NSString *> *wavOut = [NSMutableArray array];
+                wd.resultSink = ^(NSString *text, GFDictation *d) {
+                    [wavOut addObject:[NSString stringWithFormat:@"#%lu:%@", (unsigned long)d.serial, text ?: @"<nil>"]];
+                };
+                [wd finishSupersededDictationOnDevice:sup];
+                BOOL w6 = (!sup.finished && wd.deferredWAVFallbacks.count == 1 && wd.deferredWAVFallbacks.firstObject == sup && wavOut.count == 0);
+                wd.isRecording = NO;
+                wd.recognitionTask = nil;
+                [wd flushDeferredPastes];
+                BOOL w7 = (wd.deferredWAVFallbacks.count == 0 && sup.finished && wavOut.count == 1 && [wavOut.firstObject isEqualToString:@"#11:<nil>"]);
+                BOOL c64Ok = w1 && w2 && w3 && w4 && w5 && w6 && w7;
+                if (c64Ok) passed++; else failed++;
+                printf("%s: deferred superseded WAV fallback serialization while streaming recognizer active (%d%d%d%d%d%d%d)\n",
+                       c64Ok ? "PASS" : "FAIL", w1, w2, w3, w4, w5, w6, w7);
+            }
+            // Cycle 65: Cross-Platform Engine Seams for iOS/macOS App-Context Bundle IDs, Cursor Context & Voice Undo
+            {
+                BOOL b1 = (GFAppContextCategoryForBundleID(@"com.google.gmail") == GFAppContextEmail &&
+                           GFAppContextCategoryForBundleID(@"com.tinyspeck.chatlyio") == GFAppContextChat &&
+                           GFAppContextCategoryForBundleID(@"ph.telegra.telegraph") == GFAppContextChat &&
+                           GFAppContextCategoryForBundleID(@"net.whatsapp.whatsapp") == GFAppContextChat &&
+                           GFAppContextCategoryForBundleID(@"com.panic.prompt") == GFAppContextCode &&
+                           GFAppContextCategoryForBundleID(@"sh.blink.blink") == GFAppContextCode);
+                AppDelegate *hd = [[AppDelegate alloc] init];
+                hd.unitTestMode = YES;
+                hd.hostCursorBeforeText = @"I want to ";
+                hd.hostCursorAfterText = @" right now.";
+                NSMutableArray<NSString *> *delivered = [NSMutableArray array];
+                NSMutableArray<NSString *> *undone = [NSMutableArray array];
+                hd.resultSink = ^(NSString *text, GFDictation *d) { [delivered addObject:text ?: @""]; };
+                hd.hostVoiceUndoHandler = ^BOOL(NSString *undoneText) {
+                    [undone addObject:undoneText ?: @""];
+                    return YES;
+                };
+                [hd applyFinalTranscript:@"Ship the new build. " dictation:nil];
+                BOOL b2 = (delivered.count == 1 && [delivered.firstObject isEqualToString:@"ship the new build"] &&
+                           [hd.lastPastedText isEqualToString:@"ship the new build"]);
+                [hd applyFinalTranscript:@"Scratch that. " dictation:nil];
+                BOOL b3 = (delivered.count == 1 && undone.count == 1 && [undone.firstObject isEqualToString:@"ship the new build"] &&
+                           hd.lastPastedText == nil);
+                BOOL c65Ok = b1 && b2 && b3;
+                if (c65Ok) passed++; else failed++;
+                printf("%s: cross-platform iOS/macOS app-context bundle IDs, cursor continuation seam, and voice undo seam (%d%d%d)\n",
+                       c65Ok ? "PASS" : "FAIL", b1, b2, b3);
+            }
+            // Cycle 66: CoreAudio Sleep/Wake & Daemon Reset Resilience
+            {
+                BOOL k1 = GFShouldRewarmAudioEngineOnSystemWake(NO, YES, NO, 10.0);
+                BOOL k2 = !GFShouldRewarmAudioEngineOnSystemWake(YES, YES, NO, 10.0);
+                BOOL k3 = !GFShouldRewarmAudioEngineOnSystemWake(NO, NO, NO, 10.0);
+                BOOL k4 = !GFShouldRewarmAudioEngineOnSystemWake(NO, YES, YES, 10.0);
+                BOOL k5 = !GFShouldRewarmAudioEngineOnSystemWake(NO, YES, NO, 0.5);
+                AppDelegate *wk = [[AppDelegate alloc] init];
+                wk.unitTestMode = YES;
+                wk.audioEngine = (AVAudioEngine *)[[NSObject alloc] init];
+                BOOL k6 = [wk rewarmAudioEngineAfterSystemWakeIfNeeded];
+                BOOL k7 = ![wk rewarmAudioEngineAfterSystemWakeIfNeeded]; // debounced within 2.0s
+                BOOL c66Ok = k1 && k2 && k3 && k4 && k5 && k6 && k7;
+                if (c66Ok) passed++; else failed++;
+                printf("%s: CoreAudio sleep/wake idle audio engine rewarm and debounce (%d%d%d%d%d%d%d)\n",
+                       c66Ok ? "PASS" : "FAIL", k1, k2, k3, k4, k5, k6, k7);
+            }
+            // Cycle 67: Spoken Technical Filenames, Slash Compounds & CLI Flags (GFFormatSpokenTechnicalTokens)
+            {
+                BOOL t1 = [[self polishOnDeviceTranscript:@"Please update main dot m, package dot json, archive dot tar dot gz, and readme dot md before the review."]
+                           isEqualToString:@"Please update main.m, package.json, archive.tar.gz, and README.md before the review. "];
+                BOOL t2 = [[self polishOnDeviceTranscript:@"Check the CI slash CD pipeline, TCP slash IP settings, and slash or the I slash O throughput."]
+                           isEqualToString:@"Check the CI/CD pipeline, TCP/IP settings, and/or the I/O throughput. "];
+                BOOL t3 = [[self polishOnDeviceTranscript:@"Run the binary with dash dash help, dash dash verbose, or dash dash dry run."]
+                           isEqualToString:@"Run the binary with --help, --verbose, or --dry-run. "];
+                BOOL t4 = [[self polishOnDeviceTranscript:@"We need a yes slash no answer for the A slash B test on index dot ts."]
+                           isEqualToString:@"We need a yes/no answer for the A/B test on index.ts. "];
+                BOOL c67Ok = t1 && t2 && t3 && t4;
+                if (c67Ok) passed++; else failed++;
+                printf("%s: spoken technical filenames, slash compounds, and CLI flags (%d%d%d%d)\n",
+                       c67Ok ? "PASS" : "FAIL", t1, t2, t3, t4);
+            }
+            // Cycle 68: Live WebSocket PCM Slice Bounds & 2-Byte Sample Alignment Guard (GFSafeAlignedLiveByteOffset)
+            {
+                BOOL a1 = (GFSafeAlignedLiveByteOffset(32000, 64000) == 32000);
+                BOOL a2 = (GFSafeAlignedLiveByteOffset(32001, 64000) == 32000); // odd byte offset aligned down to 2-byte sample boundary
+                BOOL a3 = (GFSafeAlignedLiveByteOffset(99999, 64000) == 64000); // clamped to totalPCMBytes
+                BOOL a4 = (GFSafeAlignedLiveByteOffset(99999, 64001) == 64000); // odd totalPCMBytes aligned down
+                AppDelegate *al = [[AppDelegate alloc] init];
+                al.unitTestMode = YES;
+                al.liveTestSocketless = YES;
+                al.liveWebSocketConnected = YES;
+                al.liveActivityOpen = YES;
+                al.recordedPCMData = [NSMutableData dataWithLength:32001]; // odd trailing byte
+                al.liveCoveredBytes = 16001; // unaligned covered byte
+                [al liveResetSessionStateResuming:YES];
+                BOOL a5 = (al.liveSentBytes == 16000);
+                al.liveWebSocketConnected = YES;
+                al.liveActivityOpen = YES;
+                [al pumpLiveAudioForce:YES];
+                BOOL a6 = (al.liveSentBytes == 32000);
+                BOOL c68Ok = a1 && a2 && a3 && a4 && a5 && a6;
+                if (c68Ok) passed++; else failed++;
+                printf("%s: Live WebSocket PCM slice bounds and 2-byte sample alignment guard (%d%d%d%d%d%d)\n",
+                       c68Ok ? "PASS" : "FAIL", a1, a2, a3, a4, a5, a6);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

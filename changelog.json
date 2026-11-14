@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 68,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:24",
+      "title": "Protects live audio streaming against uneven sample boundaries on reconnects",
+      "highlights": [
+        "Ensures every live audio chunk, reconnect resend, and planned session rotation stays aligned on exact 16-bit audio sample boundaries and within the recorded audio buffer.",
+        "Prevents audio clicks or range errors if a network reconnect or turn split resumes from an uneven byte offset."
+      ]
+    },
+    {
+      "cycle": 67,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:22",
+      "title": "Formats spoken filenames, slash compounds, and command-line flags",
+      "highlights": [
+        "Turns spoken developer and document filenames like 'main dot m', 'package dot json', 'readme dot md', 'index dot ts', and 'report dot pdf' into 'main.m', 'package.json', 'README.md', 'index.ts', and 'report.pdf'.",
+        "Formats spoken slash expressions and command-line flags such as 'and slash or', 'yes slash no', 'CI slash CD', 'TCP slash IP', 'I slash O', 'dash dash help', and 'dash dash dry run' into 'and/or', 'yes/no', 'CI/CD', 'TCP/IP', 'I/O', '--help', and '--dry-run'."
+      ]
+    },
+    {
+      "cycle": 66,
+      "scope": "mac",
+      "timestamp": "14 Nov \u00b7 11:21",
+      "title": "Refreshes the microphone automatically when your Mac wakes from sleep",
+      "highlights": [
+        "Detects when your Mac wakes from sleep while GeminiFlow is idle and refreshes the audio input engine right away.",
+        "Prevents the first dictation after opening your laptop lid from hitting a stale microphone connection or waiting for an automatic retry."
+      ]
+    },
+    {
+      "cycle": 65,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:19",
+      "title": "Shared iOS and Mac support for app-aware formatting, mid-sentence continuation, and voice undo",
+      "highlights": [
+        "Extends app-aware formatting to recognize popular iOS email, chat, and terminal apps alongside Mac apps.",
+        "Adds cross-platform engine hooks so iOS keyboards and host apps can supply surrounding cursor text for mid-sentence lowercase continuation and handle 'Scratch that' voice undo automatically."
+      ]
+    },
+    {
+      "cycle": 64,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:16",
+      "title": "Queues on-device audio file fallback when a new dictation is already recording",
+      "highlights": [
+        "When an earlier dictation falls back to Apple's on-device audio file recognizer while you are already speaking a new dictation, GeminiFlow now waits until you release the key before running the file recognizer so the two never compete for the on-device speech engine.",
+        "Preserves your exact dictation order by processing the queued recording right before delivering deferred pastes."
+      ]
+    },
+    {
       "cycle": 63,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 10:39",
