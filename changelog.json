@@ -3,6 +3,55 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 153,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:31",
+      "title": "Fixes 'defiantly' for 'definitely', 'pacifically', 'exspecially', 'supposably', and 'irregardless'",
+      "highlights": [
+        "Repairs common speech-to-text and autocorrect mix-ups where 'defiantly' is transcribed instead of 'definitely' ('I will defiantly check', 'that is defiantly wrong', 'I defiantly agree') while keeping real uses like 'stared defiantly' untouched.",
+        "Turns phonetic spellings including 'pacifically', 'exspecially', 'supposably', 'irregardless', 'probly', and 'prolly' into 'specifically', 'especially', 'supposedly', 'regardless', and 'probably'."
+      ]
+    },
+    {
+      "cycle": 152,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:30",
+      "title": "Fixes 'take it for granted', 'statute of limitations', 'scapegoat', 'wreak havoc', and 'make do'",
+      "highlights": [
+        "Repairs everyday phrases that speech recognizers often transcribe with the wrong homophone, turning 'take it for granite', 'statue of limitations', 'escape goat', 'wet my appetite', 'wreck havoc', and 'at my beckon call' into 'take it for granted', 'statute of limitations', 'scapegoat', 'whet my appetite', 'wreak havoc', and 'at my beck and call'.",
+        "Fixes 'make due with', 'first come, first serve', 'fall by the way side', and 'pass mustard' into 'make do with', 'first come, first served', 'fall by the wayside', and 'pass muster'."
+      ]
+    },
+    {
+      "cycle": 151,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:28",
+      "title": "Cleans up 'wait, let me think', 'actually, hold on', and 'let me say that differently' self-corrections",
+      "highlights": [
+        "When you pause mid-sentence to collect your thoughts with 'wait, let me think,', 'actually, hold on,', 'wait, hold on,', or 'let me say that differently,', GeminiFlow removes the earlier draft clause and keeps your revised phrasing."
+      ]
+    },
+    {
+      "cycle": 150,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:27",
+      "title": "Milestone Cycle 150: Cleans up 'what I want to do is I want to' rambles and speeds up text polish",
+      "highlights": [
+        "Simplifies echoed framing clauses when collecting your thoughts out loud ('what I want to do is, I want to focus on personal conversations' and 'what I am trying to do is I am trying to test' become 'what I want to do is focus on personal conversations' and 'what I am trying to do is test').",
+        "Cleans up wordy rambling connectors including 'because of the fact that', 'due to the fact that', 'whether or not if', and 'and also as well' into 'because', 'whether or not', and 'and also', and adds fast substring guards across the polish pipeline."
+      ]
+    },
+    {
+      "cycle": 149,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:26",
+      "title": "Removes filler 'like' after 'rather than', 'such as', 'compared to', and 'when it comes to'",
+      "highlights": [
+        "Strips filler 'like' after multi-word 'to' phrases including 'according to like', 'compared to like', 'prior to like', 'due to like', 'thanks to like', 'up to like', 'next to like', 'close to like', 'as opposed to like', 'in addition to like', and 'when it comes to like'.",
+        "Removes filler 'like' after 'rather than', 'other than', 'more than', 'less than', 'such as', 'as well as', 'along with', and 'apart from' ('rather than like refining this for a developer' becomes 'rather than refining this for a developer')."
+      ]
+    },
+    {
       "cycle": 148,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 16:19",
