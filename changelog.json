@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 73,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:51",
+      "title": "Joins split software compound words and fixes 'first, then on' phrasing",
+      "highlights": [
+        "Combines software compound words that speech recognizers often split apart, turning 'mock ups', 'code base', 'work flow', 'end point', 'time stamp', 'name space', 'data base', 'change log', and 'tool chain' into 'mockups', 'codebase', 'workflow', 'endpoint', 'timestamp', 'namespace', 'database', 'changelog', and 'toolchain'.",
+        "Fixes 'on reliability first thing on speed' to 'on reliability first, then on speed' while keeping real schedule phrases like 'first thing on Monday' untouched."
+      ]
+    },
+    {
+      "cycle": 72,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:50",
+      "title": "Smarter Custom Words learning for 3-letter acronyms and capitalization edits",
+      "highlights": [
+        "When you edit spaced letters like 'L L M' or 'S Q L' into 'LLM' or 'SQL' after pasting, GeminiFlow now recognizes the 3-word edit and offers to remember it in Custom Words.",
+        "Ignores simple first-letter capitalization changes on ordinary words ('meeting' to 'Meeting') while still learning real mixed-case brand and tech edits ('graphql' to 'GraphQL')."
+      ]
+    },
+    {
+      "cycle": 71,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:49",
+      "title": "Recovers compound tech names and two-word Custom Words across both speech engines",
+      "highlights": [
+        "When Apple's on-device listener recognizes a compound technical name or Custom Word like 'WebSocket', 'SwiftUI', 'PostgreSQL', or 'GeminiFlow' where the cloud transcript split it into two words ('web socket', 'Gemini flow'), GeminiFlow merges it into the proper spelling automatically.",
+        "Also cross-checks two-word Custom Words ('Agent Studio') against Apple's on-device transcript when the surrounding sentence matches."
+      ]
+    },
+    {
+      "cycle": 70,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:48",
+      "title": "Finishes background live dictations faster when the final pause has no speech",
+      "highlights": [
+        "When you start a second dictation right after releasing the first and the first dictation's final turn closes with only silence or a key click after earlier speech, GeminiFlow now finishes the first dictation immediately in 0.15 seconds instead of waiting 1.5 seconds.",
+        "If the first dictation had no earlier text, it switches to the backup transcription service right away instead of waiting out the full timeout."
+      ]
+    },
+    {
+      "cycle": 69,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:47",
+      "title": "Smarter mid-sentence cursor spacing and natural 'Scratch that' voice undo phrases",
+      "highlights": [
+        "Improves mid-sentence dictation continuation when inserting a new sentence before continuing text or when the text after your cursor has no leading space.",
+        "Recognizes natural voice undo phrases such as 'Oops, scratch that, please', 'Oh, sorry, undo the last sentence', and 'Wait, delete last dictation'."
+      ]
+    },
+    {
       "cycle": 68,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 11:24",
