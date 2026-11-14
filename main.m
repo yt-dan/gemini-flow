@@ -65,11 +65,16 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(88), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:16", @"title": @"Formats spoken dotfiles like '.env' and '.gitignore' and more terminal commands", @"highlights": @[@"Turns spoken dotfiles like 'dot env', 'dot env dot local', 'dot gitignore', 'dot zshrc', and 'dot npmrc' into '.env', '.env.local', '.gitignore', '.zshrc', and '.npmrc', and adds support for shell, Protobuf, GraphQL, SQLite, and Xcode project extensions.", @"Keeps more spoken command-line tools in lowercase when dictating into code editors and terminals, including 'swift', 'gh', 'uv', 'bun', 'pnpm', 'terraform', 'kubectl', and 'gcloud'."]},
+            @{@"cycle": @(87), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:15", @"title": @"Formats spoken euros, pounds, and computing units like 'GB', 'Mbps', and 'kHz'", @"highlights": @[@"Formats spoken euro and pound amounts such as '20 euros and 50 cents', '3.5 million euros', '25 pounds and 50 pence', and '100 million pounds' into '\u20AC20.50', '\u20AC3.5 million', '\u00A325.50', and '\u00A3100 million'.", @"Abbreviates spoken technical units after numbers, turning '16 gigabytes', '500 megabytes', '100 megabits per second', '16 kilohertz', '2.4 gigahertz', and '60 frames per second' into '16 GB', '500 MB', '100 Mbps', '16 kHz', '2.4 GHz', and '60 fps'."]},
+            @{@"cycle": @(86), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:14", @"title": @"Formats spoken web links, URL paths, and developer brand names", @"highlights": @[@"Turns spoken web addresses and local server paths such as 'https colon slash slash docs dot github dot com slash en slash actions' and 'http colon slash slash localhost colon 3000 slash api slash v1' into clean links.", @"Restores proper capitalization on developer and tech names including 'TypeScript', 'JavaScript', 'GraphQL', 'PostgreSQL', 'MongoDB', 'FastAPI', 'PyTorch', 'OpenAI', 'DeepSeek', 'GitLab', 'SwiftUI', and 'WebSocket'."]},
+            @{@"cycle": @(85), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:12", @"title": @"Skips disk reads when your Custom Words file has not changed", @"highlights": @[@"Checks the file modification timestamp on your Custom Words list before reading from disk, avoiding repeat file reads on every dictation when your list is unchanged.", @"Reuses the prepared vocabulary and replacement pair lists in memory across turns."]},
+            @{@"cycle": @(84), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:11", @"title": @"Cleans up 'oops', 'whoops', and 'my bad' self-corrections and tech environment swaps", @"highlights": @[@"Recognizes natural self-correction cues like 'oops', 'whoops', 'my bad', and 'oh my bad' ('Send it on Monday, my bad, Tuesday' becomes 'Send it on Tuesday').", @"Handles quick swaps between technical environments and modes such as 'Deploy to staging, sorry, production' and 'Update the frontend, wait, backend'."]},
             @{@"cycle": @(83), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:49", @"title": @"Cleans up contraction stutters like 'I'm I am' and 'we're we are'", @"highlights": @[@"When you start a word as a contraction and immediately repeat it in full ('I'm I am going to ship it', 'we're we are ready', 'it's it is working', or 'don't do not touch that'), GeminiFlow keeps only the resolved phrase.", @"Also cleans up the reverse restart ('I am I'm going to ship it' to 'I'm going to ship it')."]},
             @{@"cycle": @(82), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:48", @"title": @"Joins more split software terms like 'webhook', 'dashboard', and 'pipeline'", @"highlights": @[@"Combines developer terms that speech recognizers often split into two words, including 'web hook', 'key chain', 'hot key', 'life cycle', 'middle ware', 'meta data', 'frame work', 'sand box', 'screen shot', 'pipe line', 'dash board', 'bench mark', 'dead lock', 'host name', 'user name', 'pass word', 'file name', and 'byte code'.", @"Cross-checks these compound terms across both speech engines so your technical dictations stay clean."]},
             @{@"cycle": @(81), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:47", @"title": @"Faster vocabulary and word-replacement caching during text cleanup", @"highlights": @[@"Caches your cleaned custom vocabulary list and pre-built replacement patterns in memory when your settings files have not changed.", @"Skips compound-word cleanup checks when a sentence does not contain any matching stems."]},
-            @{@"cycle": @(80), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:44", @"title": @"Automatic log rotation during long menu bar sessions", @"highlights": @[@"Rotates the diagnostic log file automatically during long-running menu bar sessions whenever it reaches 5 MB, instead of only checking when the app starts.", @"Protects log timestamp formatting when background network tasks and the main app log at the same time."]},
-            @{@"cycle": @(79), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:42", @"title": @"Smarter question marks for negative questions, 'What's', and tag questions", @"highlights": @[@"Adds a question mark reliably on negative questions ('Can't we meet at 3:00 p.m.?', 'Don't you think we should wait?'), contracted questions ('What's the plan for 3:00 p.m.?', 'How's the release going?'), 'What if' and 'Which' questions, and tag questions ('We are meeting at 3:00 p.m., right?', 'You updated the baseline, didn't you?').", @"Keeps imperative sentences like 'Do the migration tomorrow.' and 'Have a great weekend.' as statements with a period."]},
+            @{@"cycle": @(80), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:44", @"title": @"Automatic log rotation during long-running sessions", @"highlights": @[@"Rotates the diagnostic log file automatically during long-running dictation sessions whenever it reaches 5 MB, instead of only checking when the app starts.", @"Protects log timestamp formatting when background network tasks and the main app log at the same time."]},
+            @{@"cycle": @(79), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:42", @"title": @"Smarter question marks for negative questions, 'What's', and tag questions", @"highlights": @[@"Adds a question mark reliably on negative questions ('Can't we meet at 3:00 p.m.?', 'Don't you think we should wait?'), contracted questions ('What's the plan for 3:00 p.m.?', 'How's the release going?'), 'What if' and 'Which' questions, and tag questions ('We are still meeting at 3:00 p.m., aren't we?', 'You updated the baseline, didn't you?').", @"Keeps imperative sentences like 'Do the migration tomorrow.' and 'Have a great weekend.' as statements with a period."]},
             @{@"cycle": @(78), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:19", @"title": @"Improves British accent and technical phrase recognition on-device", @"highlights": @[@"Repairs common on-device mishearings on British and fast voices such as 'fixed the bag' ('fixed the bug'), 'feels really Rispo' ('feels really responsive'), and 'off the laptop link to sleep' ('after the laptop wakes from sleep').", @"Preserves ordinary phrases like 'carry the bag' or 'in the bag' untouched."]},
             @{@"cycle": @(77), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:18", @"title": @"Hyphenates spoken technical modifiers like 'end-to-end' and 'real-time'", @"highlights": @[@"Formats spoken compound modifiers before their nouns, turning 'end to end tests', 'real time audio', 'read only mode', 'command line tool', 'out of the box support', 'zero downtime deployment', 'on call rotation', and 'hands on workshop' into 'end-to-end tests', 'real-time audio', 'read-only mode', 'command-line tool', 'out-of-the-box support', 'zero-downtime deployment', 'on-call rotation', and 'hands-on workshop'.", @"Leaves standalone phrases like 'from end to end' or 'in real time' unchanged."]},
             @{@"cycle": @(76), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:17", @"title": @"Faster Custom Words lookup and replacement matching", @"highlights": @[@"Caches your Custom Words list in memory between dictations when the file on disk has not changed, avoiding repeat file parsing on every sentence.", @"Reuses compiled matching patterns when applying 'When you hear X, write Y' word replacements."]},
@@ -3439,24 +3444,91 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *GFCachedCleanedCustomWor
     os_unfair_lock_unlock(&sWordLock);
     return cleaned;
 }
+// Cycle 85: stat()-backed file cache for GFLoadCustomWordEntriesFromPath & pointer-identity caches for derived vocabulary/pair arrays.
+// Avoids opening/reading custom-words.json from disk on every speech turn when (path, ino, size, mtime, ctime) are unchanged,
+// and returns pointer-identical vocabulary and replacement-pair arrays so downstream caches hit in O(1).
 static NSArray<NSDictionary<NSString *, NSString *> *> *GFLoadCustomWordEntriesFromPath(NSString *path) {
-    NSData *data = path.length > 0 ? [NSData dataWithContentsOfFile:path] : nil;
-    return GFCachedCleanedCustomWordEntriesFromData(data);
+    if (!path || path.length == 0) return @[];
+    const char *cpath = path.fileSystemRepresentation;
+    struct stat st;
+    if (!cpath || stat(cpath, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) return @[];
+    static NSString *sLastPath = nil;
+    static ino_t sLastIno = 0;
+    static off_t sLastSize = 0;
+    static time_t sLastMtimeSec = 0, sLastCtimeSec = 0;
+    static long sLastMtimeNsec = 0, sLastCtimeNsec = 0;
+    static NSArray<NSDictionary<NSString *, NSString *> *> *sLastEntries = nil;
+    static os_unfair_lock sPathLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sPathLock);
+    if (sLastEntries && sLastIno == st.st_ino && sLastSize == st.st_size &&
+        sLastMtimeSec == st.st_mtimespec.tv_sec && sLastMtimeNsec == st.st_mtimespec.tv_nsec &&
+        sLastCtimeSec == st.st_ctimespec.tv_sec && sLastCtimeNsec == st.st_ctimespec.tv_nsec &&
+        sLastPath && [sLastPath isEqualToString:path]) {
+        NSArray<NSDictionary<NSString *, NSString *> *> *cached = sLastEntries;
+        os_unfair_lock_unlock(&sPathLock);
+        return cached;
+    }
+    os_unfair_lock_unlock(&sPathLock);
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    NSArray<NSDictionary<NSString *, NSString *> *> *cleaned = GFCachedCleanedCustomWordEntriesFromData(data);
+    os_unfair_lock_lock(&sPathLock);
+    sLastPath = [path copy];
+    sLastIno = st.st_ino;
+    sLastSize = st.st_size;
+    sLastMtimeSec = st.st_mtimespec.tv_sec;
+    sLastMtimeNsec = st.st_mtimespec.tv_nsec;
+    sLastCtimeSec = st.st_ctimespec.tv_sec;
+    sLastCtimeNsec = st.st_ctimespec.tv_nsec;
+    sLastEntries = cleaned;
+    os_unfair_lock_unlock(&sPathLock);
+    return cleaned;
 }
 // What Live is told to prefer: every entry's "write" (plain terms AND the targets of pairs), cleaned and de-duplicated.
 static NSArray<NSString *> *GFVocabularyFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
+    if (!entries || entries.count == 0) return @[];
+    static NSArray<NSDictionary<NSString *, NSString *> *> *sLastVocabEntries = nil;
+    static NSArray<NSString *> *sLastVocabOut = nil;
+    static os_unfair_lock sVocabEntriesLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sVocabEntriesLock);
+    if (sLastVocabEntries && (sLastVocabEntries == entries || [sLastVocabEntries isEqualToArray:entries])) {
+        NSArray<NSString *> *cached = sLastVocabOut;
+        os_unfair_lock_unlock(&sVocabEntriesLock);
+        return cached ?: @[];
+    }
+    os_unfair_lock_unlock(&sVocabEntriesLock);
     NSMutableArray *writes = [NSMutableArray array];
     for (id e in entries)
         if ([e isKindOfClass:[NSDictionary class]] && ((NSDictionary *)e)[kGFCustomWordWrite]) [writes addObject:((NSDictionary *)e)[kGFCustomWordWrite]];
-    return GFCleanVocabulary(writes);
+    NSArray<NSString *> *cleaned = GFCleanVocabulary(writes);
+    os_unfair_lock_lock(&sVocabEntriesLock);
+    sLastVocabEntries = [entries copy];
+    sLastVocabOut = cleaned;
+    os_unfair_lock_unlock(&sVocabEntriesLock);
+    return cleaned;
 }
 // The pairs among the entries (those with a "hear" side), in order: the input of GFApplyUserReplacements.
 static NSArray<NSDictionary<NSString *, NSString *> *> *GFReplacementPairsFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
+    if (!entries || entries.count == 0) return @[];
+    static NSArray<NSDictionary<NSString *, NSString *> *> *sLastPairEntries = nil;
+    static NSArray<NSDictionary<NSString *, NSString *> *> *sLastPairsOut = nil;
+    static os_unfair_lock sPairEntriesLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sPairEntriesLock);
+    if (sLastPairEntries && (sLastPairEntries == entries || [sLastPairEntries isEqualToArray:entries])) {
+        NSArray<NSDictionary<NSString *, NSString *> *> *cached = sLastPairsOut;
+        os_unfair_lock_unlock(&sPairEntriesLock);
+        return cached ?: @[];
+    }
+    os_unfair_lock_unlock(&sPairEntriesLock);
     NSMutableArray<NSDictionary<NSString *, NSString *> *> *pairs = [NSMutableArray array];
     for (id e in entries)
         if ([e isKindOfClass:[NSDictionary class]] && [((NSDictionary *)e)[kGFCustomWordHear] isKindOfClass:[NSString class]]
             && [((NSDictionary *)e)[kGFCustomWordWrite] isKindOfClass:[NSString class]]) [pairs addObject:e];
-    return pairs;
+    NSArray<NSDictionary<NSString *, NSString *> *> *immutablePairs = [pairs copy];
+    os_unfair_lock_lock(&sPairEntriesLock);
+    sLastPairEntries = [entries copy];
+    sLastPairsOut = immutablePairs;
+    os_unfair_lock_unlock(&sPairEntriesLock);
+    return immutablePairs;
 }
 // ONE line typed by the user. "Owen -> Eoin", "Owen → Eoin", "Owen => Eoin", "Owen > Eoin" and "Owen = Eoin" give a pair;
 // anything else is a plain term. Returns the cleaned entry, or nil with *problem set when the line can't be used (nothing typed,
@@ -9335,7 +9407,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastRe = [NSRegularExpression regularExpressionWithPattern:
-                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that)\\b"
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
                  @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
@@ -9345,12 +9417,14 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                  @"sorry\\s*,?\\s*no|no\\s*,?\\s*sorry|sorry\\s*,?\\s*wait|wait\\s*,?\\s*sorry|"
                  @"sorry\\s*,?\\s*actually|actually\\s*,?\\s*sorry|"
                  @"(?:sorry|no|wait|actually|oh|well)\\s*,?\\s*i\\s+(?:mean|meant)|"
-                 @"oh\\s*,?\\s*(?:sorry|wait(?:\\s+a\\s+(?:second|minute|sec|moment))?|no|actually|never\\s*mind)|"
+                 @"oh\\s*,?\\s*(?:sorry|wait(?:\\s+a\\s+(?:second|minute|sec|moment))?|no|actually|never\\s*mind|my\\s+bad)|"
+                 @"(?:sorry\\s*,?\\s*)?my\\s+bad(?:\\s*,?\\s*(?:no|wait|actually|i\\s+(?:mean|meant)))?|"
+                 @"(?:oops|whoops)(?:\\s*,?\\s*(?:no|wait|sorry|actually|my\\s+bad|i\\s+(?:mean|meant)))?|"
                  @"(?:scratch|strike|disregard)\\s+that|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
                  @")\\b)\\s*[.,?!]?\\s*"
-                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that)\\b)\\s*[.,?!]?\\s*"
+                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that|my\\s+bad|oops|whoops)\\b)\\s*[.,?!]?\\s*"
                  @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
                                                           options:ci error:nil];
         abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
@@ -9366,7 +9440,11 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
         modSet = GFStutterWordSet(@"red blue green yellow black white gray grey orange purple pink brown gold silver "
                                   @"left right north south east west morning afternoon evening night upstairs downstairs "
                                   @"indoor indoors outdoor outdoors internal external public private minimum maximum "
-                                  @"ascending descending horizontal vertical");
+                                  @"ascending descending horizontal vertical "
+                                  @"staging production prod dev development beta canary local remote frontend backend "
+                                  @"client server upstream downstream online offline input output read write "
+                                  @"enabled disabled active inactive sync async synchronous asynchronous debug release "
+                                  @"ios macos android windows linux tcp udp http https");
         softLeadWords = GFStutterWordSet(@"on at in to for with from by into after before under over about a an the my your our this that");
         strongLeadWords = [softLeadWords setByAddingObjectsFromSet:
                            GFStutterWordSet(@"of between through around during without within until till near against toward towards upon across behind beyond "
@@ -9780,7 +9858,7 @@ static void GFRemoveConversationalBacktracks(NSMutableString *str) {
         static dispatch_once_t leadOnce;
         dispatch_once(&leadOnce, ^{
             leadBacktrackRe = [NSRegularExpression regularExpressionWithPattern:
-                               @"^\\s*(?:oh\\s*,?\\s*sorry|sorry\\s*,?\\s*no|oh\\s*,?\\s*wait|wait\\s*,?\\s*no)\\s*[,.!?]?\\s+"
+                               @"^\\s*(?:oh\\s*,?\\s*sorry|sorry\\s*,?\\s*no|oh\\s*,?\\s*wait|wait\\s*,?\\s*no|oh\\s*,?\\s*my\\s+bad|my\\s+bad|oops|whoops)\\s*[,.!?]?\\s+"
                                @"(?=(?:hey|hi|hello|well|okay|ok|actually|i\\s+mean|i\\s+meant|let's|can\\s+we|could\\s+we|i\\s+want|i\\s+need|we\\s+need|we\\s+should)\\b)"
                                                                         options:NSRegularExpressionCaseInsensitive error:nil];
         });
@@ -10123,7 +10201,7 @@ static void GFApplyAppContextFormatting(NSMutableString *str, NSString *bundleId
                            @"(?:\\b(?:[a-z]\\.[a-z]\\.|etc\\.|vs\\.|dr\\.|mr\\.|mrs\\.|ms\\.|st\\.|jr\\.|sr\\.|inc\\.|ltd\\.|co\\.|corp\\.))$|[0-9]\\.[0-9]+\\.$"
                                                                     options:ci error:nil];
         codeCmdRe = [NSRegularExpression regularExpressionWithPattern:
-                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b([ \\t]+[^\\n.!?]+)\\.?$"
+                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Pip3?|Uv|Bun|Deno|Npx|Node|Swift|Xcrun|Lldb|Gdb|Bazel|Blaze|Cmake|Ninja|Terraform|Helm|Gcloud|Aws|Az|Gh|Jq|Sed|Awk|Find|Chmod|Chown|Mkdir|Rm|Cp|Mv|Touch|Tail|Head|Less|Echo|Export|Source|Which|Kill|Pkill|Ps|Top|Htop|Lsof|Tar|Unzip|Rsync|Scp|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b([ \\t]+[^\\n.!?]+)\\.?$"
                                                               options:0 error:nil];
     });
 
@@ -10204,6 +10282,38 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     replaceRegex(str, @"\\b(\\d{2,4})\\s+by\\s+(\\d{2,4})\\b", @"$1x$2", ci);
     // 7. Spoken time ranges ("from 2 to 3 p.m." -> "2-3 p.m.", "from 2:00 to 3:30 p.m." -> "2:00-3:30 p.m.")
     replaceRegex(str, @"\\bfrom\\s+(\\d{1,2}(?::\\d{2})?)\\s+to\\s+(\\d{1,2}(?::\\d{2})?)\\s+(a\\.m\\.|p\\.m\\.|am|pm)(?!\\w)", @"$1-$2 $3", ci);
+    // 8. Spoken euros and pounds sterling ("50 euros" -> "€50", "20 euros and 50 cents" -> "€20.50", "3.5 million euros" -> "€3.5 million",
+    //    "25 pounds and 50 pence" -> "£25.50", "100 million pounds" -> "£100 million", "50 pounds sterling" -> "£50")
+    if ([str rangeOfString:@"euro" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*)\\s+euros?\\s+and\\s+(\\d{2})\\s+cents?\\b", @"\u20AC$1.$2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*)\\s+euros?\\s+and\\s+(\\d)\\s+cents?\\b", @"\u20AC$1.0$2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+(million|billion|trillion)\\s+euros?\\b", @"\u20AC$1 $2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+euros?\\b", @"\u20AC$1", ci);
+    }
+    if ([str rangeOfString:@"pound" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*)\\s+pounds?\\s+and\\s+(\\d{2})\\s+pence\\b", @"\u00A3$1.$2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*)\\s+pounds?\\s+and\\s+(\\d)\\s+pence\\b", @"\u00A3$1.0$2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+(million|billion|trillion)\\s+pounds?(?:\\s+sterling)?\\b", @"\u00A3$1 $2", ci);
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+pounds?\\s+sterling\\b", @"\u00A3$1", ci);
+    }
+    // 9. Spoken computing & engineering units ("16 gigabytes" -> "16 GB", "500 megabytes" -> "500 MB", "100 megabits per second" -> "100 Mbps",
+    //    "16 kilohertz" -> "16 kHz", "2.4 gigahertz" -> "2.4 GHz", "60 frames per second" -> "60 fps")
+    if ([str rangeOfString:@"byte" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+kilobytes?\\b", @"$1 KB", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+megabytes?\\b", @"$1 MB", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+gigabytes?\\b", @"$1 GB", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+terabytes?\\b", @"$1 TB", ci);
+    }
+    if ([str rangeOfString:@"second" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+megabits?\\s+per\\s+second\\b", @"$1 Mbps", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+gigabits?\\s+per\\s+second\\b", @"$1 Gbps", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+frames\\s+per\\s+second\\b", @"$1 fps", ci);
+    }
+    if ([str rangeOfString:@"hertz" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+kilohertz\\b", @"$1 kHz", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+megahertz\\b", @"$1 MHz", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+gigahertz\\b", @"$1 GHz", ci);
+    }
 }
 
 // Cycle 57: Spoken Email Addresses, Web Domains, and Unambiguous Tech Brand Casing (shared with iOS via transplant.py).
@@ -10214,7 +10324,7 @@ static void GFFormatSmartEntities(NSMutableString *str) {
 //    "airpods" -> "AirPods", "github" -> "GitHub", "youtube" -> "YouTube").
 static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
     if (!str || str.length < 4) return;
-    static NSRegularExpression *emailRe, *domainRe, *dotSplitRe, *brandRe;
+    static NSRegularExpression *emailRe, *domainRe, *dotSplitRe, *urlSchemeRe, *urlPathRe, *slashSplitRe, *brandRe;
     static NSSet<NSString *> *nonEmailLocalWords, *nonDomainLeadWords;
     static NSDictionary<NSString *, NSString *> *brandMap;
     static dispatch_once_t onceToken;
@@ -10228,8 +10338,14 @@ static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
                     [NSString stringWithFormat:@"(?<![@.\\w-])\\b([a-z0-9-]+(?:\\s+dot\\s+[a-z0-9-]+)*)\\s+dot\\s+%@\\b", tldGroup]
                                                              options:ci error:nil];
         dotSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+dot\\s+" options:ci error:nil];
+        urlSchemeRe = [NSRegularExpression regularExpressionWithPattern:@"\\b(https?)\\s+colon\\s+slash(?:\\s+slash)?\\s+(?=[a-z0-9])"
+                                                                options:ci error:nil];
+        urlPathRe = [NSRegularExpression regularExpressionWithPattern:
+                     [NSString stringWithFormat:@"(\\b(?:[a-z0-9-]+\\.)+%@|\\blocalhost(?:\\s+colon\\s+\\d{2,5}|:\\d{2,5})?)\\s+slash\\s+([a-z0-9._-]+(?:\\s+slash\\s+[a-z0-9._-]+)*)\\b", tldGroup]
+                                                              options:ci error:nil];
+        slashSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+slash\\s+" options:ci error:nil];
         brandRe = [NSRegularExpression regularExpressionWithPattern:
-                   @"(?<![.\\w@/:-])\\b(iphones?|ipads?|imacs?|icloud|macos|watchos|tvos|visionos|airpods|airtags?|homepods?|macbooks?|facetime|imessage|github|youtube)\\b(?![.\\w@/:-])"
+                   @"(?<![.\\w@/:-])\\b(iphones?|ipads?|imacs?|icloud|macos|watchos|tvos|visionos|airpods|airtags?|homepods?|macbooks?|facetime|imessage|github|gitlab|youtube|typescript|javascript|graphql|postgresql|mongodb|fastapi|pytorch|openai|deepseek|whatsapp|linkedin|wordpress|devops|oauth|webrtc|webgl|websockets?|swiftui|webkit|coreaudio|appkit|uikit)\\b(?![\\w@/:-]|\\.[\\w])"
                                                             options:ci error:nil];
         nonEmailLocalWords = [NSSet setWithArray:@[
             @"look", @"looking", @"looked", @"see", @"seen", @"check", @"checked", @"checking",
@@ -10252,7 +10368,16 @@ static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
             @"homepod": @"HomePod", @"homepods": @"HomePods",
             @"macbook": @"MacBook", @"macbooks": @"MacBooks",
             @"facetime": @"FaceTime", @"imessage": @"iMessage",
-            @"github": @"GitHub", @"youtube": @"YouTube"
+            @"github": @"GitHub", @"gitlab": @"GitLab", @"youtube": @"YouTube",
+            @"typescript": @"TypeScript", @"javascript": @"JavaScript",
+            @"graphql": @"GraphQL", @"postgresql": @"PostgreSQL", @"mongodb": @"MongoDB",
+            @"fastapi": @"FastAPI", @"pytorch": @"PyTorch",
+            @"openai": @"OpenAI", @"deepseek": @"DeepSeek",
+            @"whatsapp": @"WhatsApp", @"linkedin": @"LinkedIn", @"wordpress": @"WordPress",
+            @"devops": @"DevOps", @"oauth": @"OAuth", @"webrtc": @"WebRTC", @"webgl": @"WebGL",
+            @"websocket": @"WebSocket", @"websockets": @"WebSockets",
+            @"swiftui": @"SwiftUI", @"webkit": @"WebKit", @"coreaudio": @"CoreAudio",
+            @"appkit": @"AppKit", @"uikit": @"UIKit"
         };
     });
 
@@ -10280,6 +10405,21 @@ static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
             NSString *host = [dotSplitRe stringByReplacingMatchesInString:rawHost options:0 range:NSMakeRange(0, rawHost.length) withTemplate:@"."];
             NSString *domain = [NSString stringWithFormat:@"%@.%@", host, tld];
             [str replaceCharactersInRange:m.range withString:domain];
+        }
+    }
+
+    if ([str rangeOfString:@"slash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        NSArray<NSTextCheckingResult *> *sMatches = [urlSchemeRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [sMatches reverseObjectEnumerator]) {
+            NSString *scheme = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            [str replaceCharactersInRange:m.range withString:[scheme stringByAppendingString:@"://"]];
+        }
+        NSArray<NSTextCheckingResult *> *pMatches = [urlPathRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [pMatches reverseObjectEnumerator]) {
+            NSString *hostPart = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *rawPath = [[str substringWithRange:[m rangeAtIndex:3]] lowercaseString];
+            NSString *cleanPath = [slashSplitRe stringByReplacingMatchesInString:rawPath options:0 range:NSMakeRange(0, rawPath.length) withTemplate:@"/"];
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@/%@", hostPart, cleanPath]];
         }
     }
 
@@ -10534,21 +10674,29 @@ static void GFFormatSpokenHyphenatedCompounds(NSMutableString *str) {
 static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
     if (!str || str.length < 5) return;
     NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
-    if ([str rangeOfString:@" dot " options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        static NSRegularExpression *fileExtRe;
+    if ([str rangeOfString:@"dot " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        static NSRegularExpression *fileExtRe, *dotfileRe;
         static NSSet<NSString *> *nonFileLeadWords;
         static dispatch_once_t onceFile;
         dispatch_once(&onceFile, ^{
             fileExtRe = [NSRegularExpression regularExpressionWithPattern:
                          @"(?<![@.\\w-])\\b([a-z0-9_-]{2,40})\\s+dot\\s+(swift|py|js|ts|tsx|jsx|json|yaml|yml|toml|md|txt|html|css|scss|"
-                         @"sql|go|rs|rb|java|kt|cpp|hpp|mm|m|h|c|plist|xcodeproj|pdf|csv|png|jpg|jpeg|svg|gif|mp4|wav|zip|tar|gz|log|env|gitignore)"
+                         @"sql|go|rs|rb|java|kt|cpp|hpp|mm|m|h|c|plist|xcodeproj|pbxproj|xcworkspace|entitlements|storyboard|xib|metal|"
+                         @"sh|bash|zsh|lock|proto|graphql|prisma|wasm|ipynb|parquet|sqlite|db|pem|crt|key|dmg|pkg|ipa|apk|"
+                         @"pdf|csv|png|jpg|jpeg|svg|gif|mp4|wav|zip|tar|gz|log|env|gitignore)"
                          @"(?:\\s+dot\\s+(gz|xz|bz2|map|bak))?\\b"
+                                                                  options:ci error:nil];
+            dotfileRe = [NSRegularExpression regularExpressionWithPattern:
+                         @"(?<![@.\\w-])\\bdot\\s+(env(?:\\s+dot\\s+(local|development|production|staging|test|example))?|"
+                         @"gitignore|gitattributes|gitmodules|npmrc|nvmrc|zshrc|bashrc|zprofile|bash_profile|vimrc|"
+                         @"eslintrc|prettierrc|dockerignore|editorconfig|clang-format)\\b"
                                                                   options:ci error:nil];
             nonFileLeadWords = [NSSet setWithArray:@[
                 @"the", @"a", @"an", @"this", @"that", @"is", @"was", @"are", @"were", @"be", @"in", @"on", @"at", @"to", @"of",
                 @"for", @"with", @"by", @"from", @"as", @"or", @"and", @"not", @"no", @"so", @"if", @"it", @"we", @"he", @"me",
                 @"us", @"my", @"up", @"do", @"go", @"plan", @"vitamin", @"type", @"option", @"point", @"grade", @"class",
-                @"part", @"section", @"group", @"exhibits", @"exhibit", @"item", @"figure", @"table", @"appendix"
+                @"part", @"section", @"group", @"exhibits", @"exhibit", @"item", @"figure", @"table", @"appendix",
+                @"check", @"open", @"edit", @"update", @"create", @"read", @"load", @"add", @"remove", @"delete", @"our", @"your"
             ]];
         });
         NSArray<NSTextCheckingResult *> *matches = [fileExtRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
@@ -10565,6 +10713,19 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
             }
             NSString *fullExt = ext2Low.length > 0 ? [NSString stringWithFormat:@"%@.%@", extLow, ext2Low] : extLow;
             [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@.%@", stemOut, fullExt]];
+        }
+        NSArray<NSTextCheckingResult *> *dfMatches = [dotfileRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [dfMatches reverseObjectEnumerator]) {
+            NSString *rawDotName = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            NSRange subExtRange = [m rangeAtIndex:2];
+            NSString *formatted = nil;
+            if (subExtRange.location != NSNotFound) {
+                NSString *subExt = [[str substringWithRange:subExtRange] lowercaseString];
+                formatted = [NSString stringWithFormat:@".env.%@", subExt];
+            } else {
+                formatted = [@"." stringByAppendingString:rawDotName];
+            }
+            [str replaceCharactersInRange:m.range withString:formatted];
         }
     }
     if ([str rangeOfString:@"slash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
@@ -16621,6 +16782,89 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c83Ok) passed++; else failed++;
                 printf("%s: contraction-expansion stutter deduplication in GFRemoveStutterRepeats (%d%d%d)\n",
                        c83Ok ? "PASS" : "FAIL", k1, k2, k3);
+            }
+            // Cycle 84: Conversational Backtrack Correction for 'oops'/'whoops'/'my bad' & Tech/Environment Antonym Category Matching
+            {
+                BOOL b1 = [[self polishOnDeviceTranscript:@"Send it on Monday, my bad, Tuesday at 3:00 p.m."]
+                           isEqualToString:@"Send it on Tuesday at 3:00 p.m. "];
+                BOOL b2 = [[self polishOnDeviceTranscript:@"We should ship at 2:00 p.m. Oops, 3:00 p.m."]
+                           isEqualToString:@"We should ship at 3:00 p.m. "];
+                BOOL b3 = [[self polishOnDeviceTranscript:@"Deploy to staging, sorry, production and update the frontend, wait, backend."]
+                           isEqualToString:@"Deploy to production and update the backend. "];
+                BOOL b4 = [[self polishOnDeviceTranscript:@"Oh my bad, I want to go at three."]
+                           isEqualToString:@"I want to go at three. "];
+                BOOL c84Ok = b1 && b2 && b3 && b4;
+                if (c84Ok) passed++; else failed++;
+                printf("%s: conversational backtrack cues (oops/whoops/my bad) and tech/environment category matching (%d%d%d%d)\n",
+                       c84Ok ? "PASS" : "FAIL", b1, b2, b3, b4);
+            }
+            // Cycle 85: stat()-Backed GFLoadCustomWordEntriesFromPath Cache & Derived Vocabulary/Pair Pointer-Identity Cache
+            {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSString *dir = [[NSTemporaryDirectory() stringByStandardizingPath]
+                                 stringByAppendingPathComponent:[NSString stringWithFormat:@"gf-c85-cw-%@", [NSUUID UUID].UUIDString]];
+                [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+                NSString *cwPath = [dir stringByAppendingPathComponent:@"custom-words.json"];
+                [@"[\"Siobhan\", {\"hear\": \"Owen\", \"write\": \"Eoin\"}]" writeToFile:cwPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSArray *e1 = GFLoadCustomWordEntriesFromPath(cwPath);
+                NSArray *e2 = GFLoadCustomWordEntriesFromPath(cwPath);
+                BOOL f1 = (e1.count == 2 && e1 == e2);
+                NSArray *v1 = GFVocabularyFromCustomWordEntries(e1);
+                NSArray *v2 = GFVocabularyFromCustomWordEntries(e2);
+                NSArray *p1 = GFReplacementPairsFromCustomWordEntries(e1);
+                NSArray *p2 = GFReplacementPairsFromCustomWordEntries(e2);
+                BOOL f2 = (v1.count == 2 && v1 == v2 && p1.count == 1 && p1 == p2);
+                [@"[\"Zyphra\"]" writeToFile:cwPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSArray *e3 = GFLoadCustomWordEntriesFromPath(cwPath);
+                BOOL f3 = (e3.count == 1 && e3 != e1 && [e3[0][kGFCustomWordWrite] isEqualToString:@"Zyphra"]);
+                [fm removeItemAtPath:dir error:nil];
+                BOOL c85Ok = f1 && f2 && f3;
+                if (c85Ok) passed++; else failed++;
+                printf("%s: stat()-backed GFLoadCustomWordEntriesFromPath cache and derived vocabulary/pair pointer-identity cache (%d%d%d)\n",
+                       c85Ok ? "PASS" : "FAIL", f1, f2, f3);
+            }
+            // Cycle 86: Spoken URLs (http/https colon slash slash), Domain/Localhost URL Paths, & Expanded Developer Brand Casing
+            {
+                BOOL u1 = [[self polishOnDeviceTranscript:@"Open https colon slash slash docs dot github dot com slash en slash actions."]
+                           isEqualToString:@"Open https://docs.github.com/en/actions. "];
+                BOOL u2 = [[self polishOnDeviceTranscript:@"Send a request to http colon slash slash localhost colon 3000 slash api slash v1."]
+                           isEqualToString:@"Send a request to http://localhost:3000/api/v1. "];
+                BOOL u3 = [[self polishOnDeviceTranscript:@"We migrated the typescript and graphql backend to postgresql, mongodb, and fastapi with swiftui."]
+                           isEqualToString:@"We migrated the TypeScript and GraphQL backend to PostgreSQL, MongoDB, and FastAPI with SwiftUI. "];
+                BOOL c86Ok = u1 && u2 && u3;
+                if (c86Ok) passed++; else failed++;
+                printf("%s: spoken URLs, domain/localhost path segments, and expanded developer brand casing (%d%d%d)\n",
+                       c86Ok ? "PASS" : "FAIL", u1, u2, u3);
+            }
+            // Cycle 87: Spoken Euros, Pounds Sterling, & Computing/Engineering Units in GFFormatSmartEntities
+            {
+                BOOL e1 = [[self polishOnDeviceTranscript:@"The subscription costs 20 euros and 50 cents or 25 pounds and 50 pence."]
+                           isEqualToString:@"The subscription costs \u20AC20.50 or \u00A325.50. "];
+                BOOL e2 = [[self polishOnDeviceTranscript:@"They raised 3.5 million euros and 100 million pounds for the expansion."]
+                           isEqualToString:@"They raised \u20AC3.5 million and \u00A3100 million for the expansion. "];
+                BOOL e3 = [[self polishOnDeviceTranscript:@"The stream uses 16 kilohertz audio, 16 gigabytes of memory, 100 megabits per second, and 60 frames per second."]
+                           isEqualToString:@"The stream uses 16 kHz audio, 16 GB of memory, 100 Mbps, and 60 fps. "];
+                BOOL c87Ok = e1 && e2 && e3;
+                if (c87Ok) passed++; else failed++;
+                printf("%s: spoken euros, pounds sterling, and computing/engineering units in GFFormatSmartEntities (%d%d%d)\n",
+                       c87Ok ? "PASS" : "FAIL", e1, e2, e3);
+            }
+            // Cycle 88: Spoken Dotfile Formatting (.env, .gitignore, .zshrc), Expanded Developer File Extensions, & Terminal CLI Commands
+            {
+                BOOL d1 = [[self polishOnDeviceTranscript:@"Add dot env and dot env dot local to dot gitignore and reload dot zshrc."]
+                           isEqualToString:@"Add .env and .env.local to .gitignore and reload .zshrc. "];
+                BOOL d2 = [[self polishOnDeviceTranscript:@"Update schema dot graphql, build dot sh, and database dot sqlite."]
+                           isEqualToString:@"Update schema.graphql, build.sh, and database.sqlite. "];
+                NSString *savedBundle = self.targetAppBundleID;
+                self.targetAppBundleID = @"com.googlecode.iterm2";
+                BOOL d3 = [[self polishOnDeviceTranscript:@"Swift test."] isEqualToString:@"swift test "]
+                          && [[self polishOnDeviceTranscript:@"Gh pr status."] isEqualToString:@"gh pr status "]
+                          && [[self polishOnDeviceTranscript:@"Uv run pytest."] isEqualToString:@"uv run pytest "];
+                self.targetAppBundleID = savedBundle;
+                BOOL c88Ok = d1 && d2 && d3;
+                if (c88Ok) passed++; else failed++;
+                printf("%s: spoken dotfile formatting, expanded developer file extensions, and terminal CLI commands (%d%d%d)\n",
+                       c88Ok ? "PASS" : "FAIL", d1, d2, d3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
