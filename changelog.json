@@ -3,6 +3,55 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 143,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:08",
+      "title": "Fixes commonly misheard phrases like 'bear with me', 'peace of mind', 'per se', and 'free rein'",
+      "highlights": [
+        "Repairs everyday phrases that speech recognizers often spell with the wrong homophone, turning 'bare with me', 'bare in mind', 'piece of mind', 'for all intensive purposes', 'per say', 'mute point', 'free reign', 'baited breath', 'all of the sudden', and 'trail of thought' into 'bear with me', 'bear in mind', 'peace of mind', 'for all intents and purposes', 'per se', 'moot point', 'free rein', 'bated breath', 'all of a sudden', and 'train of thought'.",
+        "Fixes 'peaked my interest' and 'peeked my curiosity' to 'piqued my interest' and 'piqued my curiosity'."
+      ]
+    },
+    {
+      "cycle": 142,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:07",
+      "title": "Cleans up 'or better yet' and 'actually, forget that' mid-sentence self-corrections",
+      "highlights": [
+        "When you upgrade an idea or time mid-sentence with 'or better yet' or 'actually, forget that' ('Let us meet at 3 p.m., or better yet, 4 p.m.' or 'Make the tone formal, actually, forget that, keep it casual and friendly'), GeminiFlow keeps only your updated instruction.",
+        "Recognizes direct action starters like 'just give me', 'keep it', and 'please' when replacing an earlier draft instruction."
+      ]
+    },
+    {
+      "cycle": 141,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:06",
+      "title": "Cleans up rambling connector collisions like 'so which it makes sense' and 'which is why that'",
+      "highlights": [
+        "Smooths out overlapping connectors when thinking out loud, turning 'so which it makes sense' and 'which it makes sense' into ', which makes sense' and 'which makes sense'.",
+        "Simplifies 'which is why that', 'even though that', 'because then so', 'and then so', and 'most of the times' into 'which is why', 'even though', 'so', 'and so', and 'most of the time'."
+      ]
+    },
+    {
+      "cycle": 140,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:05",
+      "title": "Removes filler 'like' around 'for example', 'and then like', and '-ly' adverbs and frames 'let us say'",
+      "highlights": [
+        "Removes filler 'like' next to example phrases and transitions ('like for example', 'for example like', 'like for instance', 'like let us say', 'and then like I restarted') and before adverbs such as 'specifically', 'especially', 'personally', 'essentially', 'ideally', 'normally', 'usually', 'clearly', and 'hopefully'.",
+        "Adds natural commas around 'let us say' inside 'when' or 'if' thoughts ('when let us say I change my mind' becomes 'when, let us say, I change my mind')."
+      ]
+    },
+    {
+      "cycle": 139,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:04",
+      "title": "Repairs clipped first words like 'ere is an', 'hat is why', and 'ecause' when pressing to talk",
+      "highlights": [
+        "Restores the missing first letters when you begin speaking a split second before pressing the hotkey, turning clipped starts like 'ere's an independent reviewer', 'ere is a', 'hat's why', 'ecause', 'lso,', and 'nd also' into 'There's an independent reviewer', 'There is a', 'That's why', 'Because', 'Also,', and 'And also'."
+      ]
+    },
+    {
       "cycle": 138,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 15:58",
