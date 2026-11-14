@@ -3,6 +3,53 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 168,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:12",
+      "title": "Formats '5-star', 'first-hand', 'open-minded', 'high-end', 'old-school', and 'dos and don'ts'",
+      "highlights": [
+        "Hyphenates everyday hospitality, personal, and workplace modifiers before their nouns, including '5-star restaurant', 'five-star hotel', 'first-hand experience', 'second-hand car', 'open-minded people', 'like-minded friends', 'high-end model', 'low-end option', and 'old-school style'.",
+        "Standardizes 'do's and don'ts' and 'dos and donts' into 'dos and don'ts'."
+      ]
+    },
+    {
+      "cycle": 167,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:11",
+      "title": "Fixes 'due diligence', 'trial and error', 'status quo', 'peace and quiet', and 'by default'",
+      "highlights": [
+        "Repairs everyday phrases that speech recognizers often spell with the wrong homophone, turning 'do diligence', 'trail and error', 'status quote', 'piece and quiet', 'mind bottling', 'splitting image', 'safe heaven', 'by the fault', 'in the grand seam of things', and 'cart blanch' into 'due diligence', 'trial and error', 'status quo', 'peace and quiet', 'mind-boggling', 'spitting image', 'safe haven', 'by default', 'in the grand scheme of things', and 'carte blanche'."
+      ]
+    },
+    {
+      "cycle": 166,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:10",
+      "title": "Cleans up 'actually, to be specific', 'let me put it this way', and 'that came out wrong' self-corrections",
+      "highlights": [
+        "When you reframe a thought mid-sentence with 'actually, to be specific,', 'wait, to be clear,', 'let me put it this way,', 'sorry, I said that wrong,', or 'wait, that came out wrong,', GeminiFlow removes the earlier draft clause and keeps your revised wording."
+      ]
+    },
+    {
+      "cycle": 165,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:09",
+      "title": "Cleans up 'can be able to', 'whether if', 'not just only', 'so that way that', and 'because since' rambles",
+      "highlights": [
+        "Simplifies overlapping phrases when collecting your thoughts out loud, turning 'can be able to', 'could be able to', 'whether if', 'not just only', 'so that way that', 'because since', 'since because', and 'because of the reason that' into 'can', 'could', 'whether', 'not just', 'so that way', and 'because'."
+      ]
+    },
+    {
+      "cycle": 164,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:08",
+      "title": "Removes filler 'like' in 'how like I'm speaking', 'see how like fast', and 'in this like thread'",
+      "highlights": [
+        "Strips filler 'like' after 'how', 'why', 'where', 'what', and 'who' before subject pronouns ('based on how like I'm speaking to you' and 'see what like I'm trying to do' become 'based on how I'm speaking to you' and 'see what I'm trying to do') and in 'see how like fast' or 'judge how like good'.",
+        "Removes filler 'like' after 'in this', 'on that', 'for these', and 'with those' before nouns ('in this like thread' and 'on that like part' become 'in this thread' and 'on that part')."
+      ]
+    },
+    {
       "cycle": 163,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 16:59",
