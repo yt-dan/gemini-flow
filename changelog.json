@@ -3,6 +3,54 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 163,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:59",
+      "title": "Improves mid-sentence word-deletion continuation and fixes 'heres', 'thatll', 'itll', and 'youll'",
+      "highlights": [
+        "When you delete a word right before a period, question mark, number, or 'I' and dictate a replacement word, GeminiFlow keeps the replacement lowercase and avoids inserting an extra period ('I would just delete a specific .' plus 'word' becomes 'I would just delete a specific word.').",
+        "Restores missing apostrophes in 'heres', 'thatll', 'itll', 'thisll', 'therell', 'whatll', 'wholl', 'youll', 'theyll', 'youd', 'theyd', and 'yall'."
+      ]
+    },
+    {
+      "cycle": 162,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:58",
+      "title": "Fixes 'did not faze me', 'curb my appetite', 'foolproof', 'ulterior motive', and 'focal point'",
+      "highlights": [
+        "Repairs common homophone mix-ups in personal and workplace speech, turning 'did not phase me', 'curve my appetite', 'full proof plan', 'extract revenge', 'one in the same', 'alterior motive', 'nerve wrecking', 'an old fashion way', and 'the main vocal point' into 'did not faze me', 'curb my appetite', 'foolproof plan', 'exact revenge', 'one and the same', 'ulterior motive', 'nerve-wracking', 'an old-fashioned way', and 'the main focal point'."
+      ]
+    },
+    {
+      "cycle": 161,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:57",
+      "title": "Cleans up 'wait, what I meant was', 'sorry, let me clarify', and 'what I'm trying to say is'",
+      "highlights": [
+        "When you reframe an instruction mid-sentence with 'wait, what I meant was,', 'sorry, let me clarify,', 'actually, let me clarify,', or 'no, what I'm trying to say is,', GeminiFlow removes the earlier draft clause and keeps your clarified instruction."
+      ]
+    },
+    {
+      "cycle": 160,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:56",
+      "title": "Milestone Cycle 160: Cleans up 'That's and...', 'which it seems', and 'test the when I' rambles",
+      "highlights": [
+        "Cleans up false-start sentence openers when you pivot immediately with 'and' or 'but' ('All right? That's and be deliberate here' becomes 'All right? And be deliberate here').",
+        "Removes redundant 'it' after 'which' ('which it seems', 'which it works', 'which it helps', 'which it means', 'which it matters', 'which it turns out'), drops stray 'the' before 'when', 'how', or 'whether' clauses ('trying to test the when I change my mind' becomes 'trying to test when I change my mind'), and simplifies 'the reason why is because' and 'the reason why that'."
+      ]
+    },
+    {
+      "cycle": 159,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:55",
+      "title": "Removes filler 'like' in 'or like changing my voice', 'and also like', and 'to like collect'",
+      "highlights": [
+        "Strips filler 'like' after 'and', 'or', and 'but' before '-ing' verbs or prepositions ('without losing the meaning or like changing my voice' and 'for personal conversations and like for work' become 'without losing the meaning or changing my voice' and 'for personal conversations and for work') and after 'and also', 'but also', 'or even', 'also', 'especially', and 'specifically'.",
+        "Removes filler 'like' between modals or 'to' and thought-collection verbs ('to like collect my thoughts', 'I'll like send it', 'do not like lose track') and after prepositions like 'around', 'throughout', 'despite', 'beyond', 'among', 'inside', 'outside', 'above', 'below', and 'via'."
+      ]
+    },
+    {
       "cycle": 158,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 16:45",
