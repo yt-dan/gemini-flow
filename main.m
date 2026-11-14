@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(58), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:45", @"title": @"Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting", @"highlights": @[@"When you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.", @"Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."]},
+            @{@"cycle": @(57), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:38", @"title": @"Formats spoken email addresses, web domains, and tech brand names", @"highlights": @[@"Turns spoken email addresses and websites like 'sarah at acme dot com' and 'docs dot github dot com' into 'sarah@acme.com' and 'docs.github.com' while leaving normal sentences like 'look at example.com' intact.", @"Automatically capitalizes tech brand names like iPhone, iPad, iMac, iCloud, macOS, AirPods, MacBook, GitHub, and YouTube."]},
+            @{@"cycle": @(56), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:35", @"title": @"Keeps words spoken across mid-dictation turn splits without gaps or duplicates", @"highlights": @[@"When the live server closes a speech turn while you are still talking, GeminiFlow re-sends the last fraction of a second of audio into the next turn so words in flight are never clipped.", @"Automatically removes any repeated boundary words when stitching live speech segments together."]},
+            @{@"cycle": @(55), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:28", @"title": @"Finishes 10-minute hands-free dictations smoothly even if the session expires at release", @"highlights": @[@"If Google's 10-minute live session limit is reached right after you stop a long hands-free dictation, GeminiFlow keeps everything transcribed so far and finishes only the last few seconds on a fresh live connection.", @"Avoids falling back to re-sending the entire 10-minute recording from scratch when only the final sentence is still pending."]},
+            @{@"cycle": @(54), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:25", @"title": @"Keeps back-to-back dictations cleanly separated and protects the status pill", @"highlights": @[@"When you finish one dictation and immediately start another, leftover audio from the first press can no longer spill into the start of the new recording.", @"Prevents a background API key check from covering the status pill while a dictation is still finishing, and removes unused internal session state."]},
             @{@"cycle": @(53), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:55", @"title": @"Faster text cleanup and smoother installs on Apple M1 Macs", @"highlights": @[@"Skips unnecessary text cleanup passes when a sentence has no numbers, spoken line breaks, or extra filler phrases, cutting text polish time significantly.", @"Fixes a self-test speed check that could block install.sh and update.sh on Apple M1 Macs under normal background load (GitHub issue #1)."]},
             @{@"cycle": @(52), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:45", @"title": @"Learns new custom words when you fix a spelling after pasting", @"highlights": @[@"When you manually fix the spelling of a name or special term right after pasting ('Shavon' to 'Siobhan' or 'Zebra' to 'Zyphra'), GeminiFlow notices the edit and offers a one-click 'Remember in Custom Words' item in the menu bar.", @"Ignores ordinary sentence edits and common words so it only suggests real names, brands, and technical terms."]},
             @{@"cycle": @(51), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:32", @"title": @"Formats spoken currencies, percentages, temperatures, and question marks naturally", @"highlights": @[@"Turns spoken numbers like '20 dollars and 50 cents', '$3.5 million dollars', '25.5 percent', '98.6 degrees', '1920 by 1080', and 'from 2 to 3 p.m.' into clean '$20.50', '$3.5 million', '25.5%', '98.6\u00B0', '1920x1080', and '2-3 p.m.' automatically.", @"Adds a question mark reliably when a question ends with 'a.m.' or 'p.m.' ('Can we meet at 3:00 p.m.?') or after a mid-sentence self-correction."]},
@@ -2961,9 +2966,7 @@ typedef struct {
 // Gemini Live WebSocket session
 @property (nonatomic, strong) NSURLSession *liveSession;
 @property (nonatomic, strong) NSURLSessionWebSocketTask *liveWebSocketTask;
-@property (nonatomic, strong) NSMutableString *liveReceivedTranscript;
 @property (nonatomic, assign) BOOL liveWebSocketConnected;
-@property (nonatomic, strong) NSDate *lastChunkSentDate;
 @property (nonatomic, strong) NSMutableData *pendingLivePCMBuffer;
 @property (nonatomic, assign) BOOL hasCompletedGeminiTurn;
 @property (nonatomic, assign) NSUInteger liveSessionId;      // guards callbacks from an older socket
@@ -3099,6 +3102,19 @@ static const NSTimeInterval kLiveEmptyTurnGrace = 0.15;
 static BOOL GFLiveReopenAfterUnsolicitedTurnEnd(NSUInteger pendingTurns, BOOL activityOpen, BOOL finalizing, BOOL activityEnded) {
     return pendingTurns == 0 && activityOpen && !finalizing && !activityEnded;
 }
+// Backlog 25: When the server ends a turn on its own mid-press (no client activityEnd pending), audio sent during the round-trip
+// before generationComplete reached the client may have been ignored by the server after its internal turn cutoff. If speech was
+// active in the last 0.2 s before sentBytes (`lastVoicedByte + 6400 > sentBytes`), rewind up to 0.36 s (11,520 bytes, 640-byte
+// frame-aligned, never below activityStartByte) so the reopened activity re-sends that in-flight window.
+static const NSUInteger kLiveUnsolicitedRewindMaxBytes = 11520; // 0.36 s at 16 kHz mono 16-bit
+static NSUInteger GFLiveUnsolicitedTurnEndRewindBytes(NSUInteger activityStartByte, NSUInteger sentBytes, NSUInteger lastVoicedByte) {
+    if (sentBytes <= activityStartByte || lastVoicedByte <= activityStartByte) return 0;
+    if (lastVoicedByte + 6400 <= sentBytes) return 0; // already in >= 0.2 s of silence at turn end; normal pre-roll handles next speech
+    NSUInteger span = sentBytes - activityStartByte;
+    NSUInteger rewind = MIN(kLiveUnsolicitedRewindMaxBytes, span);
+    rewind = (rewind / 640) * 640;
+    return rewind;
+}
 // Seam after a slow split turn (backlog 0r). T26 on 2026-11-12 11:25: after a 25.8 s resend a 27.07 s activity was split; its turn
 // took 5.4 s. The old rule reopened ("merged") after 1.5 s and dropped the pending split end, so (a) the late generationComplete looked
 // like a server-initiated turn end of the new activity: coverage jumped to everything sent (32.45 s, past the answered activity's end
@@ -3160,6 +3176,17 @@ static BOOL GFLiveCloseIsPlannedRotation(BOOL recording, BOOL finalizing, BOOL o
                                          double plannedCloseAge) {
     if (!recording || finalizing || !ourSocket || isnan(sessionAge)) return NO;
     return sessionAge >= plannedCloseAge || (goAway && sessionAge >= kLiveGoAwayMinAge);
+}
+// Backlog 0q: when a >= 9.5 min session (or one after goAway >= 30 s) closes AFTER release while its final turn is still pending,
+// rotate to a fresh Live session to finish only the uncovered tail (<= 120 s) instead of re-running 10 minutes of audio on REST.
+static const NSUInteger kLiveMaxFinalizingTailBytes = 120 * 32000;
+static BOOL GFLiveFinalizingCloseShouldRotate(BOOL finalizing, BOOL ourSocket, double sessionAge, BOOL goAway,
+                                              double plannedCloseAge, NSUInteger rotations,
+                                              NSUInteger coveredBytes, NSUInteger totalBytes) {
+    if (!finalizing || !ourSocket || isnan(sessionAge) || rotations >= 4) return NO;
+    if (!(sessionAge >= plannedCloseAge || (goAway && sessionAge >= kLiveGoAwayMinAge))) return NO;
+    if (totalBytes <= coveredBytes) return YES;
+    return (totalBytes - coveredBytes) <= kLiveMaxFinalizingTailBytes;
 }
 
 // API key out of URLs (backlog 15). A `?key=` URL leaks into NSError userInfo (NSURLErrorFailingURLStringErrorKey) and any logged
@@ -4269,7 +4296,122 @@ static BOOL GFShouldShieldPasteOnWindowSwitch(pid_t pressStartPid, pid_t current
     if (isSuperseded || pressStartPid <= 0 || currentFrontPid <= 0) return NO;
     return pressStartPid != currentFrontPid;
 }
+// Cycle 58: Mid-Sentence Cursor Continuation (shared with iOS via transplant.py).
+// When the user deletes a word or restarts dictation in the middle of an unfinished sentence:
+//  1) Lowercases the first word of `text` (preserving "I"/"I'm", acronyms like "API", mixed-case brands like "iPhone",
+//     days/months/proper names, and user Custom Words).
+//  2) Prepends a leading space if `beforeCursor` ends flush on a word or comma (no space before the cursor).
+//  3) Strips the auto-appended statement period (and duplicate trailing space) if `afterCursor` continues the same sentence.
+static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *beforeCursor, NSString *afterCursor, NSArray<NSString *> *customWords) {
+    if (!text || text.length == 0 || !beforeCursor || beforeCursor.length == 0) return text ?: @"";
+    if (GFIsStandaloneVoiceUndoCommand(text)) return text;
+
+    NSRange lastNL = [beforeCursor rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet] options:NSBackwardsSearch];
+    NSString *lineBefore = (lastNL.location != NSNotFound) ? [beforeCursor substringFromIndex:NSMaxRange(lastNL)] : beforeCursor;
+    NSCharacterSet *horizWS = [NSCharacterSet characterSetWithCharactersInString:@" \t"];
+    NSString *trimmedBefore = [lineBefore stringByTrimmingCharactersInSet:horizWS];
+    if (trimmedBefore.length == 0) return text;
+
+    static NSRegularExpression *nonTermDotRe, *firstWordRe;
+    static NSSet<NSString *> *properLowerSet;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        nonTermDotRe = [NSRegularExpression regularExpressionWithPattern:
+                        @"(?:(?<![\\w.])[a-z]\\.[a-z]\\.|\\b(?:mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|cf|approx|incl|esp)\\.)$"
+                                                                 options:NSRegularExpressionCaseInsensitive error:nil];
+        firstWordRe = [NSRegularExpression regularExpressionWithPattern:@"^(\\s*)([A-Za-z][A-Za-z0-9'-]*)" options:0 error:nil];
+        properLowerSet = [NSSet setWithArray:@[
+            @"i", @"i'm", @"i'll", @"i've", @"i'd",
+            @"monday", @"tuesday", @"wednesday", @"thursday", @"friday", @"saturday", @"sunday",
+            @"mondays", @"tuesdays", @"wednesdays", @"thursdays", @"fridays", @"saturdays", @"sundays",
+            @"january", @"february", @"march", @"april", @"june", @"july", @"august",
+            @"september", @"october", @"november", @"december",
+            @"christmas", @"thanksgiving", @"easter", @"halloween",
+            @"google", @"apple", @"microsoft", @"amazon", @"meta", @"openai", @"anthropic", @"gemini", @"claude",
+            @"english", @"spanish", @"french", @"german", @"chinese", @"japanese", @"korean",
+            @"america", @"american", @"california", @"london", @"paris", @"tokyo"
+        ]];
+    });
+
+    unichar lastChar = [trimmedBefore characterAtIndex:trimmedBefore.length - 1];
+    if (lastChar == '!' || lastChar == '?') return text;
+    if (lastChar == '.') {
+        if ([nonTermDotRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] == nil) {
+            return text;
+        }
+    }
+    BOOL isMidSentence = ((lastChar >= 'a' && lastChar <= 'z') || (lastChar >= 'A' && lastChar <= 'Z') ||
+                          (lastChar >= '0' && lastChar <= '9') || lastChar == ',' || lastChar == ';' ||
+                          lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '/' || lastChar == '.');
+    if (!isMidSentence) return text;
+
+    NSMutableString *out = [NSMutableString stringWithString:text];
+
+    NSTextCheckingResult *fw = [firstWordRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
+    if (fw) {
+        NSRange wRange = [fw rangeAtIndex:2];
+        NSString *word = [out substringWithRange:wRange];
+        unichar c0 = [word characterAtIndex:0];
+        if (c0 >= 'A' && c0 <= 'Z') {
+            BOOL hasLaterUpper = NO;
+            for (NSUInteger i = 1; i < word.length; i++) {
+                unichar ci = [word characterAtIndex:i];
+                if (ci >= 'A' && ci <= 'Z') { hasLaterUpper = YES; break; }
+            }
+            NSString *wLow = word.lowercaseString;
+            BOOL isCustomProper = NO;
+            for (NSString *cw in customWords) {
+                NSString *tcw = [cw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (tcw.length > 0 && [tcw.lowercaseString isEqualToString:wLow] &&
+                    [tcw characterAtIndex:0] >= 'A' && [tcw characterAtIndex:0] <= 'Z') {
+                    isCustomProper = YES;
+                    break;
+                }
+            }
+            if (!hasLaterUpper && ![properLowerSet containsObject:wLow] && !isCustomProper) {
+                NSString *firstLow = [[word substringToIndex:1] lowercaseString];
+                [out replaceCharactersInRange:NSMakeRange(wRange.location, 1) withString:firstLow];
+            }
+        }
+    }
+
+    unichar rawLast = [lineBefore characterAtIndex:lineBefore.length - 1];
+    BOOL flushAfterWordOrComma = ((rawLast >= 'a' && rawLast <= 'z') || (rawLast >= 'A' && rawLast <= 'Z') ||
+                                  (rawLast >= '0' && rawLast <= '9') || rawLast == ',' || rawLast == ';' || rawLast == ':');
+    if (flushAfterWordOrComma && out.length > 0) {
+        unichar firstOut = [out characterAtIndex:0];
+        if (firstOut != ' ' && firstOut != '\n' && firstOut != ',' && firstOut != '.' && firstOut != '?' && firstOut != '!' && firstOut != ';' && firstOut != ':') {
+            [out insertString:@" " atIndex:0];
+        }
+    }
+
+    if (afterCursor.length > 0) {
+        NSString *trimmedAfter = [afterCursor stringByTrimmingCharactersInSet:horizWS];
+        if (trimmedAfter.length > 0) {
+            unichar firstAfter = [trimmedAfter characterAtIndex:0];
+            BOOL continuesSentence = ((firstAfter >= 'a' && firstAfter <= 'z') || firstAfter == ',' || firstAfter == ';' || firstAfter == ':');
+            if (continuesSentence) {
+                if ([out hasSuffix:@". "]) {
+                    NSString *withoutTrailingSpace = [out substringToIndex:out.length - 1];
+                    if ([nonTermDotRe firstMatchInString:withoutTrailingSpace options:0 range:NSMakeRange(0, withoutTrailingSpace.length)] == nil) {
+                        [out deleteCharactersInRange:NSMakeRange(out.length - 2, 1)];
+                    }
+                } else if ([out hasSuffix:@"."]) {
+                    if ([nonTermDotRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)] == nil) {
+                        [out deleteCharactersInRange:NSMakeRange(out.length - 1, 1)];
+                    }
+                }
+                if (([afterCursor hasPrefix:@" "] || firstAfter == ',' || firstAfter == ';' || firstAfter == ':') && [out hasSuffix:@" "]) {
+                    [out deleteCharactersInRange:NSMakeRange(out.length - 1, 1)];
+                }
+            }
+        }
+    }
+
+    return out;
+}
 static BOOL (*gGFMacDeliveryInterceptHook)(AppDelegate *slf, NSString *text, GFDictation *d) = NULL;
+static NSString *(*gGFMacCursorContextAdaptHook)(AppDelegate *slf, NSString *text) = NULL;
 static id GFCopyFocusedElement(void) {
     AXUIElementRef sys = AXUIElementCreateSystemWide();
     if (!sys) return nil;
@@ -4324,6 +4466,33 @@ static BOOL GFAXSelectPastedText(id element, NSString *pasted) {
     if (GFAXSetSelection(el, ours) && [GFAXString(el, kAXSelectedTextAttribute) isEqualToString:pasted]) return YES;
     GFAXSetSelection(el, CFRangeMake(sel.location, 0));
     return NO;
+}
+static BOOL GFAXReadCursorContext(id element, NSString **outBefore, NSString **outAfter) {
+    AXUIElementRef el = (__bridge AXUIElementRef)element;
+    if (!el) return NO;
+    AXUIElementSetMessagingTimeout(el, 0.15);
+    CFTypeRef rv = NULL;
+    CFRange sel = CFRangeMake(0, 0);
+    BOOL gotSel = AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute, &rv) == kAXErrorSuccess && rv
+                  && CFGetTypeID(rv) == AXValueGetTypeID() && AXValueGetValue((AXValueRef)rv, kAXValueCFRangeType, &sel);
+    if (rv) CFRelease(rv);
+    if (!gotSel || sel.location < 0) return NO;
+    NSString *all = GFAXString(el, kAXValueAttribute);
+    if (all && (NSUInteger)sel.location <= all.length) {
+        NSUInteger loc = (NSUInteger)sel.location;
+        NSUInteger bStart = loc > 80 ? loc - 80 : 0;
+        if (outBefore) *outBefore = [all substringWithRange:NSMakeRange(bStart, loc - bStart)];
+        NSUInteger aStart = MIN(all.length, (NSUInteger)(sel.location + MAX((CFIndex)0, sel.length)));
+        NSUInteger aLen = MIN((NSUInteger)40, all.length - aStart);
+        if (outAfter) *outAfter = [all substringWithRange:NSMakeRange(aStart, aLen)];
+        return YES;
+    }
+    CFIndex bStart = MAX((CFIndex)0, sel.location - 80);
+    NSString *before = (sel.location > bStart) ? GFAXStringForRange(el, CFRangeMake(bStart, sel.location - bStart)) : @"";
+    if (!before) return NO;
+    if (outBefore) *outBefore = before;
+    if (outAfter) *outAfter = GFAXStringForRange(el, CFRangeMake(sel.location + MAX((CFIndex)0, sel.length), 16)) ?: @"";
+    return YES;
 }
 static NSString *const kGFE2ECannedRestText = @"This is the canned Gemini transcript for the bounded wait test.";
 
@@ -5221,7 +5390,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     NSMutableURLRequest *req = GFGeminiRequest(GFModelInfoURL(kDefaultLiveModel), apiKey);
     req.timeoutInterval = 10.0;
 
-    if (!self.isRecording) { // don't cover a recording's HUD
+    if (!self.isRecording && self.menuIconState == 0) { // don't cover a recording or Thinking HUD (backlog 19)
         [self.hudPanel setHUDMode:HUDModeNotice noticeText:@"Checking API key..."];
         [self presentHUD];
     }
@@ -5236,7 +5405,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
             else if (status == 404) notice = @"Live model unavailable for this key";
             else notice = [NSString stringWithFormat:@"Key check failed (HTTP %ld)", (long)status];
             GFLog(@"API key check: HTTP %ld -> %@", (long)status, notice);
-            if (self.isRecording) return; // a dictation started meanwhile: keep its HUD
+            if (self.isRecording || self.menuIconState != 0) return; // a dictation is recording or Thinking: keep its HUD (backlog 19)
             [self.hudPanel setHUDMode:HUDModeNotice noticeText:notice];
             [self dismissHUDAfterDelay:1.8];
         });
@@ -5649,8 +5818,18 @@ static BOOL GFMacDeliveryIntercept(AppDelegate *slf, NSString *text, GFDictation
     return NO;
 }
 
+static NSString *GFMacCursorContextAdapt(AppDelegate *slf, NSString *text) {
+    if (!slf || slf.unitTestMode || slf.e2eMode.length > 0 || !AXIsProcessTrusted()) return text;
+    id elem = GFCopyFocusedElement();
+    if (!elem) return text;
+    NSString *beforeCur = nil, *afterCur = nil;
+    if (!GFAXReadCursorContext(elem, &beforeCur, &afterCur)) return text;
+    return GFAdaptTextForMidSentenceCursor(text, beforeCur, afterCur, [slf customVocabularyForDictation]);
+}
+
 __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     gGFMacDeliveryInterceptHook = GFMacDeliveryIntercept;
+    gGFMacCursorContextAdaptHook = GFMacCursorContextAdapt;
 }
 
 #pragma mark - Audio Recording Engine
@@ -5731,15 +5910,12 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
           (long)[SFSpeechRecognizer authorizationStatus], self.speechRecognizer.isAvailable);
     self.hasCompletedGeminiTurn = NO;
     [self.recordedPCMData setLength:0];
-    [self.pendingLivePCMBuffer setLength:0];
     self.latestOnDeviceTranscript = @"";
     self.committedOnDeviceTranscript = [NSMutableString string];
     self.currentOnDeviceSegment = @"";
     self.lastCommittedOnDeviceSegment = nil;
     self.isFinalizingOnDevice = NO;
-    self.liveReceivedTranscript = [NSMutableString string];
     self.liveWebSocketConnected = NO;
-    self.lastChunkSentDate = [NSDate date];
 
     // Start the microphone FIRST so the opening words are captured while UI/network work happens
     self.micBuffersSeen = NO;
@@ -6111,10 +6287,27 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     }
 }
 
+// Backlog 23: should a PCM chunk queued from the audio tap thread land in recordedPCMData?
+// Accepted while the same dictation press is current (including the 1-hop main-queue drain right after release)
+// and its recognition session was not cancelled/aborted; rejected when a newer press started or the session ended.
+static BOOL GFShouldAcceptCapturedChunk(NSUInteger chunkDictationSerial, NSUInteger currentDictationSerial,
+                                        NSUInteger chunkSessionId, NSUInteger currentSessionId) {
+    if (chunkDictationSerial == 0 || chunkDictationSerial != currentDictationSerial) return NO;
+    if (chunkSessionId != currentSessionId) return NO;
+    return YES;
+}
+
+// Backlog 19: an async API-key check must not cover or dismiss the HUD while a dictation is recording or Thinking.
+static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState) {
+    return !isRecording && menuIconState == 0;
+}
+
 // Shared per-buffer pipeline (called from the mic tap thread, or the e2e file feeder thread; `when` is nil for the file feed)
 - (void)processCapturedBuffer:(AVAudioPCMBuffer *)buffer converter:(AVAudioConverter *)converter targetFormat:(AVAudioFormat *)targetFormat
                          when:(AVAudioTime *)when {
     __weak typeof(self) weakSelf = self;
+    NSUInteger chunkSerial = self.dictationSerial;
+    NSUInteger chunkSessionId = self.recognitionSessionId;
     AVAudioFormat *inputFormat = buffer.format;
     BOOL hostValid = when != nil && when.hostTimeValid; // backlog 27: when this buffer's last sample was captured (measurement only)
     NSTimeInterval captureEnd = GFCapturedBufferEndTime([NSDate timeIntervalSinceReferenceDate],
@@ -6185,11 +6378,13 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
                 NSData *chunkData = [NSData dataWithBytes:channelData length:byteCount];
 
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    [weakSelf.recordedPCMData appendData:chunkData];
-                    weakSelf.lastCapturedAudioEndTime = captureEnd;
-                    [weakSelf.hudPanel updateAudioLevel:animLevel];
+                    typeof(self) s = weakSelf;
+                    if (!s || !GFShouldAcceptCapturedChunk(chunkSerial, s.dictationSerial, chunkSessionId, s.recognitionSessionId)) return;
+                    [s.recordedPCMData appendData:chunkData];
+                    s.lastCapturedAudioEndTime = captureEnd;
+                    if (s.isRecording) [s.hudPanel updateAudioLevel:animLevel];
 
-                    [weakSelf pumpLiveAudioForce:NO];
+                    [s pumpLiveAudioForce:NO];
                 });
             }
         }
@@ -6661,9 +6856,16 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
                                                     self.liveFinalizing, self.liveActivityEnded)) {
                 // Still recording: the server's activity is over. Re-open on the next speech so it stays on Live (backlog 0c);
                 // the re-opened activity's own turn covers it, and the coverage check above still guards anything it misses.
+                [self liveScanVoiceUpTo:self.liveSentBytes];
+                NSUInteger rewind = GFLiveUnsolicitedTurnEndRewindBytes(self.liveActivityStartByte, self.liveSentBytes,
+                                                                        self.liveLastVoicedByte);
+                if (rewind > 0 && self.liveSentBytes >= rewind) {
+                    self.liveSentBytes -= rewind;
+                    self.liveCoveredBytes = self.liveSentBytes;
+                }
                 self.liveActivityOpen = NO;
-                GFLog(@"Live: server ended the turn mid-press at %.2fs sent; re-opening the activity on the next speech",
-                      self.liveSentBytes / 32000.0);
+                GFLog(@"Live: server ended the turn mid-press at %.2fs sent (rewound %.2fs); re-opening the activity on the next speech",
+                      self.liveSentBytes / 32000.0, rewind / 32000.0);
             }
         }
         GFLog(@"Live: %@ at %.2fs sent (covered %.2fs, %lu activities pending, open=%d)", genDone ? @"generationComplete" : @"turnComplete",
@@ -6946,9 +7148,6 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     [self sendLiveActivityEnd];
 }
 
-// Kept for compatibility with older call sites
-- (void)sendAudioChunkToLiveWebSocket:(NSData *)pcmChunk { [self pumpLiveAudioForce:YES]; }
-
 - (void)sendLiveAudioStreamEnd {
     if (self.liveActivityEnded) return; // release raced setupComplete: both paths try to end the activity
     [self pumpLiveAudioForce:YES]; // before marking ended: voice since the last split must still reopen an activity
@@ -7155,6 +7354,32 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
                 || strongSelf.liveFinalizing || strongSelf.hasCompletedGeminiTurn || strongSelf.liveWebSocketTask) return;
             [strongSelf startGeminiLiveWebSocketResuming:YES];
             [strongSelf liveApplyRotationResumeHeldBack:heldBack quiet:quiet];
+        });
+        return;
+    }
+    if (GFLiveFinalizingCloseShouldRotate(self.liveFinalizing, ours, sessionAge, self.liveGoAway,
+                                          [self livePlannedCloseAgeSeconds], self.liveRotations,
+                                          self.liveCoveredBytes, self.recordedPCMData.length)) {
+        double uncovered = [self voicedSecondsInRecordingFromByte:self.liveCoveredBytes];
+        if (self.liveSegments.count > 0 && uncovered <= kLiveUncoveredSpeechLimit) {
+            [self finishLiveTranscriptWithReason:@"session lifetime reached after release, all speech already covered"];
+            return;
+        }
+        self.liveRotations += 1;
+        if (!self.unitTestMode) {
+            GFLog(@"Live: session closed at session age %.1fs after release (%@); planned finalizing rotation #%lu, "
+                  @"resuming final turn from %.2fs covered", sessionAge, reason, (unsigned long)self.liveRotations,
+                  self.liveCoveredBytes / 32000.0);
+        }
+        [self startGeminiLiveWebSocketResuming:YES];
+        self.liveSocketIsRotation = YES;
+        self.liveFinalizing = YES;
+        self.liveReleaseTime = [NSDate timeIntervalSinceReferenceDate];
+        NSUInteger finSid = self.liveSessionId;
+        __weak typeof(self) weakFin = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (weakFin.liveSessionId != finSid || weakFin.hasCompletedGeminiTurn) return;
+            [weakFin liveFailedWithReason:@"no final transcript within 2.5 s of finalizing rotation" session:finSid];
         });
         return;
     }
@@ -7389,10 +7614,76 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
     return out;
 }
 
+// Backlog 25: Join Live segments while collapsing any 1-3 word boundary overlap produced across adjacent segments at a split or
+// unsolicited turn-end rewind seam. Single-word overlaps are collapsed only when the previous segment was cut mid-sentence
+// (no terminal '.', '!', or '?'), preserving intentional sentence-boundary repetitions like "Check status. Status is green."
+static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segments) {
+    if (segments.count == 0) return @"";
+    if (segments.count == 1) {
+        return [segments.firstObject stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    static NSRegularExpression *wordRe;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        wordRe = [NSRegularExpression regularExpressionWithPattern:@"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?" options:0 error:nil];
+    });
+    NSMutableString *acc = [NSMutableString string];
+    for (NSString *rawSeg in segments) {
+        NSString *seg = [rawSeg stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (seg.length == 0) continue;
+        if (acc.length == 0) {
+            [acc appendString:seg];
+            continue;
+        }
+        NSArray<NSTextCheckingResult *> *prevWords = [wordRe matchesInString:acc options:0 range:NSMakeRange(0, acc.length)];
+        NSArray<NSTextCheckingResult *> *nextWords = [wordRe matchesInString:seg options:0 range:NSMakeRange(0, seg.length)];
+        unichar lastChar = [acc characterAtIndex:acc.length - 1];
+        BOOL prevEndsSentence = (lastChar == '.' || lastChar == '!' || lastChar == '?');
+        NSUInteger maxK = MIN((NSUInteger)3, MIN(prevWords.count, nextWords.count));
+        NSUInteger matchedK = 0;
+        for (NSUInteger k = maxK; k >= 1; k--) {
+            if (k == 1 && prevEndsSentence) continue;
+            BOOL match = YES;
+            for (NSUInteger i = 0; i < k; i++) {
+                NSString *pw = [[acc substringWithRange:prevWords[prevWords.count - k + i].range] lowercaseString];
+                NSString *nw = [[seg substringWithRange:nextWords[i].range] lowercaseString];
+                if (![pw isEqualToString:nw]) {
+                    match = NO;
+                    break;
+                }
+            }
+            if (match) {
+                matchedK = k;
+                break;
+            }
+        }
+        if (matchedK > 0) {
+            NSUInteger cutEnd = NSMaxRange(nextWords[matchedK - 1].range);
+            while (cutEnd < seg.length) {
+                unichar c = [seg characterAtIndex:cutEnd];
+                if (c == ',' || c == ';' || c == ':' || [[NSCharacterSet whitespaceCharacterSet] characterIsMember:c]) {
+                    cutEnd++;
+                } else {
+                    break;
+                }
+            }
+            seg = [seg substringFromIndex:cutEnd];
+            if (seg.length == 0) continue;
+            NSUInteger prevWordEnd = NSMaxRange(prevWords.lastObject.range);
+            if (prevWordEnd < acc.length) {
+                [acc deleteCharactersInRange:NSMakeRange(prevWordEnd, acc.length - prevWordEnd)];
+            }
+        }
+        [acc appendString:@" "];
+        [acc appendString:seg];
+    }
+    return [acc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
 - (void)finishLiveTranscriptWithReason:(NSString *)reason {
     if (self.hasCompletedGeminiTurn) return;
     self.hasCompletedGeminiTurn = YES;
-    NSString *joined = [[self.liveSegments componentsJoinedByString:@" "] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *joined = GFJoinLiveSegmentsDeduplicatingSeam(self.liveSegments);
     GFLog(@"Live: done in %.2fs after release (%@, %lu segments, %lu chars)",
           [NSDate timeIntervalSinceReferenceDate] - self.liveReleaseTime, reason, (unsigned long)self.liveSegments.count, (unsigned long)joined.length);
     if ([self liveSetupProbeExtra]) { // setup probe (e2e only): the server's text before the app's polish. Synthetic test clips;
@@ -8399,17 +8690,19 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                   @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
-                 @"(?:[.,?]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
+                 @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
                  @"wait(?:\\s+a\\s+(?:second|minute|sec|moment))?\\s*,?\\s*no|"
                  @"no\\s*,?\\s*wait(?:\\s+a\\s+(?:second|minute|sec|moment))?|"
                  @"actually\\s*,?\\s*no|no\\s*,?\\s*actually|actually\\s*,?\\s*wait|wait\\s*,?\\s*actually|"
                  @"sorry\\s*,?\\s*no|no\\s*,?\\s*sorry|sorry\\s*,?\\s*wait|wait\\s*,?\\s*sorry|"
+                 @"sorry\\s*,?\\s*actually|actually\\s*,?\\s*sorry|"
                  @"(?:sorry|no|wait|actually|oh|well)\\s*,?\\s*i\\s+(?:mean|meant)|"
+                 @"oh\\s*,?\\s*(?:sorry|wait(?:\\s+a\\s+(?:second|minute|sec|moment))?|no|actually|never\\s*mind)|"
                  @"(?:scratch|strike|disregard)\\s+that|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
-                 @")\\b)\\s*,?\\s*"
-                 @"|(?:[.,?]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that)\\b)\\s*,?\\s*"
+                 @")\\b)\\s*[.,?!]?\\s*"
+                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that)\\b)\\s*[.,?!]?\\s*"
                  @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
                                                           options:ci error:nil];
         abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
@@ -8451,9 +8744,10 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                                        @"email emailed ping pinged assign assigned add added remove removed change changed run ran build built "
                                        @"test tested create created is are was were be been am have has had");
         clauseSubjectPronouns = GFStutterWordSet(@"i i'm i'll i'd i've we we're we'll we'd we've let's he he's he'll she she's she'll "
-                                                 @"they they're they'll it's there's that's");
+                                                 @"they they're they'll it's there's that's you're you'll you'd you've");
         finiteAuxVerbs = GFStutterWordSet(@"am is are was were will would can could should must have has had do does did "
-                                          @"don't doesn't didn't won't can't isn't aren't wasn't weren't");
+                                          @"don't doesn't didn't won't can't isn't aren't wasn't weren't "
+                                          @"want wants wanted need needs needed think thought");
         nonUnitAfterNumber = GFStutterWordSet(@"and or but so then please thanks instead too also at on in to for with from by of if when while because");
     });
 
@@ -8544,25 +8838,28 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
         }
     };
 
-    // Split into sentence segments (. ? ! ; \n \uE000 \uE001, ignoring dots inside abbreviations/decimals)
+    // Split into sentence segments (. ? ! ; \n \uE000 \uE001, ignoring dots inside abbreviations/decimals or strong backtrack cues)
+    NSArray<NSTextCheckingResult *> *allStrongCues = [cueRe matchesInString:str options:0 range:NSMakeRange(0, len)];
+    BOOL (^insideStrongCue)(NSUInteger) = ^BOOL(NSUInteger idx) {
+        for (NSTextCheckingResult *cm in allStrongCues) {
+            if (([cm rangeAtIndex:1].location != NSNotFound || [cm rangeAtIndex:2].location != NSNotFound) &&
+                NSMaxRange(cm.range) < len && idx >= cm.range.location && idx < NSMaxRange(cm.range)) {
+                return YES;
+            }
+        }
+        return NO;
+    };
     NSMutableArray<NSValue *> *segments = [NSMutableArray array];
     NSUInteger segStart = 0;
     for (NSUInteger i = 0; i < len; i++) {
         unichar c = [str characterAtIndex:i];
-        BOOL isBreak = (c == '!' || c == ';' || c == '\n' || c == '\r' || c == 0xE000 || c == 0xE001);
-        if (!isBreak && c == '?') {
-            BOOL notBreak = NO;
-            if (i + 2 < len) {
-                NSTextCheckingResult *cm = [cueRe firstMatchInString:str options:NSMatchingAnchored range:NSMakeRange(i, len - i)];
-                if (cm && ([cm rangeAtIndex:1].location != NSNotFound || [cm rangeAtIndex:2].location != NSNotFound)) {
-                    notBreak = YES;
-                }
-            }
-            if (!notBreak) isBreak = YES;
+        BOOL isBreak = (c == ';' || c == '\n' || c == '\r' || c == 0xE000 || c == 0xE001);
+        if (!isBreak && (c == '!' || c == '?')) {
+            if (!insideStrongCue(i)) isBreak = YES;
         }
         if (!isBreak && c == '.') {
-            BOOL notBreak = NO;
-            if (i + 1 < len) {
+            BOOL notBreak = insideStrongCue(i);
+            if (!notBreak && i + 1 < len) {
                 unichar next = [str characterAtIndex:i + 1];
                 if ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') ||
                     (next >= '0' && next <= '9') || next == ',' || next == '.') {
@@ -8583,12 +8880,6 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                 if (ws < i) {
                     NSString *w = [[str substringWithRange:NSMakeRange(ws, i - ws)] lowercaseString];
                     if ([abbrevSet containsObject:w] || (w.length == 1 && ![w isEqualToString:@"i"])) notBreak = YES;
-                }
-            }
-            if (!notBreak && i + 2 < len) {
-                NSTextCheckingResult *cm = [cueRe firstMatchInString:str options:NSMatchingAnchored range:NSMakeRange(i, len - i)];
-                if (cm && ([cm rangeAtIndex:1].location != NSNotFound || [cm rangeAtIndex:2].location != NSNotFound)) {
-                    notBreak = YES;
                 }
             }
             if (!notBreak) isBreak = YES;
@@ -8750,13 +9041,17 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                 }
             }
 
-            // Rule 3: Strong-Cue Phrase / Object / Clause Replacement (Tier 1 only)
-            if (isStrong) {
-                BOOL rStartsNewClause = [clauseSubjectPronouns containsObject:Rlow[0]] ||
-                                        (k >= 2 && !R[1].hasCommaBefore && [finiteAuxVerbs containsObject:Rlow[1]]);
-
+            // Rule 3: Strong-Cue Phrase / Object / Clause Replacement (or soft "sorry"/"i mean" before a greeting-led restart)
+            BOOL rHasGreetingLead = (k >= 2 && ([Rlow[0] isEqualToString:@"hey"] || [Rlow[0] isEqualToString:@"hi"] ||
+                                                [Rlow[0] isEqualToString:@"hello"] || [Rlow[0] isEqualToString:@"well"] ||
+                                                [Rlow[0] isEqualToString:@"okay"] || [Rlow[0] isEqualToString:@"ok"]));
+            NSInteger rClauseIdx = rHasGreetingLead ? 1 : 0;
+            BOOL rStartsNewClause = [clauseSubjectPronouns containsObject:Rlow[rClauseIdx]] ||
+                                    (rClauseIdx + 1 < k && !R[rClauseIdx + 1].hasCommaBefore && [finiteAuxVerbs containsObject:Rlow[rClauseIdx + 1]]) ||
+                                    (rClauseIdx + 1 < k && [finiteAuxVerbs containsObject:Rlow[rClauseIdx]] && [clauseSubjectPronouns containsObject:Rlow[rClauseIdx + 1]]);
+            if (isStrong || (rHasGreetingLead && rStartsNewClause && ([cueCore isEqualToString:@"sorry"] || [cueCore isEqualToString:@"i mean"] || [cueCore isEqualToString:@"i meant"]))) {
                 // Case 3a: Object / complement after an anchor word (verb, preposition, or determiner)
-                if (!rStartsNewClause && m_eff >= 2) {
+                if (isStrong && !rStartsNewClause && m_eff >= 2) {
                     NSInteger anchorIdx = -1;
                     if (R[0].isCap) {
                         NSInteger minCapA = MAX((NSInteger)0, m_eff - 6);
@@ -8786,11 +9081,19 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                 // Case 3b: Whole-clause retraction for "scratch/strike/forget/disregard that" or when R starts a new clause
                 if (isClauseCue || rStartsNewClause) {
                     NSInteger clauseStartIdx = 0;
-                    for (NSInteger c = m_eff - 1; c >= 1; c--) {
-                        if (L[c].hasCommaBefore) {
-                            clauseStartIdx = c;
-                            break;
+                    if (!rHasGreetingLead) {
+                        for (NSInteger c = m_eff - 1; c >= 1; c--) {
+                            if (L[c].hasCommaBefore) {
+                                clauseStartIdx = c;
+                                break;
+                            }
                         }
+                    }
+                    if (clauseStartIdx == 1 &&
+                        ([Llow[0] isEqualToString:@"hey"] || [Llow[0] isEqualToString:@"hi"] ||
+                         [Llow[0] isEqualToString:@"hello"] || [Llow[0] isEqualToString:@"well"] ||
+                         [Llow[0] isEqualToString:@"okay"] || [Llow[0] isEqualToString:@"ok"])) {
+                        clauseStartIdx = 0;
                     }
                     if (clauseStartIdx > 0 && clauseStartIdx + 1 < m_eff &&
                         ([Llow[clauseStartIdx] isEqualToString:@"and"] || [Llow[clauseStartIdx] isEqualToString:@"but"] ||
@@ -8807,7 +9110,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                 }
 
                 // Case 3c: 1-to-2 word noun/name at the start of a sentence before a strong cue
-                if (m_eff <= 2) {
+                if (isStrong && m_eff <= 2) {
                     NSUInteger delLoc = L[0].range.location;
                     BOOL wasCap = L[0].isCap;
                     BOOL nowCap = R[0].isCap;
@@ -8823,6 +9126,21 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
 
 static void GFRemoveConversationalBacktracks(NSMutableString *str) {
     for (int pass = 0; pass < 8 && GFRemoveConversationalBacktrackOnce(str); pass++) {}
+    // Also strip utterance-initial "Oh sorry, " / "Oh, sorry. " when immediately followed by a greeting or clause restart
+    if (str.length >= 10) {
+        static NSRegularExpression *leadBacktrackRe;
+        static dispatch_once_t leadOnce;
+        dispatch_once(&leadOnce, ^{
+            leadBacktrackRe = [NSRegularExpression regularExpressionWithPattern:
+                               @"^\\s*(?:oh\\s*,?\\s*sorry|sorry\\s*,?\\s*no|oh\\s*,?\\s*wait|wait\\s*,?\\s*no)\\s*[,.!?]?\\s+"
+                               @"(?=(?:hey|hi|hello|well|okay|ok|actually|i\\s+mean|i\\s+meant|let's|can\\s+we|could\\s+we|i\\s+want|i\\s+need|we\\s+need|we\\s+should)\\b)"
+                                                                        options:NSRegularExpressionCaseInsensitive error:nil];
+        });
+        NSTextCheckingResult *lm = [leadBacktrackRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)];
+        if (lm) {
+            [str deleteCharactersInRange:lm.range];
+        }
+    }
 }
 
 // Smart Spoken List Formatting (Cycle 46, shared with iOS via transplant.py).
@@ -9234,6 +9552,123 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     replaceRegex(str, @"\\bfrom\\s+(\\d{1,2}(?::\\d{2})?)\\s+to\\s+(\\d{1,2}(?::\\d{2})?)\\s+(a\\.m\\.|p\\.m\\.|am|pm)(?!\\w)", @"$1-$2 $3", ci);
 }
 
+// Cycle 57: Spoken Email Addresses, Web Domains, and Unambiguous Tech Brand Casing (shared with iOS via transplant.py).
+//  - Formats spoken emails ("sarah at acme dot com" -> "sarah@acme.com", "john dot smith at example dot io" -> "john.smith@example.io")
+//    while preserving prose ("look at example dot com" -> "look at example.com").
+//  - Formats spoken web domains ("docs dot github dot com" -> "docs.github.com") with an explicit TLD allowlist.
+//  - Restores canonical mixed-case spelling for unambiguous lowercase tech brands ("iphone" -> "iPhone", "macos" -> "macOS",
+//    "airpods" -> "AirPods", "github" -> "GitHub", "youtube" -> "YouTube").
+static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
+    if (!str || str.length < 4) return;
+    static NSRegularExpression *emailRe, *domainRe, *dotSplitRe, *brandRe;
+    static NSSet<NSString *> *nonEmailLocalWords, *nonDomainLeadWords;
+    static NSDictionary<NSString *, NSString *> *brandMap;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+        NSString *tldGroup = @"(com|org|net|io|ai|dev|edu|gov|co|app|me|uk|ca|de|au|gg|sh|xyz|tech|cloud)";
+        emailRe = [NSRegularExpression regularExpressionWithPattern:
+                   [NSString stringWithFormat:@"\\b([a-z0-9]+(?:\\s+dot\\s+[a-z0-9]+)*)\\s+at\\s+([a-z0-9-]+(?:\\s+dot\\s+[a-z0-9-]+)*)\\s+dot\\s+%@\\b", tldGroup]
+                                                            options:ci error:nil];
+        domainRe = [NSRegularExpression regularExpressionWithPattern:
+                    [NSString stringWithFormat:@"(?<![@.\\w-])\\b([a-z0-9-]+(?:\\s+dot\\s+[a-z0-9-]+)*)\\s+dot\\s+%@\\b", tldGroup]
+                                                             options:ci error:nil];
+        dotSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+dot\\s+" options:ci error:nil];
+        brandRe = [NSRegularExpression regularExpressionWithPattern:
+                   @"(?<![.\\w@/:-])\\b(iphones?|ipads?|imacs?|icloud|macos|watchos|tvos|visionos|airpods|airtags?|homepods?|macbooks?|facetime|imessage|github|youtube)\\b(?![.\\w@/:-])"
+                                                            options:ci error:nil];
+        nonEmailLocalWords = [NSSet setWithArray:@[
+            @"look", @"looking", @"looked", @"see", @"seen", @"check", @"checked", @"checking",
+            @"visit", @"visiting", @"visited", @"view", @"viewing", @"hosted", @"available", @"found",
+            @"online", @"live", @"more", @"here", @"there", @"out", @"up", @"over", @"back", @"down",
+            @"on", @"in", @"is", @"was", @"are", @"were", @"be", @"been", @"page", @"site", @"website",
+            @"blog", @"repo", @"code", @"us", @"them", @"it", @"work", @"jobs", @"join", @"apply",
+            @"register", @"post", @"posted", @"read", @"published", @"starting", @"located", @"based"
+        ]];
+        nonDomainLeadWords = [NSSet setWithArray:@[
+            @"the", @"a", @"an", @"that", @"this", @"red", @"blue", @"green", @"big", @"small", @"little", @"one"
+        ]];
+        brandMap = @{
+            @"iphone": @"iPhone", @"iphones": @"iPhones",
+            @"ipad": @"iPad", @"ipads": @"iPads",
+            @"imac": @"iMac", @"imacs": @"iMacs",
+            @"icloud": @"iCloud",
+            @"macos": @"macOS", @"watchos": @"watchOS", @"tvos": @"tvOS", @"visionos": @"visionOS",
+            @"airpods": @"AirPods", @"airtag": @"AirTag", @"airtags": @"AirTags",
+            @"homepod": @"HomePod", @"homepods": @"HomePods",
+            @"macbook": @"MacBook", @"macbooks": @"MacBooks",
+            @"facetime": @"FaceTime", @"imessage": @"iMessage",
+            @"github": @"GitHub", @"youtube": @"YouTube"
+        };
+    });
+
+    if ([str rangeOfString:@" dot " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        NSArray<NSTextCheckingResult *> *eMatches = [emailRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [eMatches reverseObjectEnumerator]) {
+            NSString *rawLocal = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            NSString *rawHost = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            NSString *tld = [[str substringWithRange:[m rangeAtIndex:3]] lowercaseString];
+            BOOL localHasDot = ([rawLocal rangeOfString:@" dot "].location != NSNotFound);
+            if (!localHasDot && [nonEmailLocalWords containsObject:rawLocal]) {
+                continue;
+            }
+            NSString *local = [dotSplitRe stringByReplacingMatchesInString:rawLocal options:0 range:NSMakeRange(0, rawLocal.length) withTemplate:@"."];
+            NSString *host = [dotSplitRe stringByReplacingMatchesInString:rawHost options:0 range:NSMakeRange(0, rawHost.length) withTemplate:@"."];
+            NSString *email = [NSString stringWithFormat:@"%@@%@.%@", local, host, tld];
+            [str replaceCharactersInRange:m.range withString:email];
+        }
+        NSArray<NSTextCheckingResult *> *dMatches = [domainRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [dMatches reverseObjectEnumerator]) {
+            NSString *rawHost = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            NSString *tld = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            NSString *firstLabel = [[rawHost componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] firstObject];
+            if ([nonDomainLeadWords containsObject:firstLabel]) continue;
+            NSString *host = [dotSplitRe stringByReplacingMatchesInString:rawHost options:0 range:NSMakeRange(0, rawHost.length) withTemplate:@"."];
+            NSString *domain = [NSString stringWithFormat:@"%@.%@", host, tld];
+            [str replaceCharactersInRange:m.range withString:domain];
+        }
+    }
+
+    NSArray<NSTextCheckingResult *> *bMatches = [brandRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+    for (NSTextCheckingResult *m in [bMatches reverseObjectEnumerator]) {
+        NSString *word = [str substringWithRange:m.range];
+        NSString *canon = brandMap[word.lowercaseString];
+        if (canon && ![word isEqualToString:canon]) {
+            [str replaceCharactersInRange:m.range withString:canon];
+        }
+    }
+}
+
+// Cycle 58: Spoken Dates, Slash Dates, 10-Digit Phone Numbers, and Contraction Cleanup (shared with iOS via transplant.py).
+//  - Month + Day + 4-digit Year comma formatting ("November 14 2026" -> "November 14, 2026", "November 14th 2026" -> "November 14th, 2026")
+//  - Spoken numeric slash dates ("11 slash 14 slash 2026" -> "11/14/2026")
+//  - 10-digit US phone numbers spoken as 3-3-4 groups ("415 555 0192" -> "415-555-0192")
+//  - Split "can not" -> "cannot" (while preserving "can not only")
+static void GFFormatSpokenDatesAndNumbers(NSMutableString *str) {
+    if (!str || str.length < 6) return;
+    NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+    if ([str rangeOfString:@"can not" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(c)an\\s+not\\b(?!\\s+(?:only|just|merely|simply)\\b)", @"$1annot", ci);
+    }
+    BOOL hasDigit = NO;
+    for (NSUInteger i = 0, n = str.length; i < n; i++) {
+        unichar c = [str characterAtIndex:i];
+        if (c >= '0' && c <= '9') { hasDigit = YES; break; }
+    }
+    if (!hasDigit) return;
+    // 1. Month Day Year -> Month Day, Year
+    replaceRegex(str, @"\\b(January|February|March|April|May|June|July|August|September|October|November|December|"
+                      @"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\\s+(\\d{1,2}(?:st|nd|rd|th)?)\\s+((?:19|20)\\d{2})\\b",
+                 @"$1 $2, $3", ci);
+    // 2. Spoken numeric slash dates ("11 slash 14 slash 2026" -> "11/14/2026", "11 slash 14" -> "11/14")
+    if ([str rangeOfString:@"slash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d{1,2})\\s+slash\\s+(\\d{1,2})\\s+slash\\s+(\\d{2,4})\\b", @"$1/$2/$3", ci);
+        replaceRegex(str, @"\\b(\\d{1,2})\\s+slash\\s+(\\d{1,2})\\b", @"$1/$2", ci);
+    }
+    // 3. 10-digit US phone numbers spoken as 3-3-4 groups ("415 555 0192" -> "415-555-0192")
+    replaceRegex(str, @"(?<![\\d-])\\b([2-9]\\d{2})\\s+(\\d{3})\\s+(\\d{4})\\b(?![\\d-])", @"$1-$2-$3", 0);
+}
+
 // Cycle 51: Upgrades a trailing '.' to '?' when the final sentence is a clear grammatical question that ended with an
 // abbreviation dot ("Can we meet at 3:00 p.m." -> "Can we meet at 3:00 p.m.?") or a period left over from a correction
 // fragment ("Can we meet on Tuesday? Wait, no, Wednesday." -> "Can we meet on Wednesday?").
@@ -9451,12 +9886,16 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
 
     // 8b. Smart entity formatting (spoken currencies, percentages, temperatures, dimensions, and time ranges)
     GFFormatSmartEntities(str);
+    // 8c. Spoken emails, web domains, and unambiguous tech brand casing
+    GFFormatSpokenEmailsAndDomains(str);
+    // 8d. Spoken dates, slash dates, 10-digit phone numbers, and contraction cleanup
+    GFFormatSpokenDatesAndNumbers(str);
 
     // 9. Clean up multiple spaces and spaces before punctuation
     replaceRegex(str, @"\\s+([,;!?])", @"$1", 0);
     replaceRegex(str, @"\\s+(\\.)(?![\\w])", @"$1", 0); // not before ".env" / ".gitignore"
     replaceRegex(str, @",\\s*,+", @",", 0);
-    replaceRegex(str, @"([.!?])\\s*,\\s*", @"$1 ", 0);
+    replaceRegex(str, @"(?<![A-Za-z]\\.[A-Za-z])([.!?])\\s*,\\s*", @"$1 ", 0);
     replaceRegex(str, @"\\s{2,}", @" ", 0);
 
     // 10. Strip leading punctuation/spaces
@@ -9787,6 +10226,10 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         self.e2eCompletion = nil;
         done(text);
         return;
+    }
+
+    if (gGFMacCursorContextAdaptHook) {
+        text = gGFMacCursorContextAdaptHook(self, text) ?: text;
     }
 
     if (gGFMacDeliveryInterceptHook && gGFMacDeliveryInterceptHook(self, text, d)) {
@@ -14490,6 +14933,114 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
                 if (autoLearnOk) passed++; else failed++;
                 printf("%s: auto-learn custom word detector learns edited names/brands and ignores prose edits (%d%d%d%d%d%d%d%d)\n",
                        autoLearnOk ? "PASS" : "FAIL", l1, l2, l3, l4, g1, g2, g3, g4);
+            }
+
+            // Cycle 54: Per-press PCM chunk isolation (Backlog 23) + API-key check HUD guard (Backlog 19)
+            {
+                BOOL c1 = GFShouldAcceptCapturedChunk(5, 5, 10, 10) == YES;   // active press or 1-hop release drain
+                BOOL c2 = GFShouldAcceptCapturedChunk(5, 6, 10, 11) == NO;    // superseded by newer press #6
+                BOOL c3 = GFShouldAcceptCapturedChunk(5, 5, 10, 11) == NO;    // cancelled / rebuilt session
+                BOOL c4 = GFShouldAcceptCapturedChunk(0, 0, 0, 0) == NO;      // uninitialized press serial 0
+                BOOL h1 = GFShouldShowApiKeyCheckHUD(NO, 0) == YES;           // idle: ok to show
+                BOOL h2 = GFShouldShowApiKeyCheckHUD(YES, 1) == NO;           // recording: keep listening HUD
+                BOOL h3 = GFShouldShowApiKeyCheckHUD(NO, 2) == NO;            // thinking: keep thinking HUD
+                BOOL c54Ok = c1 && c2 && c3 && c4 && h1 && h2 && h3;
+                if (c54Ok) passed++; else failed++;
+                printf("%s: per-press PCM chunk isolation and Thinking HUD protection (%d%d%d%d%d%d%d)\n",
+                       c54Ok ? "PASS" : "FAIL", c1, c2, c3, c4, h1, h2, h3);
+            }
+
+            // Cycle 55: Planned rotation after release when a >= 9.5 min session closes during final turn (Backlog 0q)
+            {
+                BOOL r1 = GFLiveFinalizingCloseShouldRotate(YES, YES, 585.0, NO, 570.0, 0, 560 * 32000, 585 * 32000) == YES;
+                BOOL r2 = GFLiveFinalizingCloseShouldRotate(YES, YES, 45.0, YES, 570.0, 1, 30 * 32000, 45 * 32000) == YES; // after goAway
+                BOOL r3 = GFLiveFinalizingCloseShouldRotate(YES, YES, 120.0, NO, 570.0, 0, 100 * 32000, 120 * 32000) == NO; // young session, no goAway
+                BOOL r4 = GFLiveFinalizingCloseShouldRotate(NO, YES, 585.0, NO, 570.0, 0, 560 * 32000, 585 * 32000) == NO;  // not finalizing
+                BOOL r5 = GFLiveFinalizingCloseShouldRotate(YES, YES, 585.0, NO, 570.0, 0, 100 * 32000, 300 * 32000) == NO; // > 120s uncovered tail
+
+                // Socketless simulation: 10s audio (3s silence + 7s speech), first 8s covered with 1 segment, last 2s voiced; session age 585s closes during liveFinalizing
+                AppDelegate *rotApp = [[AppDelegate alloc] init];
+                rotApp.unitTestMode = YES;
+                rotApp.liveTestSocketless = YES;
+                rotApp.activeDictation = [[GFDictation alloc] init];
+                rotApp.resultSink = ^(NSString *t, GFDictation *d) {};
+                rotApp.recordedPCMData = [NSMutableData dataWithLength:10 * 32000];
+                int16_t *samps = (int16_t *)rotApp.recordedPCMData.mutableBytes;
+                for (NSUInteger i = 3 * 16000; i < 10 * 16000; i++) samps[i] = (i % 40 < 20) ? 1600 : -1600;
+                [rotApp startGeminiLiveWebSocketResuming:NO];
+                NSUInteger sid1 = rotApp.liveSessionId;
+                [rotApp handleLiveMessage:@{@"setupComplete": @{}} session:sid1];
+                rotApp.liveSocketReadyTime = [NSDate timeIntervalSinceReferenceDate] - 585.0;
+                rotApp.liveSegments = [NSMutableArray arrayWithObject:@"First nine minutes of speech."];
+                rotApp.liveCoveredSegments = 1;
+                rotApp.liveCoveredBytes = 8 * 32000;
+                rotApp.liveAnsweredBytes = 8 * 32000;
+                rotApp.liveSentBytes = 10 * 32000;
+                rotApp.liveFinalizing = YES;
+                rotApp.liveReleaseTime = [NSDate timeIntervalSinceReferenceDate];
+                NSURLSession *usRot = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration]];
+                NSURLSessionWebSocketTask *fakeTask = [usRot webSocketTaskWithRequest:GFLiveWebSocketRequest(@"DUMMY", NO)];
+                rotApp.liveWebSocketTask = fakeTask;
+                [rotApp liveConnectionLost:@"simulated 10-min cap at release" session:sid1 task:fakeTask error:nil];
+                NSUInteger sid2 = rotApp.liveSessionId;
+                BOOL rotatedOnFinal = !rotApp.liveFailed && rotApp.liveRotations == 1 && sid2 == sid1 + 1
+                                      && rotApp.liveFinalizing && rotApp.liveSentBytes == 8 * 32000
+                                      && rotApp.liveSegments.count == 1;
+                [rotApp handleLiveMessage:@{@"setupComplete": @{}} session:sid2];
+                BOOL resentTailAndEnded = rotApp.liveSentBytes == 10 * 32000 && rotApp.liveActivityEnded && rotApp.livePendingActivityEnds.count == 1;
+
+                BOOL c55Ok = r1 && r2 && r3 && r4 && r5 && rotatedOnFinal && resentTailAndEnded;
+                if (c55Ok) passed++; else failed++;
+                printf("%s: post-release session-lifetime rotation finishes uncovered tail on Live (%d%d%d%d%d%d%d)\n",
+                       c55Ok ? "PASS" : "FAIL", r1, r2, r3, r4, r5, rotatedOnFinal, resentTailAndEnded);
+            }
+
+            // Cycle 56: Resend in-flight audio window after unsolicited mid-press server turn end & seam overlap deduplication (Backlog 25)
+            {
+                BOOL w1 = GFLiveUnsolicitedTurnEndRewindBytes(0, 64000, 60800) == 11520; // voiced within 0.1s of sentBytes -> rewinds 0.36s (11520B)
+                BOOL w2 = GFLiveUnsolicitedTurnEndRewindBytes(0, 64000, 50000) == 0;     // silent for >0.2s -> 0 rewind
+                BOOL w3 = GFLiveUnsolicitedTurnEndRewindBytes(60000, 64000, 64000) == 3840; // capped by activityStartByte, 640-byte frame aligned
+                NSString *j1 = GFJoinLiveSegmentsDeduplicatingSeam(@[@"We need to ship the update.", @"The update before Friday."]);
+                NSString *j2 = GFJoinLiveSegmentsDeduplicatingSeam(@[@"Please send the report to", @"to Sarah this afternoon."]);
+                NSString *j3 = GFJoinLiveSegmentsDeduplicatingSeam(@[@"Check status.", @"Status is green."]);
+                BOOL s1 = [j1 isEqualToString:@"We need to ship the update before Friday."];
+                BOOL s2 = [j2 isEqualToString:@"Please send the report to Sarah this afternoon."];
+                BOOL s3 = [j3 isEqualToString:@"Check status. Status is green."];
+                BOOL c56Ok = w1 && w2 && w3 && s1 && s2 && s3;
+                if (c56Ok) passed++; else failed++;
+                printf("%s: unsolicited turn-end in-flight audio rewind and seam overlap deduplication (%d%d%d%d%d%d)\n",
+                       c56Ok ? "PASS" : "FAIL", w1, w2, w3, s1, s2, s3);
+            }
+
+            // Cycle 57: Spoken email addresses, web domains, i.e. protection, and tech brand casing
+            {
+                BOOL e1 = [[self polishOnDeviceTranscript:@"send it to sarah at acme dot com"] isEqualToString:@"Send it to sarah@acme.com. "];
+                BOOL e2 = [[self polishOnDeviceTranscript:@"reach john dot smith at example dot io today"] isEqualToString:@"Reach john.smith@example.io today. "];
+                BOOL e3 = [[self polishOnDeviceTranscript:@"look at docs dot github dot com for details"] isEqualToString:@"Look at docs.github.com for details. "];
+                BOOL e4 = [[self polishOnDeviceTranscript:@"check the logs, i.e., the server output on my iphone and macos"] isEqualToString:@"Check the logs, i.e., the server output on my iPhone and macOS. "];
+                BOOL e5 = [[self polishOnDeviceTranscript:@"my airpods connected to the macbook and ipad"] isEqualToString:@"My AirPods connected to the MacBook and iPad. "];
+                BOOL c57Ok = e1 && e2 && e3 && e4 && e5;
+                if (c57Ok) passed++; else failed++;
+                printf("%s: spoken emails, web domains, i.e. preservation, and tech brand casing (%d%d%d%d%d)\n",
+                       c57Ok ? "PASS" : "FAIL", e1, e2, e3, e4, e5);
+            }
+
+            // Cycle 58: Mid-sentence cursor continuation, 'oh sorry' self-correction backtracks, and spoken dates/numbers
+            {
+                BOOL m1 = [GFAdaptTextForMidSentenceCursor(@"Walk to the store. ", @"I want to ", @"", @[]) isEqualToString:@"walk to the store. "];
+                BOOL m2 = [GFAdaptTextForMidSentenceCursor(@"Walk to the store. ", @"I want to", @"", @[]) isEqualToString:@" walk to the store. "];
+                BOOL m3 = [GFAdaptTextForMidSentenceCursor(@"Walk. ", @"I want to ", @" to the park.", @[]) isEqualToString:@"walk"];
+                BOOL m4 = [GFAdaptTextForMidSentenceCursor(@"I want to go. ", @"Because ", @"", @[]) isEqualToString:@"I want to go. "];
+                BOOL m5 = [GFAdaptTextForMidSentenceCursor(@"Walk to the store. ", @"Hello world. ", @"", @[]) isEqualToString:@"Walk to the store. "];
+                BOOL b1 = [[self polishOnDeviceTranscript:@"I want to go at two, oh sorry, hey, I want to go at three"] isEqualToString:@"Hey, I want to go at three. "];
+                BOOL b2 = [[self polishOnDeviceTranscript:@"Let's meet at two. Oh, sorry. Hey, I want to go at three."] isEqualToString:@"Hey, I want to go at three. "];
+                BOOL b3 = [[self polishOnDeviceTranscript:@"Oh sorry, hey, I want to go at three"] isEqualToString:@"Hey, I want to go at three. "];
+                BOOL d1 = [[self polishOnDeviceTranscript:@"Call 415 555 0192 on November 14 2026 or 11 slash 14 slash 2026 because we can not wait"]
+                           isEqualToString:@"Call 415-555-0192 on November 14, 2026 or 11/14/2026 because we cannot wait. "];
+                BOOL c58Ok = m1 && m2 && m3 && m4 && m5 && b1 && b2 && b3 && d1;
+                if (c58Ok) passed++; else failed++;
+                printf("%s: mid-sentence cursor continuation, 'oh sorry' backtracks, and spoken dates/phone numbers (%d%d%d%d%d%d%d%d%d)\n",
+                       c58Ok ? "PASS" : "FAIL", m1, m2, m3, m4, m5, b1, b2, b3, d1);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

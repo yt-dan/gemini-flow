@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 58,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:45",
+      "title": "Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting",
+      "highlights": [
+        "When you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.",
+        "Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."
+      ]
+    },
+    {
+      "cycle": 57,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:38",
+      "title": "Formats spoken email addresses, web domains, and tech brand names",
+      "highlights": [
+        "Turns spoken email addresses and websites like 'sarah at acme dot com' and 'docs dot github dot com' into 'sarah@acme.com' and 'docs.github.com' while leaving normal sentences like 'look at example.com' intact.",
+        "Automatically capitalizes tech brand names like iPhone, iPad, iMac, iCloud, macOS, AirPods, MacBook, GitHub, and YouTube."
+      ]
+    },
+    {
+      "cycle": 56,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:35",
+      "title": "Keeps words spoken across mid-dictation turn splits without gaps or duplicates",
+      "highlights": [
+        "When the live server closes a speech turn while you are still talking, GeminiFlow re-sends the last fraction of a second of audio into the next turn so words in flight are never clipped.",
+        "Automatically removes any repeated boundary words when stitching live speech segments together."
+      ]
+    },
+    {
+      "cycle": 55,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:28",
+      "title": "Finishes 10-minute hands-free dictations smoothly even if the session expires at release",
+      "highlights": [
+        "If Google's 10-minute live session limit is reached right after you stop a long hands-free dictation, GeminiFlow keeps everything transcribed so far and finishes only the last few seconds on a fresh live connection.",
+        "Avoids falling back to re-sending the entire 10-minute recording from scratch when only the final sentence is still pending."
+      ]
+    },
+    {
+      "cycle": 54,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:25",
+      "title": "Keeps back-to-back dictations cleanly separated and protects the status pill",
+      "highlights": [
+        "When you finish one dictation and immediately start another, leftover audio from the first press can no longer spill into the start of the new recording.",
+        "Prevents a background API key check from covering the status pill while a dictation is still finishing, and removes unused internal session state."
+      ]
+    },
+    {
       "cycle": 53,
       "scope": "engine",
       "timestamp": "13 Nov \u00b7 22:55",
