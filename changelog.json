@@ -3,6 +3,52 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 188,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:08",
+      "title": "Joins split everyday compound words like 'inbox', 'clipboard', 'keyboard', 'laptop', 'background', and 'overview'",
+      "highlights": [
+        "Joins everyday personal and workplace compound nouns when speech recognition splits them into two words, turning 'in box', 'out box', 'clip board', 'key board', 'desk top', 'lap top', 'back ground', 'over view', 'out reach', 'work load', 'work space', 'time frame', and 'the project kick off' into 'inbox', 'outbox', 'clipboard', 'keyboard', 'desktop', 'laptop', 'background', 'overview', 'outreach', 'workload', 'workspace', 'timeframe', and 'the project kickoff' while keeping verb phrases like 'kick off the meeting' untouched."
+      ]
+    },
+    {
+      "cycle": 187,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:07",
+      "title": "Fixes 'whether or not', 'pare down', 'waive the fee', 'matter of principle', 'quick peek', and 'wear and tear'",
+      "highlights": [
+        "Repairs everyday phrases that speech recognizers often spell with the wrong homophone, turning 'weather or not', 'pair down the list', 'wave the fee', 'matter of principal', 'against my principals', 'paid her a complement', 'pouring over the notes', 'take a quick peak', 'getting board to tears', 'plays a key roll in', 'normal ware and tear', 'short and suite', and 'step on your tows' into 'whether or not', 'pare down the list', 'waive the fee', 'matter of principle', 'against my principles', 'paid her a compliment', 'poring over the notes', 'take a quick peek', 'getting bored to tears', 'plays a key role in', 'normal wear and tear', 'short and sweet', and 'step on your toes'."
+      ]
+    },
+    {
+      "cycle": 186,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:06",
+      "title": "Cleans up 'let me say this instead', 'let me reframe that', 'sorry, let me try again', and 'forget what I just said'",
+      "highlights": [
+        "When you reset or reframe an instruction mid-sentence with 'let me say this instead,', 'actually, let me reframe that,', 'sorry, let me try again,', or 'wait, forget what I just said,', GeminiFlow removes the earlier draft clause and keeps your revised wording."
+      ]
+    },
+    {
+      "cycle": 185,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:05",
+      "title": "Cleans up 'my the' determiner restarts, 'will would' modal upgrades, 'the reason being is that', and 'and whatnot'",
+      "highlights": [
+        "Drops aborted determiners when you switch from 'my', 'our', 'their', or 'a' to 'the' mid-phrase ('sending my the Gemini live transcription' becomes 'sending the Gemini live transcription') and collapses mid-thought modal upgrades like 'I will would prefer' and 'we can could try' into 'I would prefer' and 'we could try'.",
+        "Simplifies 'the reason being is that', 'the point being is that', 'in the sense of that', and 'whether or not that' into 'the reason is that', 'the point is that', 'in the sense that', and 'whether or not', and joins clause-final 'and what not' into 'and whatnot'."
+      ]
+    },
+    {
+      "cycle": 184,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:04",
+      "title": "Removes filler 'like' in 'for me like to explain', 'and not like changing my voice', and 'even like better'",
+      "highlights": [
+        "Strips filler 'like' after 'for me', 'for you', 'for us', and 'for them' before 'to' verbs ('easier for me like to explain' becomes 'easier for me to explain'), after 'not' before transitive '-ing' phrases ('and not like changing my voice' and 'I am not like trying to rush' become 'and not changing my voice' and 'I am not trying to rush'), and after 'even', 'far', 'way more', and 'so much' before comparative adjectives ('even like better' and 'far like easier' become 'even better' and 'far easier')."
+      ]
+    },
+    {
       "cycle": 183,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 18:34",
