@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 118,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:02",
+      "title": "Formats more technical slash pairs like 'pub/sub', 'key/value', 'UI/UX', and 'HTTP/2'",
+      "highlights": [
+        "Turns spoken technical slash pairs like 'pub slash sub', 'key slash value', 'request slash response', 'primary slash replica', 'active slash passive', 'producer slash consumer', 'UI slash UX', 'HTTP slash 2', and 'HTTP slash 3' into clean slash expressions.",
+        "Expands spoken Git and project folder slash paths to cover 'release/v1.2', 'refactor/audio', 'docs/api', and 'tests/e2e'."
+      ]
+    },
+    {
+      "cycle": 117,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:01",
+      "title": "Hyphenates AI and systems modifiers and restores casing on AI, database, and testing brands",
+      "highlights": [
+        "Hyphenates spoken technical modifiers before their nouns, including 'fine-tuned model', 'pre-trained weights', 'self-hosted runner', 'thread-safe cache', 'type-safe client', 'zero-copy buffers', 'event-driven pipeline', and 'non-blocking io'.",
+        "Restores proper capitalization on AI, database, and developer tool names including 'Anthropic', 'HuggingFace', 'LangChain', 'LlamaIndex', 'DuckDB', 'ClickHouse', 'DynamoDB', 'RabbitMQ', 'Datadog', 'PostHog', 'Playwright', 'Vitest', and 'Turborepo'."
+      ]
+    },
+    {
+      "cycle": 116,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:00",
+      "title": "Formats spoken Asia-Pacific currencies, inequality symbols, and '10x' multipliers",
+      "highlights": [
+        "Turns spoken currency amounts like '500 Hong Kong dollars', '80 New Zealand dollars', '1,000 New Taiwan dollars', '5,000 Indian rupees', and '10,000 Korean won' into 'HK$500', 'NZ$80', 'NT$1,000', '\u20b95,000', and '\u20a910,000'.",
+        "Formats spoken math comparisons and multipliers before numbers, turning 'greater than or equal to 95 percent', 'less than or equal to 100 milliseconds', and '10 x speedup' into '\u226595%', '\u2264100 ms', and '10x speedup'."
+      ]
+    },
+    {
+      "cycle": 115,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:59",
+      "title": "Formats spoken bold, italics, curly braces, and angle brackets",
+      "highlights": [
+        "Wraps phrases in Markdown bold or italics when you say 'bold ... end bold' or 'italic ... end italic' ('Make this bold high priority end bold' becomes 'Make this **high priority**').",
+        "Wraps template variables and tags in curly braces or angle brackets when you say 'open curly brace ... close curly brace' or 'open angle bracket ... close angle bracket'."
+      ]
+    },
+    {
+      "cycle": 114,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:58",
+      "title": "Formats spoken Markdown headings and checkbox task lists",
+      "highlights": [
+        "Turns spoken headings at the start of a line like 'Heading 1: Quarterly roadmap' or 'Heading 2 key milestones' into '# Quarterly roadmap' and '## Key milestones'.",
+        "Formats spoken task items when you say 'checkbox item ... next checkbox ...' or 'todo item ... next todo ...' into Markdown '- [ ] ' checklists."
+      ]
+    },
+    {
       "cycle": 113,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 14:52",

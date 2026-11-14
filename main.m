@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(118), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:02", @"title": @"Formats more technical slash pairs like 'pub/sub', 'key/value', 'UI/UX', and 'HTTP/2'", @"highlights": @[@"Turns spoken technical slash pairs like 'pub slash sub', 'key slash value', 'request slash response', 'primary slash replica', 'active slash passive', 'producer slash consumer', 'UI slash UX', 'HTTP slash 2', and 'HTTP slash 3' into clean slash expressions.", @"Expands spoken Git and project folder slash paths to cover 'release/v1.2', 'refactor/audio', 'docs/api', and 'tests/e2e'."]},
+            @{@"cycle": @(117), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:01", @"title": @"Hyphenates AI and systems modifiers and restores casing on AI, database, and testing brands", @"highlights": @[@"Hyphenates spoken technical modifiers before their nouns, including 'fine-tuned model', 'pre-trained weights', 'self-hosted runner', 'thread-safe cache', 'type-safe client', 'zero-copy buffers', 'event-driven pipeline', and 'non-blocking io'.", @"Restores proper capitalization on AI, database, and developer tool names including 'Anthropic', 'HuggingFace', 'LangChain', 'LlamaIndex', 'DuckDB', 'ClickHouse', 'DynamoDB', 'RabbitMQ', 'Datadog', 'PostHog', 'Playwright', 'Vitest', and 'Turborepo'."]},
+            @{@"cycle": @(116), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:00", @"title": @"Formats spoken Asia-Pacific currencies, inequality symbols, and '10x' multipliers", @"highlights": @[@"Turns spoken currency amounts like '500 Hong Kong dollars', '80 New Zealand dollars', '1,000 New Taiwan dollars', '5,000 Indian rupees', and '10,000 Korean won' into 'HK$500', 'NZ$80', 'NT$1,000', '\u20B95,000', and '\u20A910,000'.", @"Formats spoken math comparisons and multipliers before numbers, turning 'greater than or equal to 95 percent', 'less than or equal to 100 milliseconds', and '10 x speedup' into '\u226595%', '\u2264100 ms', and '10x speedup'."]},
+            @{@"cycle": @(115), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:59", @"title": @"Formats spoken bold, italics, curly braces, and angle brackets", @"highlights": @[@"Wraps phrases in Markdown bold or italics when you say 'bold ... end bold' or 'italic ... end italic' ('Make this bold high priority end bold' becomes 'Make this **high priority**').", @"Wraps template variables and tags in curly braces or angle brackets when you say 'open curly brace ... close curly brace' or 'open angle bracket ... close angle bracket'."]},
+            @{@"cycle": @(114), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:58", @"title": @"Formats spoken Markdown headings and checkbox task lists", @"highlights": @[@"Turns spoken headings at the start of a line like 'Heading 1: Quarterly roadmap' or 'Heading 2 key milestones' into '# Quarterly roadmap' and '## Key milestones'.", @"Formats spoken task items when you say 'checkbox item ... next checkbox ...' or 'todo item ... next todo ...' into Markdown '- [ ] ' checklists."]},
             @{@"cycle": @(113), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:52", @"title": @"Cleans up 'let me correct that' and 'correction' mid-sentence fixes", @"highlights": @[@"When you correct yourself mid-sentence with 'let me correct that' or a comma-separated 'correction' ('The meeting is on Tuesday, let me correct that, Wednesday at 2 p.m.' or 'We shipped 12 builds today, correction, 15 builds'), GeminiFlow replaces the earlier detail automatically.", @"Leaves normal uses of the word 'correction' in everyday sentences like 'Make a small correction to the file' untouched."]},
             @{@"cycle": @(112), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:51", @"title": @"Joins split software compound words like 'frontend', 'backend', 'runtime', and 'timeout'", @"highlights": @[@"Joins split technical nouns like 'frontend', 'backend', 'runtime', 'timeout', 'rollback', and 'fallback' when dictated in software phrases, while keeping everyday verb phrases like 'roll back the changes' or 'front end of the train' as separate words.", @"Combines common two-part engineering terms including 'dataset', 'firewall', 'hostname', 'username', 'filename', 'breakpoint', 'checkpoint', 'deadlock', 'payload', and 'backlog'."]},
             @{@"cycle": @(111), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:50", @"title": @"Formats spoken quotation marks, parentheses, and square brackets", @"highlights": @[@"Wraps phrases in quotes when you say 'quote ... unquote' or 'open quote ... close quote' ('Set status to quote ready for review unquote' becomes 'Set status to \"ready for review\"').", @"Wraps spoken asides and tags in parentheses or square brackets when you say 'open paren ... close paren' or 'open bracket ... close bracket'."]},
@@ -8220,7 +8225,16 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
             @"vercel": @"Vercel", @"netlify": @"Netlify", @"firebase": @"Firebase",
             @"redis": @"Redis", @"sqlite": @"SQLite", @"grpc": @"gRPC",
             @"mongodb": @"MongoDB", @"fastapi": @"FastAPI", @"pytorch": @"PyTorch",
-            @"openai": @"OpenAI", @"deepseek": @"DeepSeek", @"gitlab": @"GitLab",
+            @"openai": @"OpenAI", @"deepseek": @"DeepSeek",
+            @"anthropic": @"Anthropic", @"huggingface": @"HuggingFace",
+            @"langchain": @"LangChain", @"llamaindex": @"LlamaIndex",
+            @"chromadb": @"ChromaDB", @"duckdb": @"DuckDB",
+            @"clickhouse": @"ClickHouse", @"timescaledb": @"TimescaleDB",
+            @"cockroachdb": @"CockroachDB", @"dynamodb": @"DynamoDB",
+            @"mariadb": @"MariaDB", @"indexeddb": @"IndexedDB",
+            @"rabbitmq": @"RabbitMQ", @"zeromq": @"ZeroMQ",
+            @"datadog": @"Datadog", @"posthog": @"PostHog",
+            @"playwright": @"Playwright", @"vitest": @"Vitest", @"turborepo": @"Turborepo", @"gitlab": @"GitLab",
             @"cocoapods": @"CocoaPods", @"voiceover": @"VoiceOver",
             @"tailwindcss": @"TailwindCSS", @"nestjs": @"NestJS",
             @"ipados": @"iPadOS", @"macos": @"macOS", @"watchos": @"watchOS", @"tvos": @"tvOS", @"visionos": @"visionOS",
@@ -10097,17 +10111,20 @@ static void GFRemoveConversationalBacktracks(NSMutableString *str) {
 static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
     if (!str || str.length < 10) return;
 
-    static NSRegularExpression *fastListRe, *bulletCueRe, *itemMarkerRe, *ordMarkerRe, *prevWordRe, *nextWordRe, *trailConjRe;
+    static NSRegularExpression *fastListRe, *headingRe, *bulletCueRe, *itemMarkerRe, *ordMarkerRe, *prevWordRe, *nextWordRe, *trailConjRe;
     static NSSet<NSString *> *badPrevBeforeBullet, *badNextAfterSingleBullet, *badPrevBeforeItem, *badNextAfterNoCommaItem, *introBeforeCommaFirst;
     static NSDictionary<NSString *, NSNumber *> *numMap;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastListRe = [NSRegularExpression regularExpressionWithPattern:
-                      @"\\b(?:bullet\\s+point|next\\s+bullet|first|firstly|number\\s+(?:one|1)|item\\s+(?:one|1)|point\\s+(?:one|1)|step\\s+(?:one|1))\\b"
+                      @"\\b(?:heading|header|bullet\\s+point|next\\s+bullet|checkbox\\s+item|next\\s+checkbox|to[-\\s]?do\\s+item|next\\s+to[-\\s]?do|first|firstly|number\\s+(?:one|1)|item\\s+(?:one|1)|point\\s+(?:one|1)|step\\s+(?:one|1))\\b"
                                                                options:ci error:nil];
+        headingRe = [NSRegularExpression regularExpressionWithPattern:
+                     @"^(?:heading|header)\\s+(1|one|2|two|3|three)(?:\\s*[:,-]\\s*|\\s+)(?!(?:is|was|are|were|has|had|looks|seems|should|will|would|can|could)\\b)([a-zA-Z0-9])([^\\n.!?]{0,60}?)(\\.[ \\t]+(?=[A-Z])|\\.?$)"
+                                                              options:ci | NSRegularExpressionAnchorsMatchLines error:nil];
         bulletCueRe = [NSRegularExpression regularExpressionWithPattern:
-                       @"(?:^|(?<=[.!?:;,\\n])\\s*|\\s+(?:and\\s+)?)\\b(bullet\\s+point|next\\s+bullet)\\b[.,:;]?\\s+"
+                       @"(?:^|(?<=[.!?:;,\\n])\\s*|\\s+(?:and\\s+)?)\\b(bullet\\s+point|next\\s+bullet|checkbox\\s+item|next\\s+checkbox|to[-\\s]?do\\s+item|next\\s+to[-\\s]?do)\\b[.,:;]?\\s+"
                                                                 options:ci error:nil];
         itemMarkerRe = [NSRegularExpression regularExpressionWithPattern:
                         @"(?:\\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\\s+(?:item|point|step)\\b([.,:;])?|"
@@ -10140,6 +10157,27 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
     });
 
     if ([fastListRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)] == nil) return;
+
+    // 0. Cycle 114: Spoken Markdown Headings ("Heading 1: Quarterly roadmap." -> "# Quarterly roadmap",
+    //    "Heading 2 key milestones. We ship on Friday." -> "## Key milestones\n\nWe ship on Friday.")
+    {
+        NSArray<NSTextCheckingResult *> *hMatches = [headingRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [hMatches reverseObjectEnumerator]) {
+            NSString *lvlRaw = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            NSInteger lvl = ([lvlRaw isEqualToString:@"1"] || [lvlRaw isEqualToString:@"one"]) ? 1 :
+                            (([lvlRaw isEqualToString:@"2"] || [lvlRaw isEqualToString:@"two"]) ? 2 : 3);
+            NSString *hashes = (lvl == 1) ? @"#" : ((lvl == 2) ? @"##" : @"###");
+            NSString *firstChar = [str substringWithRange:[m rangeAtIndex:2]];
+            if (autoCap) firstChar = [firstChar uppercaseString];
+            NSString *restTitle = [str substringWithRange:[m rangeAtIndex:3]];
+            NSString *tail = [str substringWithRange:[m rangeAtIndex:4]];
+            BOOL hasFollowingSentence = ([tail rangeOfString:@" "].location != NSNotFound);
+            NSString *rep = hasFollowingSentence
+                ? [NSString stringWithFormat:@"%@ %@%@\n\n", hashes, firstChar, restTitle]
+                : [NSString stringWithFormat:@"%@ %@%@", hashes, firstChar, restTitle];
+            [str replaceCharactersInRange:m.range withString:rep];
+        }
+    }
 
     NSString *(^cleanItemText)(NSString *, BOOL) = ^NSString *(NSString *raw, BOOL isLast) {
         NSString *s = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -10219,7 +10257,10 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
                     NSUInteger itemEnd = (i + 1 < valid.count) ? valid[i + 1].range.location : str.length;
                     NSString *item = cleanItemText([str substringWithRange:NSMakeRange(itemStart, itemEnd - itemStart)], i + 1 == valid.count);
                     if (item.length == 0) { allNonEmpty = NO; break; }
-                    [lines addObject:[@"- " stringByAppendingString:item]];
+                    NSString *cueWord = [[str substringWithRange:[valid[i] rangeAtIndex:1]] lowercaseString];
+                    BOOL isTaskItem = ([cueWord rangeOfString:@"checkbox"].location != NSNotFound ||
+                                       [cueWord rangeOfString:@"do"].location != NSNotFound);
+                    [lines addObject:[(isTaskItem ? @"- [ ] " : @"- ") stringByAppendingString:item]];
                 }
                 if (allNonEmpty && lines.count >= 1) {
                     [str setString:[lines componentsJoinedByString:@"\n"]];
@@ -10538,6 +10579,15 @@ static void GFFormatSmartEntities(NSMutableString *str) {
         replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+canadian\\s+dollars?\\b", @"CA$$1", ci);
         replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+australian\\s+dollars?\\b", @"A$$1", ci);
         replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+singapore(?:an)?\\s+dollars?\\b", @"S$$1", ci);
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+hong\\s+kong\\s+dollars?\\b", @"HK$$1", ci);
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+new\\s+zealand\\s+dollars?\\b", @"NZ$$1", ci);
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+(?:new\\s+)?taiwan(?:ese)?\\s+dollars?\\b", @"NT$$1", ci);
+    }
+    if ([str rangeOfString:@"rupee" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+(?:indian\\s+)?rupees?\\b", @"\u20B9$1", ci);
+    }
+    if ([str rangeOfString:@"won" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+(?:south\\s+)?korean\\s+won\\b", @"\u20A9$1", ci);
     }
     if ([str rangeOfString:@"franc" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+swiss\\s+francs?\\b", @"CHF $1", ci);
@@ -10585,6 +10635,11 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     if ([str rangeOfString:@"minus" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\bplus\\s+or\\s+minus\\s+(?=[\\$\\u20AC\\u00A3\\u00A5]?\\d)", @"\u00B1", ci);
     }
+    if ([str rangeOfString:@"equal" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bgreater\\s+than\\s+or\\s+equal\\s+to\\s+(?=[\\$\\u20AC\\u00A3\\u00A5]?-?\\d)", @"\u2265", ci);
+        replaceRegex(str, @"\\bless\\s+than\\s+or\\s+equal\\s+to\\s+(?=[\\$\\u20AC\\u00A3\\u00A5]?-?\\d)", @"\u2264", ci);
+    }
+    replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+x(?=\\s+(?:faster|slower|better|more|less|larger|smaller|bigger|higher|lower|longer|shorter|cheaper|improvement|speedup|growth|increase|reduction|return|returns|multiplier|scale|scaling|zoom|throughput|capacity)\\b)", @"$1x", ci);
     if ([str rangeOfString:@"power" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+the\\s+power\\s+of\\s+(?:negative\\s+|minus\\s+)(\\d+(?:\\.\\d+)?)\\b", @"$1^-$2", ci);
         replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+the\\s+power\\s+of\\s+(-?\\d+(?:\\.\\d+)?)\\b", @"$1^$2", ci);
@@ -10653,7 +10708,7 @@ static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
                                                               options:ci error:nil];
         slashSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+slash\\s+" options:ci error:nil];
         brandRe = [NSRegularExpression regularExpressionWithPattern:
-                   @"(?<![.\\w@/:-])\\b(iphones?|ipads?|imacs?|icloud|ipados|macos|watchos|tvos|visionos|airpods|airtags?|homepods?|macbooks?|facetime|imessage|xcode|testflight|cocoapods|voiceover|github|gitlab|youtube|typescript|javascript|graphql|postgresql|mongodb|fastapi|pytorch|openai|deepseek|whatsapp|linkedin|wordpress|devops|oauth|webrtc|webgl|websockets?|swiftui|webkit|coreaudio|appkit|uikit|kubernetes|cloudflare|supabase|vercel|netlify|firebase|redis|sqlite|grpc|nextjs|vuejs|nodejs|nuxtjs|nestjs|threejs|tailwindcss)\\b(?![\\w@/:-]|\\.[\\w])"
+                   @"(?<![.\\w@/:-])\\b(iphones?|ipads?|imacs?|icloud|ipados|macos|watchos|tvos|visionos|airpods|airtags?|homepods?|macbooks?|facetime|imessage|xcode|testflight|cocoapods|voiceover|github|gitlab|youtube|typescript|javascript|graphql|postgresql|mongodb|fastapi|pytorch|openai|deepseek|anthropic|huggingface|langchain|llamaindex|chromadb|duckdb|clickhouse|timescaledb|cockroachdb|dynamodb|mariadb|indexeddb|rabbitmq|zeromq|datadog|posthog|playwright|vitest|turborepo|whatsapp|linkedin|wordpress|devops|oauth|webrtc|webgl|websockets?|swiftui|webkit|coreaudio|appkit|uikit|kubernetes|cloudflare|supabase|vercel|netlify|firebase|redis|sqlite|grpc|nextjs|vuejs|nodejs|nuxtjs|nestjs|threejs|tailwindcss)\\b(?![\\w@/:-]|\\.[\\w])"
                                                             options:ci error:nil];
         dotJsBrandRe = [NSRegularExpression regularExpressionWithPattern:
                         @"(?<![.\\w@/:-])\\b(next\\.js|vue\\.js|node\\.js|nuxt\\.js|three\\.js)\\b(?![\\w@/:-]|\\.[\\w])"
@@ -10685,6 +10740,15 @@ static void GFFormatSpokenEmailsAndDomains(NSMutableString *str) {
             @"graphql": @"GraphQL", @"postgresql": @"PostgreSQL", @"mongodb": @"MongoDB",
             @"fastapi": @"FastAPI", @"pytorch": @"PyTorch",
             @"openai": @"OpenAI", @"deepseek": @"DeepSeek",
+            @"anthropic": @"Anthropic", @"huggingface": @"HuggingFace",
+            @"langchain": @"LangChain", @"llamaindex": @"LlamaIndex",
+            @"chromadb": @"ChromaDB", @"duckdb": @"DuckDB",
+            @"clickhouse": @"ClickHouse", @"timescaledb": @"TimescaleDB",
+            @"cockroachdb": @"CockroachDB", @"dynamodb": @"DynamoDB",
+            @"mariadb": @"MariaDB", @"indexeddb": @"IndexedDB",
+            @"rabbitmq": @"RabbitMQ", @"zeromq": @"ZeroMQ",
+            @"datadog": @"Datadog", @"posthog": @"PostHog",
+            @"playwright": @"Playwright", @"vitest": @"Vitest", @"turborepo": @"Turborepo",
             @"whatsapp": @"WhatsApp", @"linkedin": @"LinkedIn", @"wordpress": @"WordPress",
             @"devops": @"DevOps", @"oauth": @"OAuth", @"webrtc": @"WebRTC", @"webgl": @"WebGL",
             @"websocket": @"WebSocket", @"websockets": @"WebSockets",
@@ -10941,14 +11005,6 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     if ([str rangeOfString:@"mark" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(bench)\\s+mark(s?)\\b", @"$1mark$2", ci);
     }
-    if ([str rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        replaceRegex(str, @"\\b(dead)\\s+lock(s?)\\b", @"$1lock$2", ci);
-    }
-    if ([str rangeOfString:@"name" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        replaceRegex(str, @"\\b(host)\\s+name(s?)\\b", @"$1name$2", ci);
-        replaceRegex(str, @"\\b(user)\\s+name(s?)\\b", @"$1name$2", ci);
-        replaceRegex(str, @"\\b(file)\\s+name(s?)\\b", @"$1name$2", ci);
-    }
     if ([str rangeOfString:@"word" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(pass)\\s+word(s?)\\b", @"$1word$2", ci);
     }
@@ -11160,6 +11216,46 @@ static void GFFormatSpokenHyphenatedCompounds(NSMutableString *str) {
                      @"\\b([Ll])ong\\s+running(?=\\s+(?:task|tasks|session|sessions|process|processes|job|jobs|operation|operations|query|queries|daemon|test|tests)\\b)",
                      @"$1ong-running", 0);
     }
+    // Cycle 117: Expanded AI/Systems Hyphenated Technical Modifiers (fine-tuned, pre-trained, self-hosted, thread-safe,
+    // type-safe, zero-copy, event-driven, non-blocking) before their head nouns.
+    if ([str rangeOfString:@"fine tuned" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ff])ine\\s+tuned(?=\\s+(?:model|models|weights|checkpoint|checkpoints|adapter|adapters|llm|version|classifier)\\b)",
+                     @"$1ine-tuned", 0);
+    }
+    if ([str rangeOfString:@"pre trained" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Pp])re\\s+trained(?=\\s+(?:model|models|weights|checkpoint|checkpoints|transformer|embeddings|encoder|backbone)\\b)",
+                     @"$1re-trained", 0);
+    }
+    if ([str rangeOfString:@"self hosted" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ss])elf\\s+hosted(?=\\s+(?:runner|runners|instance|instances|server|servers|deployment|deployments|cloud|solution|version|agent|agents)\\b)",
+                     @"$1elf-hosted", 0);
+    }
+    if ([str rangeOfString:@"safe" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Tt])hread\\s+safe(?=\\s+(?:cache|queue|map|dictionary|singleton|buffer|counter|wrapper|implementation|access|code|state)\\b)",
+                     @"$1hread-safe", 0);
+        replaceRegex(str,
+                     @"\\b([Tt])ype\\s+safe(?=\\s+(?:api|apis|schema|schemas|client|queries|query|routing|builder|wrapper|code|interface)\\b)",
+                     @"$1ype-safe", 0);
+    }
+    if ([str rangeOfString:@"zero copy" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Zz])ero\\s+copy(?=\\s+(?:buffer|buffers|slice|slices|transfer|parsing|deserialization|io|stream|streaming|view)\\b)",
+                     @"$1ero-copy", 0);
+    }
+    if ([str rangeOfString:@"event driven" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ee])vent\\s+driven(?=\\s+(?:architecture|pipeline|system|systems|loop|wakeup|workflow|model|design|state)\\b)",
+                     @"$1vent-driven", 0);
+    }
+    if ([str rangeOfString:@"non blocking" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Nn])on\\s+blocking(?=\\s+(?:io|socket|sockets|read|reads|write|writes|call|calls|queue|check|mode|lock|operation|operations)\\b)",
+                     @"$1on-blocking", 0);
+    }
 }
 
 // Cycle 67: Spoken Technical Filenames, Slash Compounds & CLI Flags (shared with iOS via transplant.py).
@@ -11235,11 +11331,21 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
         replaceRegex(str, @"\\b(pass)\\s+slash\\s+(fail)\\b", @"$1/$2", ci);
         replaceRegex(str, @"\\b(on)\\s+slash\\s+(off)\\b", @"$1/$2", ci);
         replaceRegex(str, @"\\b(input)\\s+slash\\s+(output)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(pub)\\s+slash\\s+(sub)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(key)\\s+slash\\s+(value)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(request)\\s+slash\\s+(response)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(primary)\\s+slash\\s+(replica)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(active)\\s+slash\\s+(passive)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(producer)\\s+slash\\s+(consumer)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(parent)\\s+slash\\s+(child)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(master)\\s+slash\\s+(worker)\\b", @"$1/$2", ci);
         replaceRegex(str, @"\\bci\\s+slash\\s+cd\\b", @"CI/CD", ci);
         replaceRegex(str, @"\\btcp\\s+slash\\s+ip\\b", @"TCP/IP", ci);
         replaceRegex(str, @"\\bi\\s+slash\\s+o\\b", @"I/O", ci);
+        replaceRegex(str, @"\\bui\\s+slash\\s+ux\\b", @"UI/UX", ci);
+        replaceRegex(str, @"\\bhttp\\s+slash\\s+(2|3)\\b", @"HTTP/$1", ci);
         replaceRegex(str, @"\\ba\\s+slash\\s+b(?=\\s+(?:test|testing|tests|split|experiment|comparison)\\b)", @"A/B", ci);
-        // Cycle 98: Spoken Unix & API Slash Paths ("slash api slash v1 slash users" -> "/api/v1/users",
+        // Cycle 98 & 118: Spoken Unix & API Slash Paths ("slash api slash v1 slash users" -> "/api/v1/users",
         // "slash etc slash hosts" -> "/etc/hosts", "src slash components slash button.tsx" -> "src/components/button.tsx")
         static NSRegularExpression *leadSlashMultiRe, *leadSlashSingleRe, *relSlashPathRe, *slashSplitRe, *urlHostBeforeSlashRe;
         static dispatch_once_t onceSlashPath;
@@ -11251,7 +11357,7 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
                                  @"(?<![/\\w.-])\\bslash\\s+(tmp|etc|var|usr|opt|dev|proc|sys|healthz)\\b"
                                                                           options:ci error:nil];
             relSlashPathRe = [NSRegularExpression regularExpressionWithPattern:
-                              @"(?<![/\\w.-])\\b((?:src|pkg|cmd|components|pages|routes|assets|scripts|include|dist|node_modules|origin|upstream|feature|feat|bugfix|hotfix|chore)(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9._-]+){1,5}|[a-z][a-z0-9_-]{1,24}(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9_-]{1,32}){0,4}\\s+slash\\s+[a-z0-9_-]{1,40}\\.[a-z0-9]{1,12})\\b"
+                              @"(?<![/\\w.-])\\b((?:src|pkg|cmd|components|pages|routes|assets|scripts|include|dist|node_modules|origin|upstream|feature|feat|bugfix|hotfix|chore|release|refactor|docs|test|tests|ci|build|perf|heads|tags|refs)(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9._-]+){1,5}|[a-z][a-z0-9_-]{1,24}(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9_-]{1,32}){0,4}\\s+slash\\s+[a-z0-9_-]{1,40}\\.[a-z0-9]{1,12})\\b"
                                                                        options:ci error:nil];
             slashSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+slash\\s+" options:ci error:nil];
             urlHostBeforeSlashRe = [NSRegularExpression regularExpressionWithPattern:
@@ -11493,7 +11599,17 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
         replaceRegex(str, @"\\bopen\\s+paren(?:thesis|theses|s)?\\s+([^\\n()]{1,80}?)\\s+(?:close|end)\\s+paren(?:thesis|theses|s)?\\b", @"($1)", ci);
     }
     if ([str rangeOfString:@"bracket" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bopen\\s+angle\\s+brackets?\\s+([^\\n<>]{1,80}?)\\s+(?:close|end)\\s+angle\\s+brackets?\\b", @"<$1>", ci);
         replaceRegex(str, @"\\bopen\\s+(?:square\\s+)?brackets?\\s+([^\\n\\[\\]]{1,80}?)\\s+(?:close|end)\\s+(?:square\\s+)?brackets?\\b", @"[$1]", ci);
+    }
+    if ([str rangeOfString:@"brace" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bopen\\s+(?:curly\\s+)?braces?\\s+([^\\n{}]{1,80}?)\\s+(?:close|end)\\s+(?:curly\\s+)?braces?\\b", @"{$1}", ci);
+    }
+    if ([str rangeOfString:@"bold" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(?:open\\s+bold|bold)\\s+([^\\n*]{1,80}?)\\s+(?:close|end)\\s+bold\\b", @"**$1**", ci);
+    }
+    if ([str rangeOfString:@"italic" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(?:open\\s+italics?|italics?)\\s+([^\\n*]{1,80}?)\\s+(?:close|end)\\s+italics?\\b", @"*$1*", ci);
     }
     if ([str rangeOfString:@"hash" options:NSCaseInsensitiveSearch].location != NSNotFound ||
         [str rangeOfString:@"hex" options:NSCaseInsensitiveSearch].location != NSNotFound) {
@@ -17979,6 +18095,71 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c113Ok) passed++; else failed++;
                 printf("%s: 'let me correct that' and ', correction,' self-correction cues with prose guard (%d%d%d)\n",
                        c113Ok ? "PASS" : "FAIL", cr1, cr2, cr3);
+            }
+            // Cycle 114: Spoken Markdown Headings (#, ##, ###) and Checkbox/Todo List Items (- [ ] ) in GFFormatSpokenLists
+            {
+                BOOL hd1 = [[self polishOnDeviceTranscript:@"Heading 1: Quarterly roadmap."]
+                            isEqualToString:@"# Quarterly roadmap "];
+                BOOL hd2 = [[self polishOnDeviceTranscript:@"Heading 2 key milestones. We ship on Friday."]
+                            isEqualToString:@"## Key milestones\n\nWe ship on Friday. "];
+                BOOL hd3 = [[self polishOnDeviceTranscript:@"Checkbox item update the docs, next checkbox run the test suite."]
+                            isEqualToString:@"- [ ] Update the docs\n- [ ] Run the test suite. "];
+                BOOL c114Ok = hd1 && hd2 && hd3;
+                if (c114Ok) passed++; else failed++;
+                printf("%s: spoken markdown headings (#/##/###) and checkbox/todo list items (- [ ] ) (%d%d%d)\n",
+                       c114Ok ? "PASS" : "FAIL", hd1, hd2, hd3);
+            }
+            // Cycle 115: Spoken Paired Braces, Angle Brackets, Bold, and Italics in GFFormatSpokenTechnicalTokens
+            {
+                BOOL bi1 = [[self polishOnDeviceTranscript:@"Make this bold high priority end bold and italic optional end italic."]
+                            isEqualToString:@"Make this **high priority** and *optional*. "];
+                BOOL bi2 = [[self polishOnDeviceTranscript:@"Pass open curly brace user underscore id close curly brace into the template."]
+                            isEqualToString:@"Pass {user_id} into the template. "];
+                BOOL bi3 = [[self polishOnDeviceTranscript:@"Wrap it in open angle bracket div close angle bracket tags."]
+                            isEqualToString:@"Wrap it in <div> tags. "];
+                BOOL c115Ok = bi1 && bi2 && bi3;
+                if (c115Ok) passed++; else failed++;
+                printf("%s: spoken paired braces, angle brackets, bold, and italics (%d%d%d)\n",
+                       c115Ok ? "PASS" : "FAIL", bi1, bi2, bi3);
+            }
+            // Cycle 116: Spoken Regional Currencies (HK$, NZ$, NT$, ₹, ₩), Inequalities (≥, ≤), and Multiplier Factors (10x)
+            {
+                BOOL rc1 = [[self polishOnDeviceTranscript:@"The ticket is 500 Hong Kong dollars, 80 New Zealand dollars, or 1,000 New Taiwan dollars."]
+                            isEqualToString:@"The ticket is HK$500, NZ$80, or NT$1,000. "];
+                BOOL rc2 = [[self polishOnDeviceTranscript:@"The fee is 5,000 Indian rupees or 10,000 Korean won."]
+                            isEqualToString:@"The fee is \u20B95,000 or \u20A910,000. "];
+                BOOL rc3 = [[self polishOnDeviceTranscript:@"Keep recall greater than or equal to 95 percent and latency less than or equal to 100 milliseconds for a 10 x speedup."]
+                            isEqualToString:@"Keep recall \u226595% and latency \u2264100 ms for a 10x speedup. "];
+                BOOL c116Ok = rc1 && rc2 && rc3;
+                if (c116Ok) passed++; else failed++;
+                printf("%s: spoken regional currencies (HK$, NZ$, NT$, ₹, ₩), inequalities (≥, ≤), and 10x multipliers (%d%d%d)\n",
+                       c116Ok ? "PASS" : "FAIL", rc1, rc2, rc3);
+            }
+            // Cycle 117: Expanded AI/Systems Hyphenated Modifiers & AI/Database/Observability Brand Casing
+            {
+                BOOL hm1 = [[self polishOnDeviceTranscript:@"We deployed a fine tuned model on a self hosted runner with a thread safe cache and non blocking io."]
+                            isEqualToString:@"We deployed a fine-tuned model on a self-hosted runner with a thread-safe cache and non-blocking io. "];
+                BOOL hm2 = [[self polishOnDeviceTranscript:@"The event driven pipeline uses zero copy buffers and a type safe client."]
+                            isEqualToString:@"The event-driven pipeline uses zero-copy buffers and a type-safe client. "];
+                BOOL hm3 = [[self polishOnDeviceTranscript:@"We tested anthropic, huggingface, langchain, duckdb, clickhouse, dynamodb, rabbitmq, datadog, posthog, and playwright."]
+                            isEqualToString:@"We tested Anthropic, HuggingFace, LangChain, DuckDB, ClickHouse, DynamoDB, RabbitMQ, Datadog, PostHog, and Playwright. "];
+                BOOL c117Ok = hm1 && hm2 && hm3;
+                if (c117Ok) passed++; else failed++;
+                printf("%s: expanded AI/systems hyphenated modifiers and AI/database/observability brand casing (%d%d%d)\n",
+                       c117Ok ? "PASS" : "FAIL", hm1, hm2, hm3);
+            }
+            // Cycle 118: Expanded Technical Slash Compounds (pub/sub, key/value, UI/UX, HTTP/2, HTTP/3) & Git/Repo Slash Paths
+            {
+                BOOL sl1 = [[self polishOnDeviceTranscript:@"Use a pub slash sub queue for request slash response and key slash value lookups."]
+                            isEqualToString:@"Use a pub/sub queue for request/response and key/value lookups. "];
+                BOOL sl2 = [[self polishOnDeviceTranscript:@"Review the ui slash ux over http slash 2 and http slash 3 with primary slash replica failover."]
+                            isEqualToString:@"Review the UI/UX over HTTP/2 and HTTP/3 with primary/replica failover. "];
+                BOOL sl3 = [[self polishOnDeviceTranscript:@"Check release slash v1.2, refactor slash audio, and docs slash api."]
+                            isEqualToString:@"Check release/v1.2, refactor/audio, and docs/api. "];
+                BOOL c118Ok = sl1 && sl2 && sl3;
+                if (c118Ok) passed++; else failed++;
+                printf("%s: expanded technical slash compounds (pub/sub, key/value, UI/UX, HTTP/2) and Git/repo slash paths (%d%d%d)\n",
+                       c118Ok ? "PASS" : "FAIL", sl1, sl2, sl3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
