@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 148,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:19",
+      "title": "Fixes 'should of', 'could of', 'would of', 'suppose to', and 'use to' in natural speech",
+      "highlights": [
+        "Repairs spoken modal 'of' phrases such as 'should of', 'could of', 'would of', 'must of', and 'might of' into 'should have', 'could have', 'would have', 'must have', and 'might have' while keeping 'would of course' intact.",
+        "Restores the missing '-d' in 'I am suppose to', 'we were suppose to', 'it is suppose to', 'I am use to it', and 'get use to working' so they read 'supposed to' and 'used to'."
+      ]
+    },
+    {
+      "cycle": 147,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:18",
+      "title": "Fixes 'flesh out my thoughts', 'sneak peek', 'case in point', and 'by and large'",
+      "highlights": [
+        "Turns 'flush out my thoughts', 'flush out the details', and 'flush out the plan' into 'flesh out my thoughts', 'flesh out the details', and 'flesh out the plan' while keeping 'flush out the cache' untouched.",
+        "Repairs common homophone mix-ups including 'sneak peak' to 'sneak peek', 'case and point' to 'case in point', 'by in large' to 'by and large', 'nip it in the butt' to 'nip it in the bud', 'deep seeded' to 'deep-seated', 'tow the line' to 'toe the line', and 'chock it up to' to 'chalk it up to'."
+      ]
+    },
+    {
+      "cycle": 146,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:17",
+      "title": "Cleans up 'ignore that', 'skip that', 'scrap that', and 'let me back up' self-corrections",
+      "highlights": [
+        "When you discard a draft instruction or thought mid-sentence with 'ignore that', 'skip that', 'drop that', 'scrap that', or 'let me back up', GeminiFlow removes the discarded clause and keeps your updated phrasing.",
+        "Leaves normal sentences like 'do not ignore that message' or 'we should not skip that step' untouched."
+      ]
+    },
+    {
+      "cycle": 145,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:16",
+      "title": "Cleans up 'I'm I am' and 'it's it is' contraction restarts and 'when that I' rambles",
+      "highlights": [
+        "Collapses immediate contraction-to-full-word restarts when thinking out loud ('I'm I am trying to', 'it's it is a challenge', 'that's that is what I meant', 'we're we are going to', 'don't do not') into a single clean form.",
+        "Cleans up doubled connectors when rambling such as 'because I mean because I tend to ramble' and 'when that I restart the dictation' into 'because I tend to ramble' and 'when I restart the dictation'."
+      ]
+    },
+    {
+      "cycle": 144,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:15",
+      "title": "Removes filler 'like' after 'a lot of', 'in terms of', 'instead of', and 'any kind of'",
+      "highlights": [
+        "Strips filler 'like' after quantity and framing phrases including 'a lot of like', 'a bunch of like', 'a couple of like', 'plenty of like', 'in terms of like', 'instead of like', 'because of like', 'out of like', and 'more of like a'.",
+        "Removes filler 'like' after 'any kind of', 'what sort of', and 'this type of' before nouns ('improving any kind of like conversation' becomes 'improving any kind of conversation')."
+      ]
+    },
+    {
       "cycle": 143,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 16:08",
