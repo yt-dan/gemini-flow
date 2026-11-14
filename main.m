@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(133), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:46", @"title": @"Hyphenates 'non-developer' and 'trade-off' and adds question marks to 'if ..., then how ...?' questions", @"highlights": @[@"Adds hyphens to spoken 'non-' words and planning terms such as 'non-developer', 'non-technical', 'non-urgent', 'non-negotiable', 'non-stop', 'non-issue', 'non-starter', 'non-profit', and 'trade-off'.", @"Adds a question mark when a longer sentence starts with 'if', 'when', or 'because' and pivots into a question like 'because I tend to ramble, then how can my thoughts be collected?'."]},
+            @{@"cycle": @(132), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:45", @"title": @"Fixes stray mid-sentence capitals after thinking pauses like 'run Out of tokens' and 'then How can'", @"highlights": @[@"Lowercases stray capital letters on prepositions and connectors after a brief mid-sentence pause ('until you finish everything or run Out of tokens' becomes 'until you finish everything or run out of tokens').", @"Adds a natural comma and lowercases the question word when a 'because', 'if', or 'when' thought pivots with 'then' into a question ('because I tend to ramble then How can my thoughts be collected?' becomes 'because I tend to ramble, then how can my thoughts be collected?')."]},
+            @{@"cycle": @(131), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:44", @"title": @"Cleans up multi-word clause restarts like 'I was trying to catch the I was trying to test'", @"highlights": @[@"When you start a sentence frame like 'I was trying to...', 'I want to...', 'I am going to...', or 'we need to...', say one or two tentative words, and immediately restart with the same frame ('I was trying to catch the I was trying to test when...'), GeminiFlow collapses the false start while keeping your exact wording.", @"Preserves intentional repetition and parallel sentences where both clauses are complete thoughts."]},
+            @{@"cycle": @(130), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:43", @"title": @"Cleans up mid-thought verb upgrades like 'is would be', 'to go to keep going', and 'because then now'", @"highlights": @[@"When you soften or refine a verb mid-thought while thinking out loud ('my next request is would be for you' or 'for you to go to keep going'), GeminiFlow keeps the refined phrasing ('my next request would be for you' and 'for you to keep going').", @"Cleans up stacked rambling transitions such as 'because then now', 'and then now', 'so then now', and 'to would have that it would have' into 'because now', 'and now', 'so now', and 'that it would have'."]},
+            @{@"cycle": @(129), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:42", @"title": @"Removes filler 'like' in 'almost like judge', 'this whole like thread', and 'that is like a challenge'", @"highlights": @[@"Removes filler 'like' when thinking out loud between qualifiers and nouns ('in this whole like thread', 'my biggest like use case', 'a specific like word') and between adverbs and verbs ('you can almost like judge the quality').", @"Removes discourse filler 'like' before evaluative phrases ('That is like a challenge there', 'It is like a big problem', 'That is like the main reason') while preserving genuine comparisons ('just like I am to you now')."]},
             @{@"cycle": @(128), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:35", @"title": @"Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'", @"highlights": @[@"Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.", @"Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."]},
             @{@"cycle": @(127), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:34", @"title": @"Cleans up 'change that to', 'switch that to', and 'not X, Y' self-corrections", @"highlights": @[@"When you revise an earlier detail mid-sentence with 'change that to', 'switch that to', or 'actually make it' ('Book it for 7 p.m., change that to 8 p.m.' or 'I will take 2 coffees, actually make it 3'), GeminiFlow updates the earlier word or number in place.", @"Cleans up comma-separated 'not X, Y' corrections when you repeat the word you are replacing ('Let us meet on Tuesday, not Tuesday, Wednesday' becomes 'Let us meet on Wednesday')."]},
             @{@"cycle": @(126), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:33", @"title": @"Formats spoken household, cooking, fitness, and '24/7' expressions", @"highlights": @[@"Abbreviates everyday personal, cooking, and fitness measurements after numbers, turning '5 feet 10 inches', '16 ounces', '8 fluid ounces', '2 tablespoons', '1 teaspoon', '2,000 kilocalories', and '120 beats per minute' into '5 ft 10 in', '16 oz', '8 fl oz', '2 tbsp', '1 tsp', '2,000 kcal', and '120 bpm'.", @"Turns spoken ratio expressions like '24 slash 7' and '50 slash 50' into '24/7' and '50/50'."]},
@@ -9410,6 +9415,16 @@ static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
                         cut = NSMakeRange(tok[i + n - 1].end, tok[again2 + n - 1].end - tok[i + n - 1].end);
                         break;
                     }
+                    // Cycle 131: Multi-word clause frame restart with 2 aborted words ending in an unfinished determiner/preposition
+                    // ("I was trying to catch the I was trying to test when", "I want to say the I want to make sure")
+                    if (n >= 3 && tok[again2].sep == 1 &&
+                        ([restartPronouns containsObject:word(i)] || (n >= 4 && [restartPronouns containsObject:word(i + 1)])) &&
+                        [word(i + n - 1) isEqualToString:@"to"] &&
+                        ([abortedStrong containsObject:w2] || [abortedPrep containsObject:w2]) &&
+                        !sameWordOrSpoken(i, n)) {
+                        cut = NSMakeRange(tok[i + n - 1].end, tok[again2 + n - 1].end - tok[i + n - 1].end);
+                        break;
+                    }
                 }
             }
         }
@@ -11417,6 +11432,15 @@ static void GFFormatSpokenHyphenatedCompounds(NSMutableString *str) {
                      @"\\b(?:one\\s+on\\s+one|1\\s+on\\s+1)(?=\\s+(?:meetings?|calls?|chats?|sessions?|syncs?|catch[- ]?ups?|conversations?|interviews?|coaching)\\b)",
                      @"1-on-1", NSRegularExpressionCaseInsensitive);
     }
+    // Cycle 133: Spoken "non-..." compounds ("non developer" -> "non-developer", "non technical" -> "non-technical") and "trade-off"
+    if ([str rangeOfString:@"non " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Nn])on\\s+(developers?|technical|urgent|negotiable|stop|issues?|starters?|profits?|native|existent|trivial|standard|linear|verbal|destructive|zero)\\b",
+                     @"$1on-$2", 0);
+    }
+    if ([str rangeOfString:@"trade off" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b([Tt])rade\\s+(offs?)\\b", @"$1rade-$2", 0);
+    }
 }
 
 // Cycle 67: Spoken Technical Filenames, Slash Compounds & CLI Flags (shared with iOS via transplant.py).
@@ -11902,6 +11926,31 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     } else if ([lastSentence rangeOfString:@","].location != NSNotFound &&
                [tagQuestionRe firstMatchInString:lastSentence options:0 range:NSMakeRange(0, lastSentence.length)] != nil) {
         isClearQuestion = YES;
+    } else if ([lastSentence rangeOfString:@"then " options:NSCaseInsensitiveSearch].location != NSNotFound ||
+               [lastSentence rangeOfString:@","].location != NSNotFound) {
+        // Cycle 133: Embedded main-clause question after conditional/causal setup ("because I tend to ramble, then how can my thoughts be collected?")
+        // Sentinel QC [MEDIUM-13] guard: bare comma without "then" requires a conditional/causal opener (w0 in conditionalLeadSet)
+        // and excludes non-restrictive relative pronouns ("who"/"which") so ", who is..." and ", which is..." stay declarative.
+        static NSRegularExpression *embeddedThenQuestionRe, *embeddedCommaQuestionRe;
+        static NSSet<NSString *> *conditionalLeadSet;
+        static dispatch_once_t onceEmbQ;
+        dispatch_once(&onceEmbQ, ^{
+            conditionalLeadSet = [NSSet setWithArray:@[@"if", @"when", @"whenever", @"once", @"unless", @"because", @"since",
+                                                       @"while", @"although", @"though", @"assuming", @"suppose", @"given",
+                                                       @"after", @"before", @"without"]];
+            embeddedThenQuestionRe = [NSRegularExpression regularExpressionWithPattern:
+                @"(?:,\\s*then\\s+|\\bthen\\s+)(?:(?:how|what|why|where|when|who|which)\\s+(?:can|could|should|would|will|do|does|did|is|are|was|were|have|has|might)|(?:can|could|should|would|will|do|does|did)\\s+(?:i|you|we|they|he|she|it|there|my|your|our|the))\\b"
+                options:NSRegularExpressionCaseInsensitive error:nil];
+            embeddedCommaQuestionRe = [NSRegularExpression regularExpressionWithPattern:
+                @",\\s*(?:(?:how|what|why|where|when)\\s+(?:can|could|should|would|will|do|does|did|is|are|was|were|have|has|might)|(?:can|could|should|would|will|do|does|did)\\s+(?:i|you|we|they|he|she|it|there|my|your|our|the))\\b"
+                options:NSRegularExpressionCaseInsensitive error:nil];
+        });
+        if ([embeddedThenQuestionRe firstMatchInString:lastSentence options:0 range:NSMakeRange(0, lastSentence.length)] != nil) {
+            isClearQuestion = YES;
+        } else if ([conditionalLeadSet containsObject:w0] &&
+                   [embeddedCommaQuestionRe firstMatchInString:lastSentence options:0 range:NSMakeRange(0, lastSentence.length)] != nil) {
+            isClearQuestion = YES;
+        }
     }
     if (!isClearQuestion) return;
     NSUInteger from = result.length > 12 ? result.length - 12 : 0;
@@ -12067,20 +12116,42 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
             replaceRegex(str, @"(?<!\\b(?:does|did|do|doesn't|didn't|don't|would|could|should|will|can|may|might|must|to)\\s)\\b(he|she|it)\\s+like[,]?\\s+(?=(wants|needs|thinks|knows|says|tells|asks|calls|goes|comes|makes|takes|gets|gives|has|works|looks|seems|feels|means|keeps|tries|starts|stops|helps|lives|stays)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
             replaceRegex(str, @"\\b(my|your|our|their|his|her|its|every)\\s+like[,]?\\s+(?!(?:manner|kind|mind)\\b)(?=[a-zA-Z0-9])", @"$1 ", NSRegularExpressionCaseInsensitive);
             replaceRegex(str, @"(?<!\\b(?:and|or)\\s)\\b(the|a|an)\\s+like[,]?\\s+(?=(whole|entire|same|only|first|last|next|other|main|best|worst|new|old|big|huge|small|full|actual|exact|real|current|final|original|total|really|very|super|pretty|\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            // Cycle 129: AI-steering & thinking-out-loud filler "like":
+            //  1) modal + adverb + "like" ("you can almost like judge the quality") and "almost/nearly/practically like <verb>"
+            //  2) determiner/possessive + qualifier/adjective + "like" + noun ("in this whole like thread", "my biggest like use case")
+            //  3) copula + "like" + determiner + evaluative/discourse noun ("That is like a challenge there", "It's like a big problem")
+            replaceRegex(str, @"\\b(can|could|would|should|will|might|may|must)\\s+(almost|nearly|basically|literally|actually|honestly|seriously|practically)\\s+like[,]?\\s+", @"$1 $2 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(almost|nearly|practically|pretty\\s+much)\\s+like[,]?\\s+(?=(?:judge|see|hear|tell|feel|know|think|say|do|make|get|take|give|use|work|run|go|come|find|keep|start|stop|change|fix|test|check|read|write|understand|imagine|guarantee|promise|forget|remember|predict|measure|compare|explain|describe|capture|collect|organize|summarize|rewrite|count)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(the|a|an|this|that|these|those|my|your|our|their|his|her|its|every|each|some|any|no)\\s+(whole|entire|main|biggest|smallest|best|worst|first|last|next|previous|only|other|another|same|exact|actual|real|current|final|original|total|full|new|old|big|huge|major|minor|little|small|short|long|quick|fast|slow|simple|easy|hard|tough|weird|strange|funny|crazy|random|specific|particular|general|normal|usual|regular|daily|weekly|monthly|personal|private|public|local|global|single|double|extra|initial|own|favorite|favourite)\\s+like[,]?\\s+(?!(?:manner|kind|mind)\\b)(?=[a-zA-Z0-9])", @"$1 $2 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"(?<!\\b(?:what|how|who)\\s)\\b(is|was|are|were|it's|that's|there's|what's)\\s+like[,]?\\s+(?=(?:a|an|the|my|your|our|their|his|her|this|that|one|some|no|another)\\s+(?:(?:big|huge|major|minor|small|little|real|actual|main|biggest|best|worst|only|first|last|next|good|great|bad|new|old|whole|entire|key|core|top|high|low|hard|tough|easy|simple|quick|common|typical|classic|perfect|nice|cool|weird|funny|strange|important|critical|helpful|useful|personal|specific|different|separate|extra)\\s+)?(?:challenge|challenges|problem|problems|issue|issues|bug|bugs|thing|things|point|points|reason|reasons|idea|ideas|question|questions|goal|goals|priority|priorities|focus|use\\s+case|use\\s+cases|improvement|improvements|difference|differences|step|steps|part|parts|way|ways|option|options|choice|choices|decision|decisions|task|tasks|project|projects|topic|topics|thread|threads|conversation|conversations|discussion|discussions|example|examples|situation|situations|case|cases|story|stories|deal|help|mess|pain|hassle|nightmare|win|bonus|plus|factor|factors|aspect|aspects|feature|features|detail|details|change|changes|update|updates|fix|fixes|test|tests|rule|rules|habit|habits|pattern|patterns|workflow|workflows|process|approach|strategy|plan|plans|thought|thoughts|summary|note|notes|message|messages|prompt|prompts|instruction|instructions|request|requests|requirement|requirements)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
         }
     }
 
-    // 6j. Redundant stacked causal/resultative/contrastive connectors ("Because then so that the output..." -> "So that the output...", "so therefore" -> "so", "but however" -> "but")
+    // 6j. Redundant stacked causal/resultative/contrastive connectors & Cycle 130 mid-thought verb/modal upgrades
     if ([str rangeOfString:@"so" options:NSCaseInsensitiveSearch].location != NSNotFound ||
         [str rangeOfString:@"however" options:NSCaseInsensitiveSearch].location != NSNotFound ||
         [str rangeOfString:@"yet" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-        [str rangeOfString:@"case" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        [str rangeOfString:@"case" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"then" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"would" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"could" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"should" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"might" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"to " options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"(^|[.!?\\n\\uE000\\uE001]\\s*)Because\\s+(?:then\\s+)?so\\s+that\\b", @"$1So that", 0);
         replaceRegex(str, @"\\bbecause\\s+(?:then\\s+)?so\\s+that\\b", @"so that", NSRegularExpressionCaseInsensitive);
         replaceRegex(str, @"\\b([Ss])o\\s+therefore\\b", @"$1o", 0);
         replaceRegex(str, @"\\b([Bb])ut\\s+(?:however|yet)\\b\\s*,?", @"$1ut", 0);
         replaceRegex(str, @"\\b([Aa])nd\\s+also\\s+too\\b", @"$1nd also", 0);
         replaceRegex(str, @"\\b([Ii])n\\s+case\\s+if\\b", @"$1n case", 0);
+        // Cycle 130: Mid-thought copula-to-modal upgrade ("my next request is would be" -> "my next request would be"),
+        // infinitive aspect upgrade ("to go to keep going" -> "to keep going"), false-start modal ("to would have that it would have" -> "that it would have"),
+        // and stacked temporal transitions ("because then now" -> "because now", "and then now" -> "and now")
+        replaceRegex(str, @"(?<!\\b(?:what|who|where|how|there|it|this|that)\\s)\\b(?:is|was)\\s+(would|could|should|might)\\s+be\\b", @"$1 be", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\bto\\s+([a-z]{2,10})\\s+to\\s+(keep|start|continue|stop|finish|try)\\s+\\1ing\\b", @"to $2 $1ing", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\bto\\s+(?:would|could|should|might|will|can)(?:\\s+have)?[,]?\\s+(?=that\\s+(?:it|we|you|they|i|he|she|this|that|there)\\s+(?:would|could|should|might|will|can)\\b)", @"", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\b(because|since|as|and|so|but)\\s+then\\s+now\\b", @"$1 now", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"(^|[.!?]\\s+)(?:That's|It's|There's|I'm|We're|You're|They're)\\s+and\\s+(?=(?:be|do|don't|make|take|keep|let|let's|go|try|check|focus|remember|please)\\b)", @"$1And ", 0);
     }
 
     // 6i. Spoken technical filenames ("main dot m" -> "main.m"), slash compounds ("CI slash CD" -> "CI/CD"), and CLI flags
@@ -12112,6 +12183,42 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     GFRepairContextualHomophones(str);
     // 8f. Spoken hyphenated technical modifiers ("end to end tests" -> "end-to-end tests", "real time audio" -> "real-time audio")
     GFFormatSpokenHyphenatedCompounds(str);
+
+    // 8g. Cycle 132: Mid-sentence pause capitalization & embedded "then How/What..." question cleanup when rambling
+    // ("because I tend to ramble then How can my thoughts be collected" -> "because I tend to ramble, then how can my thoughts be collected",
+    //  "until you finish everything or run Out of tokens" -> "until you finish everything or run out of tokens")
+    {
+        static NSRegularExpression *rambleThenQRe, *midCapQRe, *midCapPrepRe;
+        static dispatch_once_t onceRambleCap;
+        dispatch_once(&onceRambleCap, ^{
+            rambleThenQRe = [NSRegularExpression regularExpressionWithPattern:
+                @"\\b((?:[Bb]ecause|[Ii]f|[Ww]hen|[Ss]ince|[Ww]hile|[Aa]lthough|[Tt]hough)\\s+(?:[A-Za-z0-9']+\\s+){1,8}?)then\\s+(How|What|Why|Where|When|Who|Which|Can|Could|Should|Would|Will|Do|Does|Did|Is|Are)(?=\\s+[a-z]{2,})"
+                options:0 error:nil];
+            midCapQRe = [NSRegularExpression regularExpressionWithPattern:
+                @"\\b(then|so|and|but|or)\\s+(How|What|Why|Where|When|Who|Which|Can|Could|Should|Would|Will|Do|Does|Did|Is|Are)(?=\\s+[a-z]{2,})"
+                options:0 error:nil];
+            midCapPrepRe = [NSRegularExpression regularExpressionWithPattern:
+                @"(?<=\\b[a-z]{2,20})\\s+(Out|In|On|At|To|For|With|From|By|About|Into|Onto|Over|Under|After|Before|Between|Through|Without|Within|During|Until|And|But|Or|So|Yet|Because|Although|Though|Unless|While)(?=\\s+[a-z]{2,})"
+                options:0 error:nil];
+        });
+        NSArray<NSTextCheckingResult *> *rqMatches = [rambleThenQRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [rqMatches reverseObjectEnumerator]) {
+            NSString *prefix = [[str substringWithRange:[m rangeAtIndex:1]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            NSString *qWord = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@, then %@", prefix, qWord]];
+        }
+        NSArray<NSTextCheckingResult *> *mqMatches = [midCapQRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [mqMatches reverseObjectEnumerator]) {
+            NSString *conj = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *qWord = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@ %@", conj, qWord]];
+        }
+        NSArray<NSTextCheckingResult *> *mpMatches = [midCapPrepRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [mpMatches reverseObjectEnumerator]) {
+            NSString *prep = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            [str replaceCharactersInRange:[m rangeAtIndex:1] withString:prep];
+        }
+    }
 
     // 9. Clean up multiple spaces and spaces before punctuation
     replaceRegex(str, @"\\s+([,;!?])", @"$1", 0);
@@ -18500,6 +18607,73 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c128Ok) passed++; else failed++;
                 printf("%s: everyday personal and knowledge-work hyphenated modifiers (follow-up, check-in, full-time, 1-on-1) (%d%d%d)\n",
                        c128Ok ? "PASS" : "FAIL", hy1, hy2, hy3);
+            }
+            // Cycle 129: AI-steering & thinking-out-loud filler "like" ("almost like judge", "this whole like thread", "That is like a challenge there")
+            {
+                BOOL rl1 = [[self polishOnDeviceTranscript:@"So, you can almost like judge the quality of the dictation based on how I'm speaking to you in this whole like thread."]
+                            isEqualToString:@"So, you can almost judge the quality of the dictation based on how I'm speaking to you in this whole thread. "];
+                BOOL rl2 = [[self polishOnDeviceTranscript:@"That is like a challenge there and it's like the main reason I use voice."]
+                            isEqualToString:@"That is a challenge there and it's the main reason I use voice. "];
+                BOOL rl3 = [[self polishOnDeviceTranscript:@"Give AI instructions just like I am to you now."]
+                            isEqualToString:@"Give AI instructions just like I am to you now. "];
+                BOOL c129Ok = rl1 && rl2 && rl3;
+                if (c129Ok) passed++; else failed++;
+                printf("%s: AI-steering filler 'like' cleanup ('almost like judge', 'this whole like thread', 'That is like a challenge') (%d%d%d)\n",
+                       c129Ok ? "PASS" : "FAIL", rl1, rl2, rl3);
+            }
+            // Cycle 130: Mid-thought verb/modal upgrades ("is would be", "to go to keep going", "to would have that it would have", "because then now")
+            {
+                BOOL mu1 = [[self polishOnDeviceTranscript:@"My next request is would be for you to go to keep going until your tokens run out."]
+                            isEqualToString:@"My next request would be for you to keep going until your tokens run out. "];
+                BOOL mu2 = [[self polishOnDeviceTranscript:@"Be deliberate here because then now you have an opportunity to go deep."]
+                            isEqualToString:@"Be deliberate here because now you have an opportunity to go deep. "];
+                BOOL mu3 = [[self polishOnDeviceTranscript:@"It makes sense to would have that it would have a question mark."]
+                            isEqualToString:@"It makes sense that it would have a question mark. "];
+                BOOL c130Ok = mu1 && mu2 && mu3;
+                if (c130Ok) passed++; else failed++;
+                printf("%s: mid-thought verb/modal upgrades ('is would be', 'to go to keep going', 'because then now') (%d%d%d)\n",
+                       c130Ok ? "PASS" : "FAIL", mu1, mu2, mu3);
+            }
+            // Cycle 131: Multi-word clause frame restarts when collecting thoughts ("I was trying to catch the I was trying to test")
+            {
+                BOOL cr1 = [[self polishOnDeviceTranscript:@"And also I was trying to catch the I was trying to test when I change my mind."]
+                            isEqualToString:@"And also I was trying to test when I change my mind. "];
+                BOOL cr2 = [[self polishOnDeviceTranscript:@"I want to say the I want to make sure that the output is clean."]
+                            isEqualToString:@"I want to make sure that the output is clean. "];
+                BOOL cr3 = [[self polishOnDeviceTranscript:@"We need to check the we need to focus on personal conversations."]
+                            isEqualToString:@"We need to focus on personal conversations. "];
+                BOOL c131Ok = cr1 && cr2 && cr3;
+                if (c131Ok) passed++; else failed++;
+                printf("%s: multi-word clause frame restarts ('I was trying to catch the I was trying to test') (%d%d%d)\n",
+                       c131Ok ? "PASS" : "FAIL", cr1, cr2, cr3);
+            }
+            // Cycle 132: Mid-sentence pause capitalization & embedded "then How/What..." question cleanup when rambling
+            {
+                BOOL pc1 = [[self polishOnDeviceTranscript:@"Keep going tonight until you finish everything or run Out of tokens."]
+                            isEqualToString:@"Keep going tonight until you finish everything or run out of tokens. "];
+                BOOL pc2 = [[self polishOnDeviceTranscript:@"Because I tend to ramble then How can my thoughts be collected without losing my voice?"]
+                            isEqualToString:@"Because I tend to ramble, then how can my thoughts be collected without losing my voice? "];
+                BOOL pc3 = [[self polishOnDeviceTranscript:@"We talked About the plan and went In to the meeting."]
+                            isEqualToString:@"We talked about the plan and went in to the meeting. "];
+                BOOL c132Ok = pc1 && pc2 && pc3;
+                if (c132Ok) passed++; else failed++;
+                printf("%s: mid-sentence pause capitalization ('run Out of tokens', 'then How can') (%d%d%d)\n",
+                       c132Ok ? "PASS" : "FAIL", pc1, pc2, pc3);
+            }
+            // Cycle 133: Spoken "non-..." compounds ("non-developer", "non-technical"), "trade-off", & embedded question mark upgrade
+            {
+                BOOL nd1 = [[self polishOnDeviceTranscript:@"Just to steer your direction, I'm a non developer and this is a non technical trade off."]
+                            isEqualToString:@"Just to steer your direction, I'm a non-developer and this is a non-technical trade-off. "];
+                BOOL nd2 = [[self polishOnDeviceTranscript:@"And if there's anything that can be improved because I tend to ramble then How can my thoughts be collected and be properly transcribed."]
+                            isEqualToString:@"And if there's anything that can be improved because I tend to ramble, then how can my thoughts be collected and be properly transcribed? "];
+                BOOL nd3 = [[self polishOnDeviceTranscript:@"If we change that rule, then what should we test next."]
+                            isEqualToString:@"If we change that rule, then what should we test next? "] &&
+                           [[self polishOnDeviceTranscript:@"I talked to Sarah, who is leading the design review, and we switched to SQLite, which is much faster."]
+                            isEqualToString:@"I talked to Sarah, who is leading the design review, and we switched to SQLite, which is much faster. "];
+                BOOL c133Ok = nd1 && nd2 && nd3;
+                if (c133Ok) passed++; else failed++;
+                printf("%s: spoken 'non-developer'/'trade-off' hyphenation and embedded 'then how/what...?' question mark upgrade (%d%d%d)\n",
+                       c133Ok ? "PASS" : "FAIL", nd1, nd2, nd3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

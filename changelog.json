@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 133,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:46",
+      "title": "Hyphenates 'non-developer' and 'trade-off' and adds question marks to 'if ..., then how ...?' questions",
+      "highlights": [
+        "Adds hyphens to spoken 'non-' words and planning terms such as 'non-developer', 'non-technical', 'non-urgent', 'non-negotiable', 'non-stop', 'non-issue', 'non-starter', 'non-profit', and 'trade-off'.",
+        "Adds a question mark when a longer sentence starts with 'if', 'when', or 'because' and pivots into a question like 'because I tend to ramble, then how can my thoughts be collected?'."
+      ]
+    },
+    {
+      "cycle": 132,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:45",
+      "title": "Fixes stray mid-sentence capitals after thinking pauses like 'run Out of tokens' and 'then How can'",
+      "highlights": [
+        "Lowercases stray capital letters on prepositions and connectors after a brief mid-sentence pause ('until you finish everything or run Out of tokens' becomes 'until you finish everything or run out of tokens').",
+        "Adds a natural comma and lowercases the question word when a 'because', 'if', or 'when' thought pivots with 'then' into a question ('because I tend to ramble then How can my thoughts be collected?' becomes 'because I tend to ramble, then how can my thoughts be collected?')."
+      ]
+    },
+    {
+      "cycle": 131,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:44",
+      "title": "Cleans up multi-word clause restarts like 'I was trying to catch the I was trying to test'",
+      "highlights": [
+        "When you start a sentence frame like 'I was trying to...', 'I want to...', 'I am going to...', or 'we need to...', say one or two tentative words, and immediately restart with the same frame ('I was trying to catch the I was trying to test when...'), GeminiFlow collapses the false start while keeping your exact wording.",
+        "Preserves intentional repetition and parallel sentences where both clauses are complete thoughts."
+      ]
+    },
+    {
+      "cycle": 130,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:43",
+      "title": "Cleans up mid-thought verb upgrades like 'is would be', 'to go to keep going', and 'because then now'",
+      "highlights": [
+        "When you soften or refine a verb mid-thought while thinking out loud ('my next request is would be for you' or 'for you to go to keep going'), GeminiFlow keeps the refined phrasing ('my next request would be for you' and 'for you to keep going').",
+        "Cleans up stacked rambling transitions such as 'because then now', 'and then now', 'so then now', and 'to would have that it would have' into 'because now', 'and now', 'so now', and 'that it would have'."
+      ]
+    },
+    {
+      "cycle": 129,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:42",
+      "title": "Removes filler 'like' in 'almost like judge', 'this whole like thread', and 'that is like a challenge'",
+      "highlights": [
+        "Removes filler 'like' when thinking out loud between qualifiers and nouns ('in this whole like thread', 'my biggest like use case', 'a specific like word') and between adverbs and verbs ('you can almost like judge the quality').",
+        "Removes discourse filler 'like' before evaluative phrases ('That is like a challenge there', 'It is like a big problem', 'That is like the main reason') while preserving genuine comparisons ('just like I am to you now')."
+      ]
+    },
+    {
       "cycle": 128,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 15:35",
