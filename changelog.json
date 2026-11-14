@@ -3,6 +3,54 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 193,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:44",
+      "title": "Joins split everyday compound words like 'bookshelf', 'backpack', 'suitcase', 'sunlight', 'flashlight', and 'sidewalk'",
+      "highlights": [
+        "Joins everyday personal and household compound nouns when speech recognition splits them into two words, turning 'book shelf', 'day light', 'sun light', 'spot light', 'head light', 'flash light', 'back pack', 'suit case', 'brief case', 'stair case', 'door bell', 'arm chair', 'wheel chair', 'foot step', 'side walk', and 'cross walk' into 'bookshelf', 'daylight', 'sunlight', 'spotlight', 'headlight', 'flashlight', 'backpack', 'suitcase', 'briefcase', 'staircase', 'doorbell', 'armchair', 'wheelchair', 'footstep', 'sidewalk', and 'crosswalk' while keeping verb phrases like 'spot light rain' and 'go back pack your bags' untouched."
+      ]
+    },
+    {
+      "cycle": 192,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:43",
+      "title": "Fixes 'polish logic', 'git commands', 'in layman's terms', 'free rein', 'on tenterhooks', and 'from the get-go'",
+      "highlights": [
+        "Lowercases false 'Polish' capitalizations before workflow words ('your Polish logic' and 'local device Polish pass' become 'your polish logic' and 'local device polish pass') and repairs 'gift commands', 'gift commits', and 'gift repo' into 'git commands', 'git commits', and 'git repo'.",
+        "Repairs everyday phrases that speech recognizers often spell with the wrong homophone, turning 'free reign', 'on tender hooks', 'vice a versa', 'at my beckon call', 'from the get go', 'wreck havoc', 'curve appeal', 'take the bate', 'in lame man's terms', and 'total shoe in' into 'free rein', 'on tenterhooks', 'vice versa', 'at my beck and call', 'from the get-go', 'wreak havoc', 'curb appeal', 'take the bait', 'in layman's terms', and 'total shoo-in'."
+      ]
+    },
+    {
+      "cycle": 191,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:42",
+      "title": "Cleans up 'I don't have any I don't have a' restarts, 'what is this, like sorry, what are', and 'let me ask that differently'",
+      "highlights": [
+        "Collapses un-cued mid-sentence restarts from real dictation sessions, turning 'I don't have any I don't have a text box' into 'I don't have a text box', 'When you're when you have a build' into 'When you have a build', 'with a few like with just their agent' into 'with just their agent', and 'tell me what is this, like sorry, what are the different checks' into 'tell me what are the different checks'.",
+        "Removes the earlier draft question when you reset with 'let me ask that differently,', 'wait, that's not the right question,', 'let me start that over,', or 'scratch what I just said,'."
+      ]
+    },
+    {
+      "cycle": 190,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:41",
+      "title": "Milestone Cycle 190: Joins 'Since ... . Could you' pause splits and fixes 'go in and building', 'keep the continuing', and 'testing out it out'",
+      "highlights": [
+        "Re-joins setup clauses starting with 'Since', 'Because', 'Although', or 'While' when a brief thinking pause splits them from 'Could you', 'Can you', or 'Would you' with a period ('Since I am always using dictation on terminal. Could you analyze the way I speak?' becomes 'Since I am always using dictation on terminal, could you analyze the way I speak?'), and re-attaches trailing '. So that...' clauses.",
+        "Repairs mid-thought verb and auxiliary switches from real dictation rambles, turning 'go in and building' into 'go in and build', 'keep the continuing the improvement' into 'keep continuing the improvement', 'testing out it out' into 'testing it out', 'is would be for you to go to keep going' into 'would be for you to keep going', 'has is about to finish' into 'is about to finish', and 'built in the today so far' into 'built today so far'."
+      ]
+    },
+    {
+      "cycle": 189,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 19:40",
+      "title": "Removes filler 'like' in 'that's like your greatest', 'doing it like on the device', and 'any like sensitive information'",
+      "highlights": [
+        "Strips filler 'like' after 'is', 'was', 'it's', and 'that's' before superlative phrases ('I think that's like your greatest source of truth' becomes 'I think that's your greatest source of truth'), after verbs and 'it' or 'them' before location prepositions ('Is it doing it like on the device' and 'running it like in the background' become 'Is it doing it on the device' and 'running it in the background'), and after 'any' or 'no' before descriptive adjectives ('not uploading any like sensitive company information' becomes 'not uploading any sensitive company information')."
+      ]
+    },
+    {
       "cycle": 188,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 19:08",
