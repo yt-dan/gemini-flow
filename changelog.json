@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 98,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:58",
+      "title": "Formats spoken IPv4 addresses, API and file paths, and 'v1.2.0' version tags",
+      "highlights": [
+        "Turns spoken local and network IPv4 addresses like '127 dot 0 dot 0 dot 1 colon 8080', '192 dot 168 dot 1 dot 1', and '10 dot 0 dot 0 dot 1 slash 24' into '127.0.0.1:8080', '192.168.1.1', and '10.0.0.1/24'.",
+        "Formats spoken API routes, Unix paths, and version tags such as 'slash api slash v1 slash users', 'slash etc slash hosts', 'src slash components slash button dot tsx', and 'v 1 point 2 point 0' into '/api/v1/users', '/etc/hosts', 'src/components/button.tsx', and 'v1.2.0'."
+      ]
+    },
+    {
+      "cycle": 97,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:52",
+      "title": "Restores casing on cloud, '.js' framework, and Apple developer names",
+      "highlights": [
+        "Formats spoken '.js' framework names and cloud services including 'Next.js' (whether spoken as 'nextjs' or 'next dot js'), 'Vue.js', 'Node.js', 'Nuxt.js', 'NestJS', 'Three.js', 'TailwindCSS', 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Netlify', 'Firebase', 'Redis', 'SQLite', and 'gRPC'.",
+        "Restores official capitalization on Apple developer tools and platforms including 'iPadOS', 'Xcode', 'TestFlight', 'CocoaPods', and 'VoiceOver'."
+      ]
+    },
+    {
+      "cycle": 96,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:51",
+      "title": "Hyphenates spoken modifiers like 'open-source', 'cross-platform', and 'built-in'",
+      "highlights": [
+        "Adds hyphens to common technical modifiers before their nouns, turning 'open source library', 'cross platform support', 'built in cache', 'client side validation', 'server side rendering', 'in memory store', 'low latency streaming', 'high priority bug', and 'long running session' into hyphenated compounds.",
+        "Keeps normal phrases like 'built in Swift' or 'kept in memory' unchanged without hyphens."
+      ]
+    },
+    {
+      "cycle": 95,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:50",
+      "title": "Formats spoken Japanese yen and latency units like 'ms', 'µs', and 'kbps'",
+      "highlights": [
+        "Formats spoken yen amounts such as '5,000 yen' and '10 million yen' into '\u00a55,000' and '\u00a510 million'.",
+        "Abbreviates spoken latency and audio bitrate measurements after numbers, turning '188.5 milliseconds', '45 microseconds', '10 nanoseconds', and '64 kilobits per second' into '188.5 ms', '45 \u00b5s', '10 ns', and '64 kbps'."
+      ]
+    },
+    {
+      "cycle": 94,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:49",
+      "title": "Formats spoken environment variables and underscore code names",
+      "highlights": [
+        "Turns spoken underscore identifiers like 'max underscore retries' and 'user underscore id' into 'max_retries' and 'user_id', and uppercases well-known environment variables like 'node underscore env' and 'gemini underscore api underscore key' into 'NODE_ENV' and 'GEMINI_API_KEY'.",
+        "Leaves normal sentences that use 'underscore' as a verb untouched."
+      ]
+    },
+    {
       "cycle": 93,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 13:36",
