@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(108), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:38", @"title": @"Keeps capitalization on bullet list items and cleans up dictation inside quotes", @"highlights": @[@"When you start dictating after a bullet or task list marker like '- ', '* ', or '- [ ] ', GeminiFlow keeps the first word of the list item capitalized instead of lowercasing it.", @"When you place your cursor inside quotation marks mid-sentence, GeminiFlow leaves out the extra period and trailing space before the closing quote."]},
+            @{@"cycle": @(107), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:37", @"title": @"Formats spoken email Subject lines and preserves dotted arguments in terminal commands", @"highlights": @[@"Turns spoken email headers like 'Subject colon quarterly roadmap update. Hi Sarah, thanks for the notes.' into a clean 'Subject: Quarterly roadmap update' line followed by a blank line before the greeting.", @"Keeps terminal commands lowercase and removes the trailing period even when arguments contain dotted filenames or paths like 'git add main.m' or 'python3 tests/run_tests.py'."]},
+            @{@"cycle": @(106), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:36", @"title": @"Formats spoken 'plus or minus', powers, and area, volume, and speed units", @"highlights": @[@"Turns spoken expressions like 'plus or minus 5 percent' and '10 to the power of 6' into '\u00B15%' and '10^6'.", @"Abbreviates spoken area, volume, and speed units after numbers, turning '120 square meters', '1,500 square feet', '300 cubic meters', '65 miles per hour', and '105 kilometers per hour' into '120 m\u00B2', '1,500 sq ft', '300 m\u00B3', '65 mph', and '105 km/h'."]},
+            @{@"cycle": @(105), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:35", @"title": @"Formats spoken code backticks and hex color codes", @"highlights": @[@"Wraps spoken inline code in backticks, turning 'backtick main dot m backtick' and 'backtick max underscore retries backtick' into '`main.m`' and '`max_retries`'.", @"Turns spoken hex color codes like 'hash 3 8 d c 8 2', 'hex f f 5 7 3 3', and 'hash f f f' into '#38DC82', '#FF5733', and '#FFF'."]},
+            @{@"cycle": @(104), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:34", @"title": @"Formats spoken HTTP status codes like '404 error', 'HTTP 503', and '200 OK'", @"highlights": @[@"Turns spoken web status codes in error and response phrases like 'four oh four error', 'HTTP five oh three service unavailable', 'five oh two bad gateway', and 'two hundred okay' into '404 error', 'HTTP 503 service unavailable', '502 bad gateway', and '200 OK'.", @"Leaves normal numbers in everyday sentences like 'five hundred people in room four oh four' untouched."]},
             @{@"cycle": @(103), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:22", @"title": @"Cleans up 'let me rephrase' and 'let me start over' self-corrections and higher ordinals", @"highlights": @[@"When you change your mind mid-sentence with 'let me rephrase', 'let me rephrase that', or 'let me start over', GeminiFlow removes the earlier draft and keeps only your revised sentence or clause.", @"Expands spoken ordinal number self-corrections through 'thirteenth' to 'thirtieth' ('On the thirteenth floor, wait, fifteenth floor' becomes 'On the fifteenth floor')."]},
             @{@"cycle": @(102), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:20", @"title": @"Formats spoken Canadian, Australian, Singapore, and Swiss currencies and hardware units", @"highlights": @[@"Turns spoken currency amounts like '50 Canadian dollars', '80 Australian dollars', '100 Singapore dollars', and '2.5 million Swiss francs' into 'CA$50', 'A$80', 'S$100', and 'CHF 2.5 million'.", @"Abbreviates spoken hardware, battery, and audio measurements after numbers, turning '120 hertz', '96 watts', '5,000 milliamp hours', and '24 decibels' into '120 Hz', '96 W', '5,000 mAh', and '24 dB'."]},
             @{@"cycle": @(101), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:18", @"title": @"Formats spoken Git branch names and single-dash command flags", @"highlights": @[@"Turns spoken Git remote and branch references like 'origin slash main', 'upstream slash main', 'feature slash oauth', and 'hotfix slash login' into 'origin/main', 'upstream/main', 'feature/oauth', and 'hotfix/login'.", @"Formats spoken single-dash command-line flags such as 'git checkout dash b', 'git commit dash m', 'rm dash rf', 'ls dash la', and 'pytest dash v' into 'git checkout -b', 'git commit -m', 'rm -rf', 'ls -la', and 'pytest -v'."]},
@@ -4725,7 +4730,7 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
     }
     if (trimmedBefore.length == 0 && afterCursor.length == 0) return text;
 
-    static NSRegularExpression *nonTermDotRe, *firstWordRe;
+    static NSRegularExpression *nonTermDotRe, *firstWordRe, *listPrefixRe, *midQuoteBeforeRe;
     static NSSet<NSString *> *properLowerSet;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -4733,6 +4738,12 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
                         @"(?:(?<![\\w.])[a-z]\\.[a-z]\\.|\\b(?:mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|cf|approx|incl|esp)\\.)$"
                                                                  options:NSRegularExpressionCaseInsensitive error:nil];
         firstWordRe = [NSRegularExpression regularExpressionWithPattern:@"^(\\s*)([A-Za-z][A-Za-z0-9'-]*)" options:0 error:nil];
+        listPrefixRe = [NSRegularExpression regularExpressionWithPattern:
+                        @"^(?:[-*\\u2022](?:\\s+\\[[ xX]?\\])?|\\d+[.)]|\\[[ xX]?\\])$"
+                                                                 options:0 error:nil];
+        midQuoteBeforeRe = [NSRegularExpression regularExpressionWithPattern:
+                            @"[a-z0-9,;:)\\]][ \\t]+[\"\\u201C]$"
+                                                                     options:NSRegularExpressionCaseInsensitive error:nil];
         properLowerSet = [NSSet setWithArray:@[
             @"i", @"i'm", @"i'll", @"i've", @"i'd",
             @"monday", @"tuesday", @"wednesday", @"thursday", @"friday", @"saturday", @"sunday",
@@ -4750,14 +4761,23 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
 
     if (trimmedBefore.length > 0) {
         unichar lastChar = [trimmedBefore characterAtIndex:trimmedBefore.length - 1];
-        BOOL beforeEndsSentence = (lastChar == '!' || lastChar == '?' ||
+        BOOL isListPrefix = ([listPrefixRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] != nil);
+        BOOL isMidQuoteBefore = ((lastChar == '"' || lastChar == 0x201C) &&
+                                 [midQuoteBeforeRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] != nil);
+        BOOL beforeEndsSentence = !isListPrefix && (lastChar == '!' || lastChar == '?' ||
             (lastChar == '.' && [nonTermDotRe firstMatchInString:trimmedBefore options:0 range:NSMakeRange(0, trimmedBefore.length)] == nil));
-        BOOL isMidSentence = !beforeEndsSentence &&
+        BOOL isMidSentence = !isListPrefix && !beforeEndsSentence &&
                              ((lastChar >= 'a' && lastChar <= 'z') || (lastChar >= 'A' && lastChar <= 'Z') ||
                               (lastChar >= '0' && lastChar <= '9') || lastChar == ',' || lastChar == ';' ||
                               lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '[' ||
-                              lastChar == ')' || lastChar == ']' || lastChar == '/' || lastChar == '.');
-        if (isMidSentence) {
+                              lastChar == ')' || lastChar == ']' || lastChar == '/' || lastChar == '.' ||
+                              isMidQuoteBefore);
+        if (isListPrefix && lineBefore.length > 0 && out.length > 0) {
+            unichar rawLast = [lineBefore characterAtIndex:lineBefore.length - 1];
+            if (rawLast != ' ' && rawLast != '\t' && [out characterAtIndex:0] != ' ') {
+                [out insertString:@" " atIndex:0];
+            }
+        } else if (isMidSentence) {
             NSTextCheckingResult *fw = [firstWordRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
             if (fw) {
                 NSRange wRange = [fw rangeAtIndex:2];
@@ -4811,7 +4831,9 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
         NSString *trimmedAfter = [afterCursor stringByTrimmingCharactersInSet:horizWS];
         if (trimmedAfter.length > 0) {
             unichar firstAfter = [trimmedAfter characterAtIndex:0];
-            BOOL closingBracketAfter = (firstAfter == ')' || firstAfter == ']');
+            unichar lastBeforeChar = trimmedBefore.length > 0 ? [trimmedBefore characterAtIndex:trimmedBefore.length - 1] : 0;
+            BOOL closingQuoteAfter = ((firstAfter == '"' || firstAfter == 0x201D) && (lastBeforeChar == '"' || lastBeforeChar == 0x201C));
+            BOOL closingBracketAfter = (firstAfter == ')' || firstAfter == ']' || closingQuoteAfter);
             BOOL punctAttachedAfter = (firstAfter == ',' || firstAfter == ';' || firstAfter == ':' || closingBracketAfter);
             BOOL continuesSentence = ((firstAfter >= 'a' && firstAfter <= 'z') || punctAttachedAfter);
             if (continuesSentence) {
@@ -10362,15 +10384,19 @@ static void GFApplyAppContextFormatting(NSMutableString *str, NSString *bundleId
     GFAppContextCategory cat = GFAppContextCategoryForBundleID(bundleId);
     if (cat == GFAppContextGeneral) return;
 
-    static NSRegularExpression *emailGreetRe, *emailSignOffRe, *chatAbbrevEndRe, *codeCmdRe;
+    static NSRegularExpression *emailSubjRe, *emailGreetRe, *emailSignOffRe, *chatAbbrevEndRe, *codeCmdRe;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
-        // Greeting at start of email: "Hi Sarah, thanks..." / "Hello team, I..." / "Good morning everyone, here..."
+        // Cycle 107: Spoken email subject line ("Subject colon quarterly roadmap. Hi Sarah, ..." -> "Subject: Quarterly roadmap\n\nHi Sarah, ...")
+        emailSubjRe = [NSRegularExpression regularExpressionWithPattern:
+                       @"^subject(?:[ \\t]+colon|\\s*:)[ \\t]*([a-zA-Z0-9])([^\\n.!?]*?)(?:[ \\t]*[.,;]?[ \\t]*\\n+[ \\t]*|[.!?][ \\t]+)(?=(?:hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))\\b)"
+                                                                options:ci error:nil];
+        // Greeting at start of email or after Subject line: "Hi Sarah, thanks..." / "Hello team, I..." / "Good morning everyone, here..."
         emailGreetRe = [NSRegularExpression regularExpressionWithPattern:
                         @"^((?:hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))(?:\\s+there|\\s+everyone|\\s+all|\\s+team|\\s+folks|"
                         @"\\s+(?:dr|mr|mrs|ms|prof)\\.?\\s+[A-Z][A-Za-z'-]+|\\s+[A-Z][A-Za-z'-]+(?:\\s+and\\s+[A-Z][A-Za-z'-]+)?)?),[ \\t]+([a-zA-Z])"
-                                                                 options:ci error:nil];
+                                                                 options:ci | NSRegularExpressionAnchorsMatchLines error:nil];
         // Sign-off at end of email: "... let me know. Best, Dan." / "... tomorrow! Thanks, Sarah."
         emailSignOffRe = [NSRegularExpression regularExpressionWithPattern:
                           @"([.!?])[ \\t]+(best(?:\\s+regards|\\s+wishes)?|kind\\s+regards|warm\\s+regards|regards|many\\s+thanks|thank\\s+you|thanks|cheers|sincerely|talk\\s+soon),[ \\t]+([A-Z][A-Za-z'-]*(?:[ \\t]+[A-Z][A-Za-z'-]*)?)\\.?$"
@@ -10379,11 +10405,20 @@ static void GFApplyAppContextFormatting(NSMutableString *str, NSString *bundleId
                            @"(?:\\b(?:[a-z]\\.[a-z]\\.|etc\\.|vs\\.|dr\\.|mr\\.|mrs\\.|ms\\.|st\\.|jr\\.|sr\\.|inc\\.|ltd\\.|co\\.|corp\\.))$|[0-9]\\.[0-9]+\\.$"
                                                                     options:ci error:nil];
         codeCmdRe = [NSRegularExpression regularExpressionWithPattern:
-                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Pip3?|Uv|Bun|Deno|Npx|Node|Swift|Xcrun|Lldb|Gdb|Bazel|Blaze|Cmake|Ninja|Terraform|Helm|Gcloud|Aws|Az|Gh|Jq|Sed|Awk|Find|Chmod|Chown|Mkdir|Rm|Cp|Mv|Touch|Tail|Head|Less|Echo|Export|Source|Which|Kill|Pkill|Ps|Top|Htop|Lsof|Tar|Unzip|Rsync|Scp|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b([ \\t]+[^\\n.!?]+)\\.?$"
+                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Pip3?|Uv|Bun|Deno|Npx|Node|Swift|Xcrun|Lldb|Gdb|Bazel|Blaze|Cmake|Ninja|Terraform|Helm|Gcloud|Aws|Az|Gh|Jq|Sed|Awk|Find|Chmod|Chown|Mkdir|Rm|Cp|Mv|Touch|Tail|Head|Less|Echo|Export|Source|Which|Kill|Pkill|Ps|Top|Htop|Lsof|Tar|Unzip|Rsync|Scp|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b([ \\t]+[^\\n!?]+?)\\.?$"
                                                               options:0 error:nil];
     });
 
     if (cat == GFAppContextEmail) {
+        // 0. Optional spoken Subject line before greeting
+        NSTextCheckingResult *subm = [emailSubjRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)];
+        if (subm) {
+            NSString *firstSubjChar = [str substringWithRange:[subm rangeAtIndex:1]];
+            if (autoCap) firstSubjChar = [firstSubjChar uppercaseString];
+            NSString *restSubj = [str substringWithRange:[subm rangeAtIndex:2]];
+            NSString *repSubj = [NSString stringWithFormat:@"Subject: %@%@\n\n", firstSubjChar, restSubj];
+            [str replaceCharactersInRange:subm.range withString:repSubj];
+        }
         // 1. Greeting paragraph break
         NSTextCheckingResult *gm = [emailGreetRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)];
         if (gm) {
@@ -10522,6 +10557,28 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     }
     if ([str rangeOfString:@"decibel" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(-?\\d+(?:\\.\\d+)?)\\s+decibels?\\b", @"$1 dB", ci);
+    }
+    // 10. Cycle 106: Spoken mathematical tolerances ("plus or minus 5%" -> "±5%"), exponents ("10 to the power of 6" -> "10^6"),
+    //     and area/volume/speed units ("50 square meters" -> "50 m²", "10 square kilometers" -> "10 km²", "500 square feet" -> "500 sq ft",
+    //     "20 cubic meters" -> "20 m³", "65 miles per hour" -> "65 mph", "100 kilometers per hour" -> "100 km/h")
+    if ([str rangeOfString:@"minus" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bplus\\s+or\\s+minus\\s+(?=[\\$\\u20AC\\u00A3\\u00A5]?\\d)", @"\u00B1", ci);
+    }
+    if ([str rangeOfString:@"power" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+the\\s+power\\s+of\\s+(?:negative\\s+|minus\\s+)(\\d+(?:\\.\\d+)?)\\b", @"$1^-$2", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+the\\s+power\\s+of\\s+(-?\\d+(?:\\.\\d+)?)\\b", @"$1^$2", ci);
+    }
+    if ([str rangeOfString:@"square" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+square\\s+meters?\\b", @"$1 m\u00B2", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+square\\s+kilometers?\\b", @"$1 km\u00B2", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+square\\s+(?:feet|foot)\\b", @"$1 sq ft", ci);
+    }
+    if ([str rangeOfString:@"cubic" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+cubic\\s+meters?\\b", @"$1 m\u00B3", ci);
+    }
+    if ([str rangeOfString:@"hour" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+miles?\\s+per\\s+hour\\b", @"$1 mph", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilometers?\\s+per\\s+hour\\b", @"$1 km/h", ci);
     }
 }
 
@@ -10854,6 +10911,62 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     }
     if ([str rangeOfString:@"number" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(issue|ticket|bug)\\s+number\\s+(\\d{1,6})\\b", @"$1 #$2", ci);
+    }
+    // Cycle 104: Spoken HTTP Status Codes ("four oh four error" -> "404 error", "HTTP five oh three" -> "HTTP 503",
+    // "status four twenty-nine" -> "status 429", "two hundred okay" -> "200 OK")
+    if ([str rangeOfString:@"four" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"five" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"two hundred" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"200" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        static NSRegularExpression *httpLeadCodeRe, *httpTrailCodeRe;
+        static NSDictionary<NSString *, NSString *> *spokenStatusMap;
+        static dispatch_once_t onceHttpStatus;
+        dispatch_once(&onceHttpStatus, ^{
+            NSString *spokenCodePat = @"(two\\s+hundred|four\\s+(?:oh|zero)\\s+(?:zero|one|three|four)|four\\s+twenty[-\\s]+nine|five\\s+hundred|five\\s+(?:oh|zero)\\s+(?:two|three|four))";
+            httpLeadCodeRe = [NSRegularExpression regularExpressionWithPattern:
+                              [NSString stringWithFormat:@"\\b(http|status(?:\\s+code)?|error(?:\\s+code)?|returned(?:\\s+a)?|getting\\s+a|got\\s+a|throws?\\s+a|threw\\s+a)\\s+%@\\b", spokenCodePat]
+                                                                       options:ci error:nil];
+            httpTrailCodeRe = [NSRegularExpression regularExpressionWithPattern:
+                               [NSString stringWithFormat:@"\\b%@\\s+(errors?|status|responses?|not\\s+found|unauthorized|forbidden|bad\\s+gateway|service\\s+unavailable|gateway\\s+timeout|rate\\s+limit|too\\s+many\\s+requests|ok|okay)\\b", spokenCodePat]
+                                                                        options:ci error:nil];
+            spokenStatusMap = @{
+                @"two hundred": @"200",
+                @"four oh zero": @"400", @"four zero zero": @"400",
+                @"four oh one": @"401", @"four zero one": @"401",
+                @"four oh three": @"403", @"four zero three": @"403",
+                @"four oh four": @"404", @"four zero four": @"404",
+                @"four twenty nine": @"429", @"four twenty-nine": @"429",
+                @"five hundred": @"500",
+                @"five oh two": @"502", @"five zero two": @"502",
+                @"five oh three": @"503", @"five zero three": @"503",
+                @"five oh four": @"504", @"five zero four": @"504"
+            };
+        });
+        NSString *(^normSpokenCode)(NSString *) = ^NSString *(NSString *raw) {
+            NSString *low = [[raw lowercaseString] stringByReplacingOccurrencesOfString:@"-" withString:@" "];
+            NSMutableArray<NSString *> *parts = [NSMutableArray array];
+            for (NSString *p in [low componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
+                if (p.length > 0) [parts addObject:p];
+            }
+            return spokenStatusMap[[parts componentsJoinedByString:@" "]];
+        };
+        NSArray<NSTextCheckingResult *> *lMatches = [httpLeadCodeRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [lMatches reverseObjectEnumerator]) {
+            NSString *lead = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *code = normSpokenCode([str substringWithRange:[m rangeAtIndex:2]]);
+            if (!code) continue;
+            if ([lead.lowercaseString isEqualToString:@"http"]) lead = @"HTTP";
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@ %@", lead, code]];
+        }
+        NSArray<NSTextCheckingResult *> *tMatches = [httpTrailCodeRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [tMatches reverseObjectEnumerator]) {
+            NSString *code = normSpokenCode([str substringWithRange:[m rangeAtIndex:1]]);
+            NSString *trail = [str substringWithRange:[m rangeAtIndex:2]];
+            if (!code) continue;
+            if ([trail.lowercaseString isEqualToString:@"ok"] || [trail.lowercaseString isEqualToString:@"okay"]) trail = @"OK";
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@ %@", code, trail]];
+        }
+        replaceRegex(str, @"\\b(200)\\s+(?:ok|okay)\\b", @"$1 OK", ci);
     }
 }
 
@@ -11267,6 +11380,38 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
                 }
             }
             [str replaceCharactersInRange:m.range withString:formatted];
+        }
+    }
+    // Cycle 105: Spoken Markdown Inline Code Backticks ("backtick main dot m backtick" -> "`main.m`") &
+    // Spoken Hex Color Codes ("hash 3 8 d c 8 2" -> "#38DC82", "hex f f 5 7 3 3" -> "#FF5733", "hash f f f" -> "#FFF")
+    if ([str rangeOfString:@"backtick" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bbackticks?\\s+([^\\n`]{1,48}?)\\s+backticks?\\b", @"`$1`", ci);
+    }
+    if ([str rangeOfString:@"hash" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"hex" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        static NSRegularExpression *hexColorRe;
+        static dispatch_once_t onceHex;
+        dispatch_once(&onceHex, ^{
+            hexColorRe = [NSRegularExpression regularExpressionWithPattern:
+                          @"\\b(hash|hex(?:\\s+color)?)\\s+([0-9a-f](?:\\s*[0-9a-f]){5}|[0-9a-f](?:\\s*[0-9a-f]){2})\\b(?![0-9a-z_-])"
+                                                                   options:ci error:nil];
+        });
+        NSArray<NSTextCheckingResult *> *hMatches = [hexColorRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [hMatches reverseObjectEnumerator]) {
+            NSString *cue = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+            NSString *rawDigits = [str substringWithRange:[m rangeAtIndex:2]];
+            NSMutableString *compact = [NSMutableString stringWithCapacity:6];
+            BOOL hasHexLetter = NO;
+            for (NSUInteger i = 0; i < rawDigits.length; i++) {
+                unichar c = [rawDigits characterAtIndex:i];
+                if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+                    if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) hasHexLetter = YES;
+                    [compact appendFormat:@"%C", (unichar)toupper(c)];
+                }
+            }
+            if (compact.length != 6 && compact.length != 3) continue;
+            if (compact.length == 3 && !hasHexLetter && [cue isEqualToString:@"hash"]) continue;
+            [str replaceCharactersInRange:m.range withString:[@"#" stringByAppendingString:compact]];
         }
     }
 }
@@ -17592,6 +17737,74 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c103Ok) passed++; else failed++;
                 printf("%s: 'let me rephrase' / 'let me start over' clause retractions and higher ordinal self-corrections (%d%d%d)\n",
                        c103Ok ? "PASS" : "FAIL", rp1, rp2, rp3);
+            }
+            // Cycle 104: Spoken HTTP Status Codes in GFRepairContextualHomophones
+            {
+                BOOL hs1 = [[self polishOnDeviceTranscript:@"We are getting a four oh four error and HTTP five oh three service unavailable."]
+                            isEqualToString:@"We are getting a 404 error and HTTP 503 service unavailable. "];
+                BOOL hs2 = [[self polishOnDeviceTranscript:@"The endpoint returned status four twenty-nine rate limit instead of two hundred okay."]
+                            isEqualToString:@"The endpoint returned status 429 rate limit instead of 200 OK. "];
+                BOOL hs3 = [[self polishOnDeviceTranscript:@"There were five hundred people in room four oh four."]
+                            isEqualToString:@"There were five hundred people in room four oh four. "];
+                BOOL c104Ok = hs1 && hs2 && hs3;
+                if (c104Ok) passed++; else failed++;
+                printf("%s: spoken HTTP status codes (404, 503, 429, 200 OK) with non-HTTP prose guard (%d%d%d)\n",
+                       c104Ok ? "PASS" : "FAIL", hs1, hs2, hs3);
+            }
+            // Cycle 105: Spoken Markdown Inline Code Backticks & Spoken Hex Color Codes in GFFormatSpokenTechnicalTokens
+            {
+                BOOL bt1 = [[self polishOnDeviceTranscript:@"Check backtick main dot m backtick and backtick max underscore retries backtick."]
+                            isEqualToString:@"Check `main.m` and `max_retries`. "];
+                BOOL bt2 = [[self polishOnDeviceTranscript:@"Set the badge color to hash 3 8 d c 8 2 or hex f f 5 7 3 3."]
+                            isEqualToString:@"Set the badge color to #38DC82 or #FF5733. "];
+                BOOL bt3 = [[self polishOnDeviceTranscript:@"Use hash f f f for white and hex 0 0 0 for black."]
+                            isEqualToString:@"Use #FFF for white and #000 for black. "];
+                BOOL c105Ok = bt1 && bt2 && bt3;
+                if (c105Ok) passed++; else failed++;
+                printf("%s: spoken markdown inline code backticks and spoken hex color codes (%d%d%d)\n",
+                       c105Ok ? "PASS" : "FAIL", bt1, bt2, bt3);
+            }
+            // Cycle 106: Spoken Mathematical Tolerances (±), Exponents (^), and Area/Volume/Speed Units (m², km², sq ft, m³, mph, km/h)
+            {
+                BOOL mt1 = [[self polishOnDeviceTranscript:@"The margin is plus or minus 5 percent with a scale of 10 to the power of 6."]
+                            isEqualToString:@"The margin is \u00B15% with a scale of 10^6. "];
+                BOOL mt2 = [[self polishOnDeviceTranscript:@"The office is 120 square meters or 1,290 square feet with 300 cubic meters of airflow."]
+                            isEqualToString:@"The office is 120 m\u00B2 or 1,290 sq ft with 300 m\u00B3 of airflow. "];
+                BOOL mt3 = [[self polishOnDeviceTranscript:@"Top speed is 65 miles per hour or 105 kilometers per hour over 10 square kilometers."]
+                            isEqualToString:@"Top speed is 65 mph or 105 km/h over 10 km\u00B2. "];
+                BOOL c106Ok = mt1 && mt2 && mt3;
+                if (c106Ok) passed++; else failed++;
+                printf("%s: spoken mathematical tolerances/exponents and area/volume/speed units (%d%d%d)\n",
+                       c106Ok ? "PASS" : "FAIL", mt1, mt2, mt3);
+            }
+            // Cycle 107: Email Subject Line Formatting & Dotted CLI Command Preservation in GFApplyAppContextFormatting
+            {
+                NSMutableString *em1 = [NSMutableString stringWithString:@"Subject colon quarterly roadmap update. Hi Sarah, thanks for the notes. Best, Dan."];
+                GFApplyAppContextFormatting(em1, @"com.apple.mail", YES);
+                BOOL ac1 = [em1 isEqualToString:@"Subject: Quarterly roadmap update\n\nHi Sarah,\n\nThanks for the notes.\n\nBest,\nDan"];
+                NSMutableString *cd1 = [NSMutableString stringWithString:@"Git add main.m."];
+                GFApplyAppContextFormatting(cd1, @"com.apple.Terminal", YES);
+                BOOL ac2 = [cd1 isEqualToString:@"git add main.m"];
+                NSMutableString *cd2 = [NSMutableString stringWithString:@"Python3 tests/run_tests.py."];
+                GFApplyAppContextFormatting(cd2, @"com.microsoft.VSCode", YES);
+                BOOL ac3 = [cd2 isEqualToString:@"python3 tests/run_tests.py"];
+                BOOL c107Ok = ac1 && ac2 && ac3;
+                if (c107Ok) passed++; else failed++;
+                printf("%s: email Subject line formatting and dotted CLI command preservation in GFApplyAppContextFormatting (%d%d%d)\n",
+                       c107Ok ? "PASS" : "FAIL", ac1, ac2, ac3);
+            }
+            // Cycle 108: Markdown List Prefix Capitalization Guard & Inside-Quotes Continuation in GFAdaptTextForMidSentenceCursor
+            {
+                BOOL mq1 = [GFAdaptTextForMidSentenceCursor(@"Ship the new release. ", @"- ", @"", @[])
+                            isEqualToString:@"Ship the new release. "];
+                BOOL mq2 = [GFAdaptTextForMidSentenceCursor(@"Update the docs. ", @"- [ ] ", @"", @[])
+                            isEqualToString:@"Update the docs. "];
+                BOOL mq3 = [GFAdaptTextForMidSentenceCursor(@"Ready for review. ", @"Set the status to \"", @"\" before saving.", @[])
+                            isEqualToString:@"ready for review"];
+                BOOL c108Ok = mq1 && mq2 && mq3;
+                if (c108Ok) passed++; else failed++;
+                printf("%s: markdown list prefix capitalization guard and inside-quotes continuation (%d%d%d)\n",
+                       c108Ok ? "PASS" : "FAIL", mq1, mq2, mq3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

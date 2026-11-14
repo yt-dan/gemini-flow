@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 108,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:38",
+      "title": "Keeps capitalization on bullet list items and cleans up dictation inside quotes",
+      "highlights": [
+        "When you start dictating after a bullet or task list marker like '- ', '* ', or '- [ ] ', GeminiFlow keeps the first word of the list item capitalized instead of lowercasing it.",
+        "When you place your cursor inside quotation marks mid-sentence, GeminiFlow leaves out the extra period and trailing space before the closing quote."
+      ]
+    },
+    {
+      "cycle": 107,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:37",
+      "title": "Formats spoken email Subject lines and preserves dotted arguments in terminal commands",
+      "highlights": [
+        "Turns spoken email headers like 'Subject colon quarterly roadmap update. Hi Sarah, thanks for the notes.' into a clean 'Subject: Quarterly roadmap update' line followed by a blank line before the greeting.",
+        "Keeps terminal commands lowercase and removes the trailing period even when arguments contain dotted filenames or paths like 'git add main.m' or 'python3 tests/run_tests.py'."
+      ]
+    },
+    {
+      "cycle": 106,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:36",
+      "title": "Formats spoken 'plus or minus', powers, and area, volume, and speed units",
+      "highlights": [
+        "Turns spoken expressions like 'plus or minus 5 percent' and '10 to the power of 6' into '\u00b15%' and '10^6'.",
+        "Abbreviates spoken area, volume, and speed units after numbers, turning '120 square meters', '1,500 square feet', '300 cubic meters', '65 miles per hour', and '105 kilometers per hour' into '120 m\u00b2', '1,500 sq ft', '300 m\u00b3', '65 mph', and '105 km/h'."
+      ]
+    },
+    {
+      "cycle": 105,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:35",
+      "title": "Formats spoken code backticks and hex color codes",
+      "highlights": [
+        "Wraps spoken inline code in backticks, turning 'backtick main dot m backtick' and 'backtick max underscore retries backtick' into '`main.m`' and '`max_retries`'.",
+        "Turns spoken hex color codes like 'hash 3 8 d c 8 2', 'hex f f 5 7 3 3', and 'hash f f f' into '#38DC82', '#FF5733', and '#FFF'."
+      ]
+    },
+    {
+      "cycle": 104,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:34",
+      "title": "Formats spoken HTTP status codes like '404 error', 'HTTP 503', and '200 OK'",
+      "highlights": [
+        "Turns spoken web status codes in error and response phrases like 'four oh four error', 'HTTP five oh three service unavailable', 'five oh two bad gateway', and 'two hundred okay' into '404 error', 'HTTP 503 service unavailable', '502 bad gateway', and '200 OK'.",
+        "Leaves normal numbers in everyday sentences like 'five hundred people in room four oh four' untouched."
+      ]
+    },
+    {
       "cycle": 103,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 14:22",
