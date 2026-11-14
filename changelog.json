@@ -3,6 +3,53 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 183,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 18:34",
+      "title": "Joins split everyday compound words like 'voicemail', 'headphones', 'spreadsheet', 'weekend', and 'guideline'",
+      "highlights": [
+        "Joins everyday personal and workplace compound nouns when speech recognition splits them into two words, turning 'voice mail', 'head phones', 'ear buds', 'news letter', 'spread sheet', 'white board', 'book mark', 'pass code', 'track pad', 'time table', 'guide line', 'week day', 'this week end', and 'some push back' into 'voicemail', 'headphones', 'earbuds', 'newsletter', 'spreadsheet', 'whiteboard', 'bookmark', 'passcode', 'trackpad', 'timetable', 'guideline', 'weekday', 'this weekend', and 'some pushback' while keeping verb phrases like 'push back the meeting' untouched."
+      ]
+    },
+    {
+      "cycle": 182,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 18:33",
+      "title": "Fixes 'make ends meet', 'deep breath', 'breathe a sigh of relief', 'last resort', 'all of a sudden', and 'hit the brakes'",
+      "highlights": [
+        "Repairs everyday phrases that speech recognizers often spell with the wrong word, turning 'make ends meat', 'take a deep breathe', 'a breathe of fresh air', 'breath a sigh of relief', 'with baited breath', 'as a last result', 'all of the sudden', 'first and four most', 'last but not lease', 'peace of cake', 'give me a brake', 'brake the ice', and 'hit the breaks' into 'make ends meet', 'take a deep breath', 'a breath of fresh air', 'breathe a sigh of relief', 'with bated breath', 'as a last resort', 'all of a sudden', 'first and foremost', 'last but not least', 'piece of cake', 'give me a break', 'break the ice', and 'hit the brakes'."
+      ]
+    },
+    {
+      "cycle": 181,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 18:32",
+      "title": "Cleans up 'sorry, let me start again', 'wait, let me back up', 'that's not what I meant', and 'to put it another way'",
+      "highlights": [
+        "When you reset or reframe a thought mid-sentence with 'sorry, let me start again,', 'wait, let me back up,', 'no, that's not what I meant,', or 'actually, to put it another way,', GeminiFlow removes the earlier draft clause and keeps your revised wording."
+      ]
+    },
+    {
+      "cycle": 180,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 18:31",
+      "title": "Milestone Cycle 180: Cleans up 'the problem is, is that' rambles, 'as to whether', and '. Except when...' pause splits",
+      "highlights": [
+        "Simplifies doubled 'is, is' and 'was, was' framing when collecting thoughts out loud ('the problem is, is that', 'the challenge is, is that', 'what happens is, is that', and 'all I'm saying is, is that' become 'the problem is that', 'the challenge is that', 'what happens is that', and 'all I'm saying is that').",
+        "Simplifies 'for to' before verbs ('for to finish' becomes 'to finish'), 'as to whether', 'at this point in time', and 'during the course of', and re-attaches trailing '. Except when...' and '. Provided that...' clauses split by a brief thinking pause."
+      ]
+    },
+    {
+      "cycle": 179,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 18:30",
+      "title": "Removes filler 'like' in 'when like collecting my thoughts', 'as soon as like', and 'anything else like that can be'",
+      "highlights": [
+        "Strips filler 'like' after 'when', 'while', 'since', 'after', and 'before' before '-ing' verbs ('when like collecting my thoughts' and 'after like deleting a word' become 'when collecting my thoughts' and 'after deleting a word'), after 'as much as', 'as soon as', 'as far as', and 'as long as' ('as soon as like you finish' becomes 'as soon as you finish'), and after 'anything else', 'something else', and 'nothing else' before 'that' or 'to' clauses.",
+        "Speeds up transcript polishing with fast substring guards in smart entity, list, and mid-sentence capitalization passes."
+      ]
+    },
+    {
       "cycle": 178,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 17:58",
