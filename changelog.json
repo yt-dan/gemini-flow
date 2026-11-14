@@ -3,6 +3,54 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 158,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:45",
+      "title": "Fixes missing apostrophes in 'lets', 'id like', 'weve', 'couldve', 'hes', and 'shes'",
+      "highlights": [
+        "Restores missing apostrophes in action starters like 'lets meet at 3 p.m.', 'lets say I change my mind', and 'lets focus on personal conversations' ('let's') while keeping third-person verbs like 'he lets the dog out' untouched.",
+        "Fixes missing apostrophes in 'id like', 'id prefer', 'id rather', 'weve', 'youve', 'theyve', 'couldve', 'wouldve', 'shouldve', 'mightve', 'mustve', 'hes', 'shes', 'whos', 'hows', 'wheres', and 'whens'."
+      ]
+    },
+    {
+      "cycle": 157,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:44",
+      "title": "Fixes 'without losing the meaning', 'struck a chord', 'rein in', 'pore over', and 'side effects'",
+      "highlights": [
+        "Repairs 'loose' and 'loosing' when 'lose' or 'losing' is meant ('without loosing the meaning' becomes 'without losing the meaning', and 'do not loose track of the goal' becomes 'do not lose track of the goal') while keeping 'a loose thread' intact.",
+        "Fixes 'struck a cord', 'reign in the budget', 'biting my time', 'pour over the notes', 'side affects', and 'take affect' into 'struck a chord', 'rein in the budget', 'biding my time', 'pore over the notes', 'side effects', and 'take effect'."
+      ]
+    },
+    {
+      "cycle": 156,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:43",
+      "title": "Cleans up 'no, scratch that', 'actually, never mind', and 'let me try that again' self-corrections",
+      "highlights": [
+        "When you retract a thought mid-sentence with 'no, scratch that,', 'wait, scratch that,', 'actually, never mind,', 'wait, never mind,', or 'let me try that again,', GeminiFlow removes the earlier draft clause and keeps your updated phrasing."
+      ]
+    },
+    {
+      "cycle": 155,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:42",
+      "title": "Cleans up 'is because that', 'not only just', 'equally as', and 'What I'm trying to do is' rambles",
+      "highlights": [
+        "Simplifies overlapping connectors when thinking out loud, turning 'is because that I tend to ramble', 'not only just personal conversations', 'equally as important', 'or else otherwise', and 'firstly, first of all' into 'is because I tend to ramble', 'not only personal conversations', 'equally important', 'otherwise', and 'first of all'.",
+        "Extends echoed framing cleanup to contracted starters like 'What I'm trying to do is, I'm trying to test' ('What I'm trying to do is test')."
+      ]
+    },
+    {
+      "cycle": 154,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 16:41",
+      "title": "Removes filler 'like' after action verbs like 'delete', 'judge', 'collect', 'test', and 'address'",
+      "highlights": [
+        "Strips filler 'like' after everyday action and thought-collection verbs before nouns or clauses ('delete like a specific word', 'judge like the quality of the dictation', 'collect like my thoughts', 'address like the issue', and 'test like when I change my mind') while preserving real comparisons."
+      ]
+    },
+    {
       "cycle": 153,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 16:31",
