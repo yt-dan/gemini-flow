@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 138,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:58",
+      "title": "Formats 'ChatGPT', knowledge-work apps, and compounds like 'brainstorm', 'workaround', and 'handoff'",
+      "highlights": [
+        "Restores proper capitalization on AI and knowledge-work tools including 'ChatGPT' (whether spoken as 'ChatGPT' or 'chat G P T'), 'Midjourney', 'Figma', 'Canva', 'Airtable', 'Zapier', 'Grammarly', 'Calendly', 'DocuSign', 'Dropbox', 'OneDrive', 'SharePoint', 'Evernote', 'Todoist', 'Trello', and 'Asana'.",
+        "Joins split planning and workflow nouns such as 'brainstorm', 'brainstorming', 'workaround', 'walkthrough', and 'handoff'."
+      ]
+    },
+    {
+      "cycle": 137,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:57",
+      "title": "Fixes missing apostrophes in 'im', 'dont', and 'thats' and cleans up 'more better' double comparatives",
+      "highlights": [
+        "Adds missing apostrophes and capitalization to contractions like 'when im saying', 'dont', 'doesnt', 'didnt', 'wont', 'cant', 'isnt', 'thats', 'whats', 'theres', 'youre', 'theyre', and 'ive' ('when im saying 1 pax' becomes 'when I'm saying 1 pax').",
+        "Cleans up spoken double comparatives when thinking out loud, turning 'more better', 'more easier', 'more faster', 'more cleaner', 'more clearer', and 'more simpler' into 'better', 'easier', 'faster', 'cleaner', 'clearer', and 'simpler'."
+      ]
+    },
+    {
+      "cycle": 136,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:56",
+      "title": "Cleans up 'that is not what I meant', 'what I mean is', and 'to put it another way' self-corrections",
+      "highlights": [
+        "When you steer an AI or revise a thought mid-sentence with 'that is not what I meant', 'wait, that is not what I meant', 'what I mean is', or 'to put it another way', GeminiFlow replaces the earlier draft with your clarified instruction.",
+        "Works for both short phrase replacements ('Focus on coding, what I mean is, personal conversations') and full clause restarts."
+      ]
+    },
+    {
+      "cycle": 135,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:55",
+      "title": "Removes filler 'like' after '-ing' action words and at the end of sentences",
+      "highlights": [
+        "Removes filler 'like' after '-ing' action words when collecting your thoughts ('catching like those redundant words', 'putting like the correct punctuation', 'losing like the meaning or changing like my voice', 'collecting like my thoughts'), while keeping real comparisons like 'looking like rain' or 'working like a charm'.",
+        "Strips trailing ', like.' filler at the end of a sentence."
+      ]
+    },
+    {
+      "cycle": 134,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:54",
+      "title": "Re-attaches trailing 'In case...', 'Rather than...', and 'Of putting...' fragments after thinking pauses",
+      "highlights": [
+        "Joins trailing 'In case...', 'Rather than...', 'Instead of...', and 'Even though...' fragments back onto your sentence when a brief pause caused a premature period ('Make sure to do your handoffs and commit frequently. In case tokens run out.' becomes 'Make sure to do your handoffs and commit frequently in case tokens run out.').",
+        "Re-attaches trailing 'Of ...-ing' phrases onto questions and statements ('Is this something that you are working on for the upcoming cycles? Of actually putting the correct punctuation.' becomes 'Is this something that you are working on for the upcoming cycles of actually putting the correct punctuation?')."
+      ]
+    },
+    {
       "cycle": 133,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 15:46",
