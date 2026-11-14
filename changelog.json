@@ -3,6 +3,53 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 178,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:58",
+      "title": "Joins split everyday compound words like 'feedback', 'roadmap', 'milestone', 'checklist', and 'takeaway'",
+      "highlights": [
+        "Joins everyday workplace and personal compound nouns when speech recognition splits them into two words, turning 'feed back', 'road map', 'mile stone', 'time line', 'note book', 'the check list', 'a quick short cut', 'the main down side', 'the up side', and 'key take aways' into 'feedback', 'roadmap', 'milestone', 'timeline', 'notebook', 'the checklist', 'a quick shortcut', 'the main downside', 'the upside', and 'key takeaways' while keeping verb phrases like 'feed back into the loop' and 'take away the pain' untouched."
+      ]
+    },
+    {
+      "cycle": 177,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:57",
+      "title": "Fixes 'bare minimum', 'rack my brain', 'scot-free', 'take the reins', 'one fell swoop', and 'espresso'",
+      "highlights": [
+        "Repairs everyday phrases and words that speech recognizers often spell with the wrong homophone, turning 'bear minimum', 'could not bare it', 'wrecking my brain', 'chopping at the bit', 'scotch free', 'take the rains', 'in one foul swoop', 'wet behind the years', 'doggy dog world', 'cold slaw', 'expresso', and 'asterick' into 'bare minimum', 'could not bear it', 'racking my brain', 'chomping at the bit', 'scot-free', 'take the reins', 'in one fell swoop', 'wet behind the ears', 'dog-eat-dog world', 'coleslaw', 'espresso', and 'asterisk'."
+      ]
+    },
+    {
+      "cycle": 176,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:56",
+      "title": "Cleans up 'let me start from scratch', 'sorry, I misspoke', 'let me be clear', and 'that's not it' self-corrections",
+      "highlights": [
+        "When you reset or clarify an instruction mid-sentence with 'wait, let me start from scratch,', 'actually, let me start fresh,', 'sorry, I misspoke,', 'actually, let me be clear,', or 'no, that's not it,', GeminiFlow removes the earlier draft clause and keeps your revised wording."
+      ]
+    },
+    {
+      "cycle": 175,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:55",
+      "title": "Cleans up 'I was trying to catch the I was trying to test' restarts and 'words that are not meant, that are...'",
+      "highlights": [
+        "Removes aborted mid-sentence restarts when you begin a thought with 'I was trying to', 'I am trying to', 'I'm trying to', 'I wanted to', 'I was going to', or 'I need to' and immediately restart with the same phrase ('I was trying to catch the I was trying to test when...' becomes 'I was trying to test when...').",
+        "Adds a natural comma between stacked relative clauses ('words that are not meant that are clearly wrong' becomes 'words that are not meant, that are clearly wrong') and simplifies 'so then so that' and 'in order to be able to'."
+      ]
+    },
+    {
+      "cycle": 174,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 17:54",
+      "title": "Removes filler 'like' in 'if there's like anything', 'that like can be improved', and 'words that like are wrong'",
+      "highlights": [
+        "Strips filler 'like' after 'there's', 'there is', and 'there are' before indefinite pronouns or quantities ('if there's like anything that can be improved' and 'there is like no reason' become 'if there's anything that can be improved' and 'there is no reason') and after relative 'that', 'which', and 'who' before auxiliary or finite verbs ('anything that like can be improved' and 'words that like are clearly wrong' become 'anything that can be improved' and 'words that are clearly wrong').",
+        "Speeds up transcript polishing with cached rule loading and fast lowercase keyword pre-filtering."
+      ]
+    },
+    {
       "cycle": 173,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 17:27",
