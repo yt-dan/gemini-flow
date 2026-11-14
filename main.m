@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(113), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:52", @"title": @"Cleans up 'let me correct that' and 'correction' mid-sentence fixes", @"highlights": @[@"When you correct yourself mid-sentence with 'let me correct that' or a comma-separated 'correction' ('The meeting is on Tuesday, let me correct that, Wednesday at 2 p.m.' or 'We shipped 12 builds today, correction, 15 builds'), GeminiFlow replaces the earlier detail automatically.", @"Leaves normal uses of the word 'correction' in everyday sentences like 'Make a small correction to the file' untouched."]},
+            @{@"cycle": @(112), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:51", @"title": @"Joins split software compound words like 'frontend', 'backend', 'runtime', and 'timeout'", @"highlights": @[@"Joins split technical nouns like 'frontend', 'backend', 'runtime', 'timeout', 'rollback', and 'fallback' when dictated in software phrases, while keeping everyday verb phrases like 'roll back the changes' or 'front end of the train' as separate words.", @"Combines common two-part engineering terms including 'dataset', 'firewall', 'hostname', 'username', 'filename', 'breakpoint', 'checkpoint', 'deadlock', 'payload', and 'backlog'."]},
+            @{@"cycle": @(111), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:50", @"title": @"Formats spoken quotation marks, parentheses, and square brackets", @"highlights": @[@"Wraps phrases in quotes when you say 'quote ... unquote' or 'open quote ... close quote' ('Set status to quote ready for review unquote' becomes 'Set status to \"ready for review\"').", @"Wraps spoken asides and tags in parentheses or square brackets when you say 'open paren ... close paren' or 'open bracket ... close bracket'."]},
+            @{@"cycle": @(110), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:48", @"title": @"Formats spoken aspect ratios, video resolutions, and metric units", @"highlights": @[@"Turns spoken display aspect ratios and video resolutions like '16 by 9', '21 by 9', '4 by 3 aspect ratio', '10 80 p', and '4 k video' into '16:9', '21:9', '4:3 aspect ratio', '1080p', and '4K video'.", @"Abbreviates spoken metric weight, length, and volume units after numbers, turning '500 milligrams', '2.5 kilograms', '15 millimeters', '30 centimeters', '5 kilometers', and '250 milliliters' into '500 mg', '2.5 kg', '15 mm', '30 cm', '5 km', and '250 mL'."]},
+            @{@"cycle": @(109), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:47", @"title": @"Formats more command-line flags and keeps multi-sentence prose capitalized in code editors", @"highlights": @[@"Turns multi-word and single-dash command flags like 'git merge dash dash ff only', 'docker build dash dash no cache', 'go test dash v', 'tail dash f', and 'kill dash 9' into 'git merge --ff-only', 'docker build --no-cache', 'go test -v', 'tail -f', and 'kill -9'.", @"Preserves capitalization and periods on multi-sentence notes starting with words like 'Make sure' or 'Go ahead' inside code editors while still formatting single-line terminal commands."]},
             @{@"cycle": @(108), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:38", @"title": @"Keeps capitalization on bullet list items and cleans up dictation inside quotes", @"highlights": @[@"When you start dictating after a bullet or task list marker like '- ', '* ', or '- [ ] ', GeminiFlow keeps the first word of the list item capitalized instead of lowercasing it.", @"When you place your cursor inside quotation marks mid-sentence, GeminiFlow leaves out the extra period and trailing space before the closing quote."]},
             @{@"cycle": @(107), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:37", @"title": @"Formats spoken email Subject lines and preserves dotted arguments in terminal commands", @"highlights": @[@"Turns spoken email headers like 'Subject colon quarterly roadmap update. Hi Sarah, thanks for the notes.' into a clean 'Subject: Quarterly roadmap update' line followed by a blank line before the greeting.", @"Keeps terminal commands lowercase and removes the trailing period even when arguments contain dotted filenames or paths like 'git add main.m' or 'python3 tests/run_tests.py'."]},
             @{@"cycle": @(106), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:36", @"title": @"Formats spoken 'plus or minus', powers, and area, volume, and speed units", @"highlights": @[@"Turns spoken expressions like 'plus or minus 5 percent' and '10 to the power of 6' into '\u00B15%' and '10^6'.", @"Abbreviates spoken area, volume, and speed units after numbers, turning '120 square meters', '1,500 square feet', '300 cubic meters', '65 miles per hour', and '105 kilometers per hour' into '120 m\u00B2', '1,500 sq ft', '300 m\u00B3', '65 mph', and '105 km/h'."]},
@@ -9603,7 +9608,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastRe = [NSRegularExpression regularExpressionWithPattern:
-                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad|rephrase|start\\s+over)\\b"
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad|rephrase|correct|correction|start\\s+over)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
                  @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
@@ -9617,11 +9622,11 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                  @"(?:sorry\\s*,?\\s*)?my\\s+bad(?:\\s*,?\\s*(?:no|wait|actually|i\\s+(?:mean|meant)))?|"
                  @"(?:oops|whoops)(?:\\s*,?\\s*(?:no|wait|sorry|actually|my\\s+bad|i\\s+(?:mean|meant)))?|"
                  @"(?:scratch|strike|disregard)\\s+that|"
-                 @"let\\s+me\\s+(?:rephrase(?:\\s+that)?|start\\s+over)|"
+                 @"let\\s+me\\s+(?:rephrase(?:\\s+that)?|correct\\s+that|start\\s+over)|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
                  @")\\b)\\s*[.,?!]?\\s*"
-                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that|my\\s+bad|oops|whoops)\\b)\\s*[.,?!]?\\s*"
+                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that|my\\s+bad|oops|whoops|correction(?=\\s*,))\\b)\\s*[.,?!]?\\s*"
                  @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
                                                           options:ci error:nil];
         abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
@@ -9935,7 +9940,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                         rule2Ok = NO;
                     }
                     if (rule2Ok) {
-                        if (rCat == 3 && jEnd == m_eff - 2) {
+                        if (rCat == 3 && (jEnd == m_eff - 2 || jEnd == m_eff - 3)) {
                             NSInteger rNumEnd = 0;
                             while (rNumEnd + 1 < k && R[rNumEnd + 1].cat == 3 && !R[rNumEnd + 1].hasCommaBefore) {
                                 rNumEnd++;
@@ -9954,6 +9959,19 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                                 [str deleteCharactersInRange:NSMakeRange(tailDelStart, tailDelEnd - tailDelStart)];
                                 NSRange lNumSpan = NSUnionRange(L[j].range, L[jEnd].range);
                                 [str replaceCharactersInRange:lNumSpan withString:repNum];
+                                return YES;
+                            } else if (jEnd == m_eff - 3 && [Rlow[rNumEnd + 1] isEqualToString:Llow[jEnd + 1]]) {
+                                NSRange rUnitSpan = NSUnionRange(R[0].range, R[rNumEnd + 1].range);
+                                NSMutableString *repUnit = [[str substringWithRange:rUnitSpan] mutableCopy];
+                                if (j == 0 && L[0].isCap && repUnit.length > 0) {
+                                    NSString *firstUpper = [[repUnit substringToIndex:1] uppercaseString];
+                                    [repUnit replaceCharactersInRange:NSMakeRange(0, 1) withString:firstUpper];
+                                }
+                                NSUInteger tailDelStart = NSMaxRange(L[m_eff - 1].range);
+                                NSUInteger tailDelEnd = NSMaxRange(rUnitSpan);
+                                [str deleteCharactersInRange:NSMakeRange(tailDelStart, tailDelEnd - tailDelStart)];
+                                NSRange lUnitSpan = NSUnionRange(L[j].range, L[jEnd + 1].range);
+                                [str replaceCharactersInRange:lUnitSpan withString:repUnit];
                                 return YES;
                             }
                         }
@@ -10405,7 +10423,7 @@ static void GFApplyAppContextFormatting(NSMutableString *str, NSString *bundleId
                            @"(?:\\b(?:[a-z]\\.[a-z]\\.|etc\\.|vs\\.|dr\\.|mr\\.|mrs\\.|ms\\.|st\\.|jr\\.|sr\\.|inc\\.|ltd\\.|co\\.|corp\\.))$|[0-9]\\.[0-9]+\\.$"
                                                                     options:ci error:nil];
         codeCmdRe = [NSRegularExpression regularExpressionWithPattern:
-                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Pip3?|Uv|Bun|Deno|Npx|Node|Swift|Xcrun|Lldb|Gdb|Bazel|Blaze|Cmake|Ninja|Terraform|Helm|Gcloud|Aws|Az|Gh|Jq|Sed|Awk|Find|Chmod|Chown|Mkdir|Rm|Cp|Mv|Touch|Tail|Head|Less|Echo|Export|Source|Which|Kill|Pkill|Ps|Top|Htop|Lsof|Tar|Unzip|Rsync|Scp|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b([ \\t]+[^\\n!?]+?)\\.?$"
+                     @"^(Git|Npm|Pnpm|Yarn|Cargo|Pytest|Python3?|Pip3?|Uv|Bun|Deno|Npx|Node|Swift|Xcrun|Lldb|Gdb|Bazel|Blaze|Cmake|Ninja|Terraform|Helm|Gcloud|Aws|Az|Gh|Jq|Sed|Awk|Find|Chmod|Chown|Mkdir|Rm|Cp|Mv|Touch|Tail|Head|Less|Echo|Export|Source|Which|Kill|Pkill|Ps|Top|Htop|Lsof|Tar|Unzip|Rsync|Scp|Brew|Docker|Kubectl|Make|Go|Rustc|Clang|Xcodebuild|Cd|Ls|Grep|Rg|Cat|Curl|Ssh|Tmux|Vim|Nvim)\\b(?!\\s+(?:sure|sense|ahead)\\b)([ \\t]+(?:[^\\n.!?]|\\.(?![ \\t]))+?)\\.?$"
                                                               options:0 error:nil];
     });
 
@@ -10491,7 +10509,10 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     replaceRegex(str, @"\\b(-?\\d+(?:\\.\\d+)?)\\s+degrees?\\s+fahrenheit\\b", @"$1\u00B0F", ci);
     replaceRegex(str, @"\\b(-?\\d+(?:\\.\\d+)?)\\s+degrees?\\s+(?:celsius|centigrade)\\b", @"$1\u00B0C", ci);
     replaceRegex(str, @"\\b(-?\\d+(?:\\.\\d+)?)\\s+degrees\\b(?!\\s+(?:of|from|to|in|out|off|latitude|longitude|north|south|east|west))", @"$1\u00B0", ci);
-    // 6. Numeric dimensions / screen resolutions ("1920 by 1080" -> "1920x1080")
+    // 6. Spoken aspect ratios ("16 by 9" -> "16:9", "21 by 9" -> "21:9", "4 by 3 aspect ratio" -> "4:3 aspect ratio")
+    //    and numeric dimensions / screen resolutions ("1920 by 1080" -> "1920x1080")
+    replaceRegex(str, @"\\b(16|21)\\s+by\\s+(9)\\b", @"$1:$2", ci);
+    replaceRegex(str, @"\\b(9|4|3|1)\\s+by\\s+(16|3|2|1)\\b(?=\\s+(?:aspect|ratio|displays?|screens?|monitors?|videos?|resolutions?|formats?|canvas|frames?|crops?|widescreen)\\b)", @"$1:$2", ci);
     replaceRegex(str, @"\\b(\\d{2,4})\\s+by\\s+(\\d{2,4})\\b", @"$1x$2", ci);
     // 7. Spoken time ranges ("from 2 to 3 p.m." -> "2-3 p.m.", "from 2:00 to 3:30 p.m." -> "2:00-3:30 p.m.")
     replaceRegex(str, @"\\bfrom\\s+(\\d{1,2}(?::\\d{2})?)\\s+to\\s+(\\d{1,2}(?::\\d{2})?)\\s+(a\\.m\\.|p\\.m\\.|am|pm)(?!\\w)", @"$1-$2 $3", ci);
@@ -10579,6 +10600,27 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     if ([str rangeOfString:@"hour" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+miles?\\s+per\\s+hour\\b", @"$1 mph", ci);
         replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilometers?\\s+per\\s+hour\\b", @"$1 km/h", ci);
+    }
+    // 11. Cycle 110: Spoken video resolutions ("10 80 p" -> "1080p", "7 20 p" -> "720p", "14 40 p" -> "1440p", "4 k video" -> "4K video")
+    //     and metric mass, length, and volume units ("500 milligrams" -> "500 mg", "2.5 kilograms" -> "2.5 kg",
+    //     "15 millimeters" -> "15 mm", "30 centimeters" -> "30 cm", "5 kilometers" -> "5 km", "250 milliliters" -> "250 mL")
+    replaceRegex(str, @"\\b(10\\s*80|7\\s*20|14\\s*40|21\\s*60)\\s+p\\b", @"$1p", ci);
+    replaceRegex(str, @"\\b(10)\\s+(80p)\\b", @"$1$2", ci);
+    replaceRegex(str, @"\\b(7)\\s+(20p)\\b", @"$1$2", ci);
+    replaceRegex(str, @"\\b(14)\\s+(40p)\\b", @"$1$2", ci);
+    replaceRegex(str, @"\\b(21)\\s+(60p)\\b", @"$1$2", ci);
+    replaceRegex(str, @"\\b(4|8)\\s+k(?=\\s+(?:videos?|displays?|screens?|monitors?|resolutions?|streams?|streaming|recordings?|footage|outputs?|uhd|hdr)\\b)", @"$1K", ci);
+    if ([str rangeOfString:@"gram" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+milligrams?\\b", @"$1 mg", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilograms?\\b", @"$1 kg", ci);
+    }
+    if ([str rangeOfString:@"meter" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+millimeters?\\b", @"$1 mm", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+centimeters?\\b", @"$1 cm", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilometers?\\b(?!\\s+per\\s+hour\\b)", @"$1 km", ci);
+    }
+    if ([str rangeOfString:@"liter" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+milliliters?\\b", @"$1 mL", ci);
     }
 }
 
@@ -10839,6 +10881,56 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     }
     if ([str rangeOfString:@"shot" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(screen)\\s+shot(s?)\\b", @"$1shot$2", ci);
+    }
+    // Cycle 112: Context-guarded split software compound nouns (frontend, backend, runtime, timeout, rollback, fallback,
+    // dataset, firewall, hostname, username, filename, breakpoint, checkpoint, deadlock, payload, backlog)
+    if ([str rangeOfString:@"end" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(front|back)\\s+end(?=\\s+(?:code|team|teams|engineer|engineers|developer|developers|service|services|server|servers|api|apis|app|apps|build|builds|repo|repository|architecture|stack|changes|tests|work|layer|system|logic|ui|performance|bundle|routes|component|components)\\b)",
+                     @"$1end", ci);
+        replaceRegex(str,
+                     @"\\b(the|our|your|my|this|that|a|an)\\s+(front|back)\\s+end(s?)\\b(?!\\s+of\\b)",
+                     @"$1 $2end$3", ci);
+    }
+    if ([str rangeOfString:@"time" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(the|a|an|at|our|this|app|swift|node|python|javascript|wasm|go|rust|container)\\s+(run)\\s+time\\b",
+                     @"$1 $2time", ci);
+        replaceRegex(str,
+                     @"\\b(run)\\s+time(?=\\s+(?:error|errors|crash|crashes|check|checks|performance|overhead|config|configuration|environment|flags|version|type|behavior|library)\\b)",
+                     @"$1time", ci);
+        replaceRegex(str,
+                     @"\\b(a|an|the|our|this|that|default|connection|request|socket|idle|read|write|server|client|gateway|network|session|query|lock)\\s+(time)\\s+out(s?)\\b(?!\\s+(?:of|to|for|on|in|from|the|a|an|our|this|that)\\b)",
+                     @"$1 $2out$3", ci);
+        replaceRegex(str,
+                     @"\\b(time)\\s+out(?=\\s+(?:error|errors|value|values|period|duration|limit|interval|handler|exception)\\b)",
+                     @"$1out", ci);
+    }
+    if ([str rangeOfString:@"back" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(a|an|the|our|this|that|safe|automatic|instant|clean|manual|emergency|graceful|offline|local)\\s+(roll|fall)\\s+back(s?)\\b(?!\\s+(?:to|on|in|into|from|out|the|a|an|our|this|that|my|your|all|changes|commits)\\b)",
+                     @"$1 $2back$3", ci);
+    }
+    if ([str rangeOfString:@"set" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(data)\\s+set(s?)\\b", @"$1set$2", ci);
+    }
+    if ([str rangeOfString:@"wall" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(fire)\\s+wall(s?)\\b", @"$1wall$2", ci);
+    }
+    if ([str rangeOfString:@"name" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(host|user|file|path)\\s+name(s?)\\b", @"$1name$2", ci);
+    }
+    if ([str rangeOfString:@"point" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(break|check)\\s+point(s?)\\b", @"$1point$2", ci);
+    }
+    if ([str rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(dead)\\s+lock(s?)\\b", @"$1lock$2", ci);
+    }
+    if ([str rangeOfString:@"load" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(pay)\\s+load(s?)\\b", @"$1load$2", ci);
+    }
+    if ([str rangeOfString:@"log" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(back)\\s+log(s?)\\b", @"$1log$2", ci);
     }
     if ([str rangeOfString:@"line" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(pipe)\\s+line(s?)\\b", @"$1line$2", ci);
@@ -11195,6 +11287,11 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
     }
     if ([str rangeOfString:@"dash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\bdash\\s+dash\\s+dry\\s+run\\b", @"--dry-run", ci);
+        replaceRegex(str, @"\\bdash\\s+dash\\s+no\\s+cache\\b", @"--no-cache", ci);
+        replaceRegex(str, @"\\bdash\\s+dash\\s+no\\s+verify\\b", @"--no-verify", ci);
+        replaceRegex(str, @"\\bdash\\s+dash\\s+ff\\s+only\\b", @"--ff-only", ci);
+        replaceRegex(str, @"\\bdash\\s+dash\\s+force\\s+with\\s+lease\\b", @"--force-with-lease", ci);
+        replaceRegex(str, @"\\bdash\\s+dash\\s+set\\s+upstream\\b", @"--set-upstream", ci);
         static NSRegularExpression *flagRe, *shortFlagRe;
         static NSSet<NSString *> *nonShortFlagWords;
         static dispatch_once_t onceFlag;
@@ -11202,7 +11299,7 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
             flagRe = [NSRegularExpression regularExpressionWithPattern:@"\\bdash\\s+dash\\s+([a-z][a-z0-9-]{1,24})\\b"
                                                                options:ci error:nil];
             shortFlagRe = [NSRegularExpression regularExpressionWithPattern:
-                           @"\\b(git(?:\\s+(?:commit|checkout|switch|branch|merge|rebase|push|pull|fetch|tag|log|diff|clean|reset|stash|add))?|rm|ls|cp|mv|mkdir|chmod|chown|ln|tar|curl|grep|rg|sed|awk|ssh|scp|pytest|pip|npm|pnpm|yarn|cargo|docker|kubectl)\\s+dash\\s+([a-z]{1,4})\\b"
+                           @"\\b(git(?:\\s+(?:commit|checkout|switch|branch|merge|rebase|push|pull|fetch|tag|log|diff|clean|reset|stash|add|status))?|gh(?:\\s+(?:pr|issue|repo|run|auth)(?:\\s+(?:create|view|list|merge|checkout|status))?)?|go(?:\\s+(?:test|build|run|get|mod))?|cargo(?:\\s+(?:test|build|run|check|clippy))?|npm|pnpm|yarn|bun|deno|uv|pytest|pip|pip3|python|python3|node|swift|xcodebuild|make|cmake|ninja|bazel|blaze|docker|kubectl|helm|terraform|gcloud|aws|az|brew|rm|ls|cp|mv|mkdir|chmod|chown|ln|tar|curl|grep|rg|sed|awk|jq|find|xargs|head|tail|kill|pkill|ps|lsof|ssh|scp)\\s+dash\\s+([a-z0-9]{1,4})\\b"
                                                                     options:ci error:nil];
             nonShortFlagWords = [NSSet setWithArray:@[
                 @"to", @"of", @"in", @"on", @"at", @"by", @"or", @"as", @"is", @"it", @"up",
@@ -11382,10 +11479,21 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
             [str replaceCharactersInRange:m.range withString:formatted];
         }
     }
-    // Cycle 105: Spoken Markdown Inline Code Backticks ("backtick main dot m backtick" -> "`main.m`") &
+    // Cycle 105 & 111: Spoken Markdown Inline Code Backticks ("backtick main dot m backtick" -> "`main.m`"),
+    // Spoken Paired Quotes/Parentheses/Brackets ("quote ready for review unquote" -> "\"ready for review\"",
+    // "open paren 30 seconds close paren" -> "(30 seconds)", "open bracket wip close bracket" -> "[wip]"), &
     // Spoken Hex Color Codes ("hash 3 8 d c 8 2" -> "#38DC82", "hex f f 5 7 3 3" -> "#FF5733", "hash f f f" -> "#FFF")
     if ([str rangeOfString:@"backtick" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\bbackticks?\\s+([^\\n`]{1,48}?)\\s+backticks?\\b", @"`$1`", ci);
+    }
+    if ([str rangeOfString:@"quote" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(?:open\\s+quotes?|quotes?)\\s+([^\\n\"]{1,80}?)\\s+(?:close\\s+quotes?|end\\s+quotes?|unquote)\\b", @"\"$1\"", ci);
+    }
+    if ([str rangeOfString:@"paren" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bopen\\s+paren(?:thesis|theses|s)?\\s+([^\\n()]{1,80}?)\\s+(?:close|end)\\s+paren(?:thesis|theses|s)?\\b", @"($1)", ci);
+    }
+    if ([str rangeOfString:@"bracket" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bopen\\s+(?:square\\s+)?brackets?\\s+([^\\n\\[\\]]{1,80}?)\\s+(?:close|end)\\s+(?:square\\s+)?brackets?\\b", @"[$1]", ci);
     }
     if ([str rangeOfString:@"hash" options:NSCaseInsensitiveSearch].location != NSNotFound ||
         [str rangeOfString:@"hex" options:NSCaseInsensitiveSearch].location != NSNotFound) {
@@ -17805,6 +17913,72 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c108Ok) passed++; else failed++;
                 printf("%s: markdown list prefix capitalization guard and inside-quotes continuation (%d%d%d)\n",
                        c108Ok ? "PASS" : "FAIL", mq1, mq2, mq3);
+            }
+            // Cycle 109: Multi-Sentence Prose Guard in GFApplyAppContextFormatting & Expanded Spoken CLI Flags
+            {
+                NSMutableString *mp1 = [NSMutableString stringWithString:@"Make sure this passes. Then merge."];
+                GFApplyAppContextFormatting(mp1, @"com.microsoft.VSCode", YES);
+                BOOL cf1 = [mp1 isEqualToString:@"Make sure this passes. Then merge."];
+                BOOL cf2 = [[self polishOnDeviceTranscript:@"Run git merge dash dash ff only and docker build dash dash no cache."]
+                            isEqualToString:@"Run git merge --ff-only and docker build --no-cache. "];
+                BOOL cf3 = [[self polishOnDeviceTranscript:@"Try go test dash v, tail dash f, and kill dash 9."]
+                            isEqualToString:@"Try go test -v, tail -f, and kill -9. "];
+                BOOL c109Ok = cf1 && cf2 && cf3;
+                if (c109Ok) passed++; else failed++;
+                printf("%s: multi-sentence code context guard and expanded spoken CLI flags (%d%d%d)\n",
+                       c109Ok ? "PASS" : "FAIL", cf1, cf2, cf3);
+            }
+            // Cycle 110: Spoken Aspect Ratios (16:9, 21:9, 4:3), Video Resolutions (1080p, 4K), and Metric Units (mg, kg, mm, cm, km, mL)
+            {
+                BOOL ar1 = [[self polishOnDeviceTranscript:@"Export in 16 by 9 or 4 by 3 aspect ratio on the 21 by 9 monitor."]
+                            isEqualToString:@"Export in 16:9 or 4:3 aspect ratio on the 21:9 monitor. "];
+                BOOL ar2 = [[self polishOnDeviceTranscript:@"Stream 10 80 p or 4 k video at 60 frames per second."]
+                            isEqualToString:@"Stream 1080p or 4K video at 60 fps. "];
+                BOOL ar3 = [[self polishOnDeviceTranscript:@"The sample is 500 milligrams, 2.5 kilograms, 15 millimeters, 30 centimeters, 5 kilometers, and 250 milliliters."]
+                            isEqualToString:@"The sample is 500 mg, 2.5 kg, 15 mm, 30 cm, 5 km, and 250 mL. "];
+                BOOL c110Ok = ar1 && ar2 && ar3;
+                if (c110Ok) passed++; else failed++;
+                printf("%s: spoken aspect ratios (16:9, 21:9, 4:3), video resolutions (1080p, 4K), and metric units (%d%d%d)\n",
+                       c110Ok ? "PASS" : "FAIL", ar1, ar2, ar3);
+            }
+            // Cycle 111: Spoken Paired Quotes, Parentheses, and Square Brackets in GFFormatSpokenTechnicalTokens
+            {
+                BOOL pq1 = [[self polishOnDeviceTranscript:@"Set status to quote ready for review unquote right away."]
+                            isEqualToString:@"Set status to \"ready for review\" right away. "];
+                BOOL pq2 = [[self polishOnDeviceTranscript:@"Use the default timeout open paren 30 seconds close paren for now."]
+                            isEqualToString:@"Use the default timeout (30 seconds) for now. "];
+                BOOL pq3 = [[self polishOnDeviceTranscript:@"Add the tag open bracket wip close bracket to the title."]
+                            isEqualToString:@"Add the tag [wip] to the title. "];
+                BOOL c111Ok = pq1 && pq2 && pq3;
+                if (c111Ok) passed++; else failed++;
+                printf("%s: spoken paired quotes, parentheses, and square brackets (%d%d%d)\n",
+                       c111Ok ? "PASS" : "FAIL", pq1, pq2, pq3);
+            }
+            // Cycle 112: Context-Guarded Split Software Compound Nouns in GFRepairContextualHomophones
+            {
+                BOOL sc1 = [[self polishOnDeviceTranscript:@"The front end team and back end service share the same run time error handler."]
+                            isEqualToString:@"The frontend team and backend service share the same runtime error handler. "];
+                BOOL sc2 = [[self polishOnDeviceTranscript:@"We hit a connection time out and triggered an automatic roll back with a local fall back."]
+                            isEqualToString:@"We hit a connection timeout and triggered an automatic rollback with a local fallback. "];
+                BOOL sc3 = [[self polishOnDeviceTranscript:@"Check the data set, fire wall, host name, user name, file name, break point, dead lock, and pay load."]
+                            isEqualToString:@"Check the dataset, firewall, hostname, username, filename, breakpoint, deadlock, and payload. "];
+                BOOL c112Ok = sc1 && sc2 && sc3;
+                if (c112Ok) passed++; else failed++;
+                printf("%s: context-guarded split software compound nouns (frontend, backend, runtime, timeout, rollback, dataset, payload) (%d%d%d)\n",
+                       c112Ok ? "PASS" : "FAIL", sc1, sc2, sc3);
+            }
+            // Cycle 113: Conversational Self-Correction for "let me correct that" and ", correction," Cues
+            {
+                BOOL cr1 = [[self polishOnDeviceTranscript:@"The meeting is on Tuesday, let me correct that, Wednesday at 2 p.m."]
+                            isEqualToString:@"The meeting is on Wednesday at 2 p.m. "];
+                BOOL cr2 = [[self polishOnDeviceTranscript:@"We shipped 12 builds today, correction, 15 builds."]
+                            isEqualToString:@"We shipped 15 builds today. "];
+                BOOL cr3 = [[self polishOnDeviceTranscript:@"Make a small correction to the file before merging."]
+                            isEqualToString:@"Make a small correction to the file before merging. "];
+                BOOL c113Ok = cr1 && cr2 && cr3;
+                if (c113Ok) passed++; else failed++;
+                printf("%s: 'let me correct that' and ', correction,' self-correction cues with prose guard (%d%d%d)\n",
+                       c113Ok ? "PASS" : "FAIL", cr1, cr2, cr3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

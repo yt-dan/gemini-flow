@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 113,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:52",
+      "title": "Cleans up 'let me correct that' and 'correction' mid-sentence fixes",
+      "highlights": [
+        "When you correct yourself mid-sentence with 'let me correct that' or a comma-separated 'correction' ('The meeting is on Tuesday, let me correct that, Wednesday at 2 p.m.' or 'We shipped 12 builds today, correction, 15 builds'), GeminiFlow replaces the earlier detail automatically.",
+        "Leaves normal uses of the word 'correction' in everyday sentences like 'Make a small correction to the file' untouched."
+      ]
+    },
+    {
+      "cycle": 112,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:51",
+      "title": "Joins split software compound words like 'frontend', 'backend', 'runtime', and 'timeout'",
+      "highlights": [
+        "Joins split technical nouns like 'frontend', 'backend', 'runtime', 'timeout', 'rollback', and 'fallback' when dictated in software phrases, while keeping everyday verb phrases like 'roll back the changes' or 'front end of the train' as separate words.",
+        "Combines common two-part engineering terms including 'dataset', 'firewall', 'hostname', 'username', 'filename', 'breakpoint', 'checkpoint', 'deadlock', 'payload', and 'backlog'."
+      ]
+    },
+    {
+      "cycle": 111,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:50",
+      "title": "Formats spoken quotation marks, parentheses, and square brackets",
+      "highlights": [
+        "Wraps phrases in quotes when you say 'quote ... unquote' or 'open quote ... close quote' ('Set status to quote ready for review unquote' becomes 'Set status to \"ready for review\"').",
+        "Wraps spoken asides and tags in parentheses or square brackets when you say 'open paren ... close paren' or 'open bracket ... close bracket'."
+      ]
+    },
+    {
+      "cycle": 110,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:48",
+      "title": "Formats spoken aspect ratios, video resolutions, and metric units",
+      "highlights": [
+        "Turns spoken display aspect ratios and video resolutions like '16 by 9', '21 by 9', '4 by 3 aspect ratio', '10 80 p', and '4 k video' into '16:9', '21:9', '4:3 aspect ratio', '1080p', and '4K video'.",
+        "Abbreviates spoken metric weight, length, and volume units after numbers, turning '500 milligrams', '2.5 kilograms', '15 millimeters', '30 centimeters', '5 kilometers', and '250 milliliters' into '500 mg', '2.5 kg', '15 mm', '30 cm', '5 km', and '250 mL'."
+      ]
+    },
+    {
+      "cycle": 109,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:47",
+      "title": "Formats more command-line flags and keeps multi-sentence prose capitalized in code editors",
+      "highlights": [
+        "Turns multi-word and single-dash command flags like 'git merge dash dash ff only', 'docker build dash dash no cache', 'go test dash v', 'tail dash f', and 'kill dash 9' into 'git merge --ff-only', 'docker build --no-cache', 'go test -v', 'tail -f', and 'kill -9'.",
+        "Preserves capitalization and periods on multi-sentence notes starting with words like 'Make sure' or 'Go ahead' inside code editors while still formatting single-line terminal commands."
+      ]
+    },
+    {
       "cycle": 108,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 14:38",
