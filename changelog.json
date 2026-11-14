@@ -3,12 +3,62 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 63,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:39",
+      "title": "Zero-warning macOS 27 build and online slow split-turn test verification",
+      "highlights": [
+        "Updates audio tap compilation so GeminiFlow builds cleanly with zero compiler warnings on the latest macOS 27 SDK.",
+        "Adds an online test mode to simulate slow mid-dictation turn responses and verify that no spoken words are dropped while waiting."
+      ]
+    },
+    {
+      "cycle": 62,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:38",
+      "title": "Finishes rapid back-to-back dictations in parallel on Gemini Live",
+      "highlights": [
+        "When you release Fn and immediately start a new dictation before the previous one finishes, GeminiFlow now keeps the previous live connection open in the background for up to 1.5 seconds while starting a fresh connection for your new press.",
+        "Delivers the first dictation in a fraction of a second without having to re-send its entire audio recording to the slower backup service."
+      ]
+    },
+    {
+      "cycle": 61,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:30",
+      "title": "Fixes 'bill' vs 'build' in software phrases and formats spoken versions and ports",
+      "highlights": [
+        "When you dictate software phrases like 'ship the new build' or 'deploy the staging build', GeminiFlow now writes 'build' instead of 'bill', while leaving everyday sentences like 'pay the bill' or 'I have a bill tomorrow' untouched.",
+        "Formats spoken software version numbers and local ports such as 'version 2 point 4', 'version 1 point 0 point 2', 'localhost colon 3000', and 'port 80 80' into 'version 2.4', 'version 1.0.2', 'localhost:3000', and 'port 8080'."
+      ]
+    },
+    {
+      "cycle": 60,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:29",
+      "title": "Faster backup transcription on long dictations and protection for recordings over 8 minutes",
+      "highlights": [
+        "When a long dictation needs the backup transcription service after most of your speech was already confirmed live, GeminiFlow now sends only the unfinished tail and stitches it seamlessly onto the confirmed text.",
+        "Caps inline backup audio safely under Google's 20 MB request limit so recordings longer than 8 minutes never fail with an oversized payload error."
+      ]
+    },
+    {
+      "cycle": 59,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:28",
+      "title": "Connects to Gemini Live while the microphone starts and stops waiting sooner after you let go",
+      "highlights": [
+        "Starts the Gemini Live connection at the exact moment you press Fn in parallel with starting the microphone and status pill, cutting 65 to 350 milliseconds off connection setup on short presses.",
+        "Stops the post-release audio cushion as soon as your microphone captures quiet audio past the key release instead of always waiting the full 120 milliseconds."
+      ]
+    },
+    {
       "cycle": 58,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 09:45",
       "title": "Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting",
       "highlights": [
-        "When you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.",
+        "On Mac, when you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.",
         "Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."
       ]
     },
@@ -64,7 +114,7 @@
     },
     {
       "cycle": 52,
-      "scope": "engine",
+      "scope": "mac",
       "timestamp": "13 Nov \u00b7 22:45",
       "title": "Learns new custom words when you fix a spelling after pasting",
       "highlights": [
@@ -84,7 +134,7 @@
     },
     {
       "cycle": 50,
-      "scope": "engine",
+      "scope": "mac",
       "timestamp": "13 Nov \u00b7 22:25",
       "title": "Say 'Scratch that' to undo your last paste and protect against window switches",
       "highlights": [
@@ -114,7 +164,7 @@
     },
     {
       "cycle": 47,
-      "scope": "engine",
+      "scope": "mac",
       "timestamp": "13 Nov \u00b7 22:10",
       "title": "Adapts formatting to the app you are typing in",
       "highlights": [

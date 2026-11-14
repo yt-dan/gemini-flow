@@ -65,18 +65,23 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
-            @{@"cycle": @(58), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:45", @"title": @"Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting", @"highlights": @[@"When you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.", @"Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."]},
+            @{@"cycle": @(63), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:39", @"title": @"Zero-warning macOS 27 build and online slow split-turn test verification", @"highlights": @[@"Updates audio tap compilation so GeminiFlow builds cleanly with zero compiler warnings on the latest macOS 27 SDK.", @"Adds an online test mode to simulate slow mid-dictation turn responses and verify that no spoken words are dropped while waiting."]},
+            @{@"cycle": @(62), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:38", @"title": @"Finishes rapid back-to-back dictations in parallel on Gemini Live", @"highlights": @[@"When you release Fn and immediately start a new dictation before the previous one finishes, GeminiFlow now keeps the previous live connection open in the background for up to 1.5 seconds while starting a fresh connection for your new press.", @"Delivers the first dictation in a fraction of a second without having to re-send its entire audio recording to the slower backup service."]},
+            @{@"cycle": @(61), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:30", @"title": @"Fixes 'bill' vs 'build' in software phrases and formats spoken versions and ports", @"highlights": @[@"When you dictate software phrases like 'ship the new build' or 'deploy the staging build', GeminiFlow now writes 'build' instead of 'bill', while leaving everyday sentences like 'pay the bill' or 'I have a bill tomorrow' untouched.", @"Formats spoken software version numbers and local ports such as 'version 2 point 4', 'version 1 point 0 point 2', 'localhost colon 3000', and 'port 80 80' into 'version 2.4', 'version 1.0.2', 'localhost:3000', and 'port 8080'."]},
+            @{@"cycle": @(60), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:29", @"title": @"Faster backup transcription on long dictations and protection for recordings over 8 minutes", @"highlights": @[@"When a long dictation needs the backup transcription service after most of your speech was already confirmed live, GeminiFlow now sends only the unfinished tail and stitches it seamlessly onto the confirmed text.", @"Caps inline backup audio safely under Google's 20 MB request limit so recordings longer than 8 minutes never fail with an oversized payload error."]},
+            @{@"cycle": @(59), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 10:28", @"title": @"Connects to Gemini Live while the microphone starts and stops waiting sooner after you let go", @"highlights": @[@"Starts the Gemini Live connection at the exact moment you press Fn in parallel with starting the microphone and status pill, cutting 65 to 350 milliseconds off connection setup on short presses.", @"Stops the post-release audio cushion as soon as your microphone captures quiet audio past the key release instead of always waiting the full 120 milliseconds."]},
+            @{@"cycle": @(58), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:45", @"title": @"Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting", @"highlights": @[@"On Mac, when you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.", @"Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."]},
             @{@"cycle": @(57), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:38", @"title": @"Formats spoken email addresses, web domains, and tech brand names", @"highlights": @[@"Turns spoken email addresses and websites like 'sarah at acme dot com' and 'docs dot github dot com' into 'sarah@acme.com' and 'docs.github.com' while leaving normal sentences like 'look at example.com' intact.", @"Automatically capitalizes tech brand names like iPhone, iPad, iMac, iCloud, macOS, AirPods, MacBook, GitHub, and YouTube."]},
             @{@"cycle": @(56), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:35", @"title": @"Keeps words spoken across mid-dictation turn splits without gaps or duplicates", @"highlights": @[@"When the live server closes a speech turn while you are still talking, GeminiFlow re-sends the last fraction of a second of audio into the next turn so words in flight are never clipped.", @"Automatically removes any repeated boundary words when stitching live speech segments together."]},
             @{@"cycle": @(55), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:28", @"title": @"Finishes 10-minute hands-free dictations smoothly even if the session expires at release", @"highlights": @[@"If Google's 10-minute live session limit is reached right after you stop a long hands-free dictation, GeminiFlow keeps everything transcribed so far and finishes only the last few seconds on a fresh live connection.", @"Avoids falling back to re-sending the entire 10-minute recording from scratch when only the final sentence is still pending."]},
             @{@"cycle": @(54), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 09:25", @"title": @"Keeps back-to-back dictations cleanly separated and protects the status pill", @"highlights": @[@"When you finish one dictation and immediately start another, leftover audio from the first press can no longer spill into the start of the new recording.", @"Prevents a background API key check from covering the status pill while a dictation is still finishing, and removes unused internal session state."]},
             @{@"cycle": @(53), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:55", @"title": @"Faster text cleanup and smoother installs on Apple M1 Macs", @"highlights": @[@"Skips unnecessary text cleanup passes when a sentence has no numbers, spoken line breaks, or extra filler phrases, cutting text polish time significantly.", @"Fixes a self-test speed check that could block install.sh and update.sh on Apple M1 Macs under normal background load (GitHub issue #1)."]},
-            @{@"cycle": @(52), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:45", @"title": @"Learns new custom words when you fix a spelling after pasting", @"highlights": @[@"When you manually fix the spelling of a name or special term right after pasting ('Shavon' to 'Siobhan' or 'Zebra' to 'Zyphra'), GeminiFlow notices the edit and offers a one-click 'Remember in Custom Words' item in the menu bar.", @"Ignores ordinary sentence edits and common words so it only suggests real names, brands, and technical terms."]},
+            @{@"cycle": @(52), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 22:45", @"title": @"Learns new custom words when you fix a spelling after pasting", @"highlights": @[@"When you manually fix the spelling of a name or special term right after pasting ('Shavon' to 'Siobhan' or 'Zebra' to 'Zyphra'), GeminiFlow notices the edit and offers a one-click 'Remember in Custom Words' item in the menu bar.", @"Ignores ordinary sentence edits and common words so it only suggests real names, brands, and technical terms."]},
             @{@"cycle": @(51), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:32", @"title": @"Formats spoken currencies, percentages, temperatures, and question marks naturally", @"highlights": @[@"Turns spoken numbers like '20 dollars and 50 cents', '$3.5 million dollars', '25.5 percent', '98.6 degrees', '1920 by 1080', and 'from 2 to 3 p.m.' into clean '$20.50', '$3.5 million', '25.5%', '98.6\u00B0', '1920x1080', and '2-3 p.m.' automatically.", @"Adds a question mark reliably when a question ends with 'a.m.' or 'p.m.' ('Can we meet at 3:00 p.m.?') or after a mid-sentence self-correction."]},
-            @{@"cycle": @(50), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:25", @"title": @"Say 'Scratch that' to undo your last paste and protect against window switches", @"highlights": @[@"If you say 'Scratch that' or 'Undo that' right after a dictation is pasted, GeminiFlow removes the text it just typed instead of pasting the words 'Scratch that'.", @"If you switch to a different app before a dictation finishes, GeminiFlow copies the text safely to your clipboard instead of pasting into the wrong window."]},
+            @{@"cycle": @(50), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 22:25", @"title": @"Say 'Scratch that' to undo your last paste and protect against window switches", @"highlights": @[@"If you say 'Scratch that' or 'Undo that' right after a dictation is pasted, GeminiFlow removes the text it just typed instead of pasting the words 'Scratch that'.", @"If you switch to a different app before a dictation finishes, GeminiFlow copies the text safely to your clipboard instead of pasting into the wrong window."]},
             @{@"cycle": @(49), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:20", @"title": @"Finishes dictation right away when you pause before letting go of Fn", @"highlights": @[@"Watches the last fraction of a second of audio before you release the key and skips the extra 120ms wait when you have already finished speaking.", @"Keeps the full safety cushion whenever you are still speaking as you let go, so your last syllable is never cut off."]},
             @{@"cycle": @(48), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:15", @"title": @"Combines both speech engines to catch small skipped words", @"highlights": @[@"Cross-checks Google's cloud transcript with Apple's on-device listener at the moment you release the key, with zero extra wait.", @"Recovers quick connecting words like 'a', 'the', and 'to' that can get swallowed in fast speech, and prefers your Custom Words when the two engines hear a sound-alike differently."]},
-            @{@"cycle": @(47), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:10", @"title": @"Adapts formatting to the app you are typing in", @"highlights": @[@"In email apps like Mail, Superhuman, Mimestream, and Outlook, greetings and sign-offs are spaced onto their own paragraphs automatically.", @"In chat apps like Slack, Messages, Discord, and WhatsApp, short one-sentence replies skip the trailing period, while code editors and terminals keep command names in lowercase."]},
+            @{@"cycle": @(47), @"scope": @"mac", @"timestamp": @"13 Nov \u00B7 22:10", @"title": @"Adapts formatting to the app you are typing in", @"highlights": @[@"In email apps like Mail, Superhuman, Mimestream, and Outlook, greetings and sign-offs are spaced onto their own paragraphs automatically.", @"In chat apps like Slack, Messages, Discord, and WhatsApp, short one-sentence replies skip the trailing period, while code editors and terminals keep command names in lowercase."]},
             @{@"cycle": @(46), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 22:05", @"title": @"Turns spoken lists into clean numbered and bulleted lists", @"highlights": @[@"Say 'First, ... Second, ... Third, ...' or 'Number one, ... Number two, ...' and GeminiFlow formats your items as a numbered list on separate lines.", @"Say 'bullet point' or 'next bullet' before each item to create a clean bulleted list without touching ordinary sentences."]},
             @{@"cycle": @(45), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 21:55", @"title": @"Clearer recognition when speaking softly or using AirPods", @"highlights": @[@"Automatically boosts quiet speech on Mac and iPhone when you speak in a low voice or use AirPods and Bluetooth headsets.", @"Leaves normal speech, silence, and background room sounds untouched so nothing unwanted is picked up."]},
             @{@"cycle": @(44), @"scope": @"engine", @"timestamp": @"13 Nov \u00B7 21:30", @"title": @"Cleans up mid-sentence self-corrections when you change your mind", @"highlights": @[@"When you correct yourself out loud ('Meet at two, wait no, three p.m.' or 'invite Alice and, wait no, Bob and Carol'), GeminiFlow keeps only what you meant to say.", @"Understands natural backtrack phrases such as 'wait no', 'actually no', 'scratch that', 'sorry I meant', and 'or rather' while leaving everyday conversation untouched."]},
@@ -2824,6 +2829,16 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, assign) BOOL superseded;       // a newer press started before this dictation finished
 @property (nonatomic, assign) BOOL liveHadTextAtSupersede;      // backlog 0u: Live had text for it when the newer press started
 @property (nonatomic, assign) BOOL onDeviceNoSpeechAtSupersede; // backlog 0u: on-device had said "No speech detected" by then
+@property (nonatomic, copy) NSString *liveJoinedAtSupersede;     // backlog 31: joined Live segments frozen at supersede
+@property (nonatomic, assign) NSUInteger liveCoveredBytesAtSupersede; // backlog 31: Live covered byte offset frozen at supersede
+@property (nonatomic, copy) NSString *restLivePrefix;            // backlog 31: confirmed Live prefix when REST slices only the tail
+@property (nonatomic, assign) NSUInteger detachedLiveSessionId;  // backlog 21: detached Live WebSocket finishing in background
+@property (nonatomic, strong) NSURLSession *detachedLiveSession;
+@property (nonatomic, strong) NSURLSessionWebSocketTask *detachedLiveTask;
+@property (nonatomic, strong) NSMutableArray<NSString *> *detachedLiveSegments;
+@property (nonatomic, assign) NSUInteger detachedLivePendingTurns;
+@property (nonatomic, assign) BOOL detachedLiveTurnEndCounted;
+@property (nonatomic, assign) BOOL detachedLiveResolved;
 @property (nonatomic, assign) BOOL finished;         // delivered, or ended as no speech
 @property (nonatomic, assign) NSTimeInterval supersededWhileThinkingTime; // busy marker: a newer press started while this one was "thinking"
 @property (nonatomic, assign) NSTimeInterval releaseTime;
@@ -2864,6 +2879,7 @@ typedef struct {
 @property (nonatomic, assign) BOOL busyTickScheduled;
 @property (nonatomic, assign) NSUInteger busyMarkerWrites;      // times the marker was created (tests)
 @property (nonatomic, strong) NSMutableArray<GFDictation *> *busySuperseded; // superseded while thinking, result not delivered yet
+@property (nonatomic, strong) NSMutableArray<GFDictation *> *detachedLiveDictations; // backlog 21: superseded dictations finishing on a detached Live socket
 @property (nonatomic, assign) NSUInteger hudDismissalsHonored;  // counters for the --test suite / diagnostics
 @property (nonatomic, assign) NSUInteger hudDismissalsDropped;
 @property (nonatomic, assign) BOOL unitTestMode;                // --test: keep the user's log file quiet
@@ -2945,6 +2961,7 @@ typedef struct {
 @property (nonatomic, assign) NSUInteger e2eHiddenEchoes;     // ACTIVITY_END echoes of the simulated end still to hide
 @property (nonatomic, assign) double e2eLiveDropAt;           // test hook (e2e only): force-close the Live socket at this many s sent
 @property (nonatomic, assign) BOOL e2eLiveDropFired;
+@property (nonatomic, assign) double e2eLiveDelaySplitMs;     // test hook (e2e only, backlog 0t): delay wire send of split activityEnd by ms
 @property (nonatomic, assign) double e2eLiveRotateAge;        // test hook (e2e only): planned rotation at this session age (s) instead of kLiveRotateAge
 @property (nonatomic, assign) double e2eLiveLifetime;         // test hook (e2e only): every Live session is closed (1008) at this session age (s)
 @property (nonatomic, assign) NSUInteger e2eLifetimeClosedSid; // liveSessionId of the socket the lifetime hook last closed
@@ -4104,6 +4121,67 @@ static NSTimeInterval GFPredictiveReleaseCushionSeconds(const int16_t *samples, 
     if (tail160Peak < 175.0 && tail80Peak < 105.0) return 0.04;
     return 0.12;
 }
+// Cycle 59 (Backlog 27 & 28): Event-driven release cushion early stop + parallel Live WebSocket pre-connect before mic startup.
+// When the release cushion waits up to 120 ms because the user was still speaking near Fn up, stop the recording as soon as a
+// captured tap buffer reaches >= 25 ms past Fn up with quiet audio (RMS < 120), or >= 55 ms past Fn up with >= 60 ms of
+// post-release audio and trailing-off energy (RMS < 220), cutting 45-85 ms of post-release tail wait without clipping speech.
+static BOOL GFShouldStopReleaseCushionEarly(double reachPastFnUpMs, double waitedMs, double postReleaseAudioMs,
+                                            double latestChunkRMS, NSTimeInterval holdDuration) {
+    if (holdDuration < 0.22 || isnan(reachPastFnUpMs) || waitedMs < 25.0) return NO;
+    if (reachPastFnUpMs >= 25.0 && latestChunkRMS < 120.0) return YES;
+    if (reachPastFnUpMs >= 55.0 && postReleaseAudioMs >= 60.0 && latestChunkRMS < 220.0) return YES;
+    return NO;
+}
+// Cycle 60 (Backlog 31): Long-recording covered-prefix reuse & 20 MB inline WAV cap for the REST safety net.
+// Gemini's generateContent inline audio payload is capped at 20 MB (450 s = 7.5 min of 16 kHz mono 16-bit PCM = 14.4 MB raw
+// = 19.2 MB base64 WAV). In addition, when a long recording (>= 3 min, or > 7.5 min) falls back to REST after Live has
+// already confirmed >= 60 s of earlier segments, re-sending only the uncovered tail (plus a 0.64 s frame-aligned pre-roll)
+// keeps the REST request fast and preserves all confirmed Live segments via seam deduplication.
+static const NSUInteger kGFRestMaxInlinePCMBytes = 450u * 32000u;         // 7.5 min = 14.4 MB PCM (~19.2 MB base64 WAV < 20 MB limit)
+static const NSUInteger kGFRestPrefixReuseMinTotalBytes = 180u * 32000u;  // 3.0 min total recording before slicing off covered prefix
+static const NSUInteger kGFRestPrefixReuseMinCoveredBytes = 60u * 32000u; // at least 60 s already confirmed by Live
+static const NSUInteger kGFRestSlicePreRollBytes = 20480u;                // 0.64 s (32 x 640B frames) overlap for seam deduplication
+typedef struct {
+    NSUInteger sliceOffsetBytes;
+    NSUInteger sliceLengthBytes;
+    BOOL prependLivePrefix;
+    BOOL cappedForInlineLimit;
+} GFRestAudioSlicePlan;
+
+static GFRestAudioSlicePlan GFRestPlanAudioSlice(NSUInteger totalPCMBytes, NSUInteger liveCoveredBytes,
+                                                 NSUInteger liveSegmentCount, NSUInteger maxInlinePCMBytes) {
+    NSUInteger cap = maxInlinePCMBytes > 0 ? maxInlinePCMBytes : kGFRestMaxInlinePCMBytes;
+    cap = (cap / 640u) * 640u;
+    GFRestAudioSlicePlan plan = {0, totalPCMBytes, NO, NO};
+    if (totalPCMBytes == 0) return plan;
+    BOOL canReusePrefix = (liveSegmentCount > 0 &&
+                           liveCoveredBytes >= kGFRestPrefixReuseMinCoveredBytes &&
+                           liveCoveredBytes < totalPCMBytes &&
+                           (totalPCMBytes >= kGFRestPrefixReuseMinTotalBytes || totalPCMBytes > cap));
+    if (canReusePrefix) {
+        NSUInteger start = (liveCoveredBytes > kGFRestSlicePreRollBytes) ? (liveCoveredBytes - kGFRestSlicePreRollBytes) : 0;
+        start = (start / 640u) * 640u;
+        NSUInteger rem = totalPCMBytes - start;
+        if (rem >= 9600u) {
+            plan.sliceOffsetBytes = start;
+            plan.sliceLengthBytes = rem;
+            plan.prependLivePrefix = YES;
+        }
+    }
+    if (plan.sliceLengthBytes > cap) {
+        NSUInteger excess = plan.sliceLengthBytes - cap;
+        NSUInteger shift = ((excess + 639u) / 640u) * 640u;
+        if (shift < plan.sliceLengthBytes) {
+            plan.sliceOffsetBytes += shift;
+            plan.sliceLengthBytes -= shift;
+        } else {
+            plan.sliceOffsetBytes = totalPCMBytes > cap ? ((totalPCMBytes - cap) / 640u) * 640u : 0;
+            plan.sliceLengthBytes = totalPCMBytes - plan.sliceOffsetBytes;
+        }
+        plan.cappedForInlineLimit = YES;
+    }
+    return plan;
+}
 // Backlog 0m: one numbers-only line per press at release (never text): the press's total audio and the age of the Live socket in
 // use, so long hands-free presses (and the daily 5/10 min online run) show how close they come to the Live session lifetime
 // (~15 min per Google's docs) and to the REST inline-audio limit (~8 min of WAV). Age = since the CURRENT socket's setupComplete
@@ -4149,6 +4227,24 @@ static GFSupersededLiveAction GFSupersededLiveDecision(NSUInteger liveSegments, 
     if (liveSegments > 0) return uncoveredVoicedSeconds > kLiveUncoveredSpeechLimit ? GFSupersededUseRest : GFSupersededUseLiveText;
     if (onDeviceChars == 0 && (loudSeconds <= kNoSpeechMaxLoudSeconds || noLoudSpeech)) return GFSupersededNoSpeech;
     return GFSupersededUseRest;
+}
+// Cycle 62 (Backlog 21): Detached Concurrent Live Finalizer.
+// When a new press starts while the previous press's Live final turn is still awaiting its server response
+// (action == GFSupersededUseRest), detach the connected Live WebSocket into the superseded GFDictation and allow up to
+// 1.5 s for its final turn to complete concurrently while the new press opens a fresh Live session.
+static const NSTimeInterval kGFDetachedLiveFinalizerTimeout = 1.5;
+static BOOL GFShouldDetachSupersededLiveFinalizer(GFSupersededLiveAction action, BOOL liveConnected, BOOL activityEnded,
+                                                  BOOL liveFailed, BOOL hasE2ESecondPressHook) {
+    if (action != GFSupersededUseRest) return NO;
+    if (!liveConnected || !activityEnded || liveFailed || hasE2ESecondPressHook) return NO;
+    return YES;
+}
+// Cycle 63 (Backlog 0t): Online slow-split-turn simulation hook (--e2e-live-delay-split-ms).
+// Delays the wire transmission of a mid-press split `activityEnd` frame while keeping client-side pending-turn bookkeeping
+// immediate, so subsequent voiced audio is held in `GFLiveBetweenHold` (with 0.3 s pre-roll) until the delayed turn completes.
+static BOOL GFShouldDelaySplitActivityEndWireSend(BOOL isE2E, double delayMs, BOOL isFinalizing, BOOL activityEnded) {
+    if (!isE2E || delayMs <= 0.0 || isFinalizing || activityEnded) return NO;
+    return YES;
 }
 // Backlog 26: the release found no activity open and no turn pending (the user paused >= 0.6 s after >= 8 s of activity, that split
 // turn was answered while Fn was still held, and nothing voiced came after it). Nothing is left to wait for, but only the 0.45 s
@@ -4217,6 +4313,14 @@ static const NSTimeInterval kMicRebuildBufferTimeout = 1.5;
 static const NSTimeInterval kMicNoBufferReleaseMinPress = 1.0;
 static BOOL GFMicPermissionBlocked(long micAuth) {
     return micAuth == AVAuthorizationStatusDenied || micAuth == AVAuthorizationStatusRestricted;
+}
+// Cycle 59 (Backlog 28): Start the Gemini Live WebSocket handshake in parallel before CoreAudio hardware startup and WindowServer
+// HUD presentation whenever Gemini Live mode is active, an API key is configured, and microphone permission is not blocked.
+static BOOL GFShouldPreConnectLiveBeforeMic(BOOL geminiMode, BOOL hasApiKey, BOOL isLiveModel, long micAuth, NSString *e2eMicFail) {
+    if (!geminiMode || !hasApiKey || !isLiveModel) return NO;
+    if (GFMicPermissionBlocked(micAuth)) return NO;
+    if ([e2eMicFail isEqualToString:@"start"] || [e2eMicFail isEqualToString:@"start-once"]) return NO;
+    return YES;
 }
 static GFMicAction GFMicProblemDecision(GFMicProblem problem, long micAuth, BOOL rebuildTried) {
     if (GFMicPermissionBlocked(micAuth)) return GFMicActionGiveUp;
@@ -4921,6 +5025,8 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     });
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (BOOL)restartMicTapAfterDeviceChange {
     AVAudioInputNode *inputNode = self.audioEngine.inputNode;
     AVAudioFormat *inputFormat = [inputNode outputFormatForBus:0];
@@ -4940,6 +5046,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     }
     return YES;
 }
+#pragma clang diagnostic pop
 
 #pragma mark - End-to-End Test Mode (GeminiFlow --e2e-file <wav> | --e2e-mic <seconds>)
 
@@ -5857,6 +5964,8 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
         prev.onDeviceText = onDeviceText;
         prev.pcm = self.recordedPCMData ?: [NSData data];
         prev.liveHadTextAtSupersede = self.liveSegments.count > 0;
+        prev.liveJoinedAtSupersede = GFJoinLiveSegmentsDeduplicatingSeam(self.liveSegments);
+        prev.liveCoveredBytesAtSupersede = self.liveCoveredBytes;
         prev.onDeviceNoSpeechAtSupersede = self.onDeviceReportedNoSpeech;
         prev.superseded = YES;
     }
@@ -5872,6 +5981,9 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
               ev.evidenceSeconds, ev.thresholdRMS, prev.pcm.length / 32000.0, GFSupersededActionName(action));
         if (action == GFSupersededUseLiveText) {
             [self finishLiveTranscriptWithReason:@"new press during finalization"];
+        } else if (GFShouldDetachSupersededLiveFinalizer(action, self.liveWebSocketConnected && self.liveWebSocketTask != nil,
+                                                         self.liveActivityEnded, self.liveFailed, self.e2eSecondPressFile.length > 0)) {
+            [self detachLiveFinalizerForSupersededDictation:prev];
         } else {
             self.hasCompletedGeminiTurn = YES;
             [self closeLiveWebSocket];
@@ -5917,7 +6029,8 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     self.isFinalizingOnDevice = NO;
     self.liveWebSocketConnected = NO;
 
-    // Start the microphone FIRST so the opening words are captured while UI/network work happens
+    // Start the microphone FIRST (and pre-connect the Gemini Live WebSocket in parallel when permitted, backlog 28)
+    // so the TLS + WebSocket handshake overlaps with CoreAudio startup and WindowServer HUD presentation.
     self.micBuffersSeen = NO;
     self.micRebuildTried = NO;
     self.lastCapturedAudioEndTime = 0;
@@ -5925,6 +6038,16 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     self.releasePCMBytesAtFnUp = 0;
     self.micWatchdogGeneration += 1;
     self.micStartTime = [NSDate timeIntervalSinceReferenceDate];
+    NSString *engineMode = [self effectiveEngineMode];
+    NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
+    NSString *selectedModel = [self currentGeminiModel];
+    long preAuth = [self micAuthorizationStatus];
+    BOOL livePreConnected = NO;
+    if (GFShouldPreConnectLiveBeforeMic([engineMode isEqualToString:@"gemini"], apiKey.length > 0,
+                                        [self isLiveWebSocketModel:selectedModel], preAuth, self.e2eMicFail)) {
+        [self startGeminiLiveWebSocket];
+        livePreConnected = YES;
+    }
     GFMicProblem micProblem = [self startAudioEngine];
     long micAuth = [self micAuthorizationStatus]; // after the start: the hot path stays unchanged
     GFMicAction micAction = GFMicProblemDecision(micProblem, micAuth, NO);
@@ -5937,8 +6060,8 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
         if (micAction == GFMicActionProceed) GFLog(@"Mic: started after the rebuild");
     }
     if (micAction == GFMicActionGiveUp) {
-        // Before any Live session / HUD "listening": nothing to close, nothing to send
-        [self abortPressForMicProblem:(micProblem == GFMicProblemNone ? GFMicProblemStartError : micProblem) micAuth:micAuth closeLive:NO];
+        // Before HUD "listening": close any pre-connected Live session so nothing runs for this press
+        [self abortPressForMicProblem:(micProblem == GFMicProblemNone ? GFMicProblemStartError : micProblem) micAuth:micAuth closeLive:livePreConnected];
         return;
     }
     if (!self.e2eAudioFile || [self.e2eMicFail isEqualToString:@"nobuffers"]) { // the e2e file feed never needs the watchdog
@@ -5953,12 +6076,8 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     [self.hudPanel setHUDMode:(self.isHandsFree ? HUDModeListeningHandsFree : HUDModeListeningHold) noticeText:nil];
     [self presentHUD];
 
-    NSString *engineMode = [self effectiveEngineMode];
-    NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
-    NSString *selectedModel = [self currentGeminiModel];
-
-    // If Gemini mode is selected and API key is present:
-    if ([engineMode isEqualToString:@"gemini"] && apiKey.length > 0) {
+    // If Gemini mode is selected and API key is present (and Live wasn't already pre-connected above):
+    if (!livePreConnected && [engineMode isEqualToString:@"gemini"] && apiKey.length > 0) {
         if ([self isLiveWebSocketModel:selectedModel]) {
             [self startGeminiLiveWebSocket];
         } else {
@@ -6078,6 +6197,8 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     [self refreshAccumulatedOnDeviceTranscript];
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (GFMicProblem)startAudioEngine {
     if (!self.audioEngine) {
         self.audioEngine = [[AVAudioEngine alloc] init];
@@ -6186,6 +6307,7 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     }
     return GFMicProblemNone;
 }
+#pragma clang diagnostic pop
 
 // Mic authorization for the mic-failure decision. The e2e file feed never uses the mic (the test runner's own mic permission
 // must not change the result): authorized, unless the test hook simulates a denied permission.
@@ -6385,6 +6507,18 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
                     if (s.isRecording) [s.hudPanel updateAudioLevel:animLevel];
 
                     [s pumpLiveAudioForce:NO];
+                    if (s.isRecording && !s.isHandsFree && !s.fnKeyIsCurrentlyDown && s.releaseFnUpTime > 0 && s.e2eMode.length == 0) {
+                        double chunkPeakRMS = 0.0;
+                        GFSecondsAboveRMS((const int16_t *)chunkData.bytes, chunkData.length / sizeof(int16_t), 0.0, &chunkPeakRMS);
+                        double reachMs = GFAudioReachPastReleaseMs(captureEnd, s.releaseFnUpTime);
+                        double waitedMs = ([NSDate timeIntervalSinceReferenceDate] - s.releaseFnUpTime) * 1000.0;
+                        double postMs = (s.recordedPCMData.length > s.releasePCMBytesAtFnUp)
+                                        ? (s.recordedPCMData.length - s.releasePCMBytesAtFnUp) / 32.0 : 0.0;
+                        NSTimeInterval holdDur = s.releaseFnUpTime - s.fnDownTimestamp;
+                        if (GFShouldStopReleaseCushionEarly(reachMs, waitedMs, postMs, chunkPeakRMS, holdDur)) {
+                            [s stopRecordingAndProcess];
+                        }
+                    }
                 });
             }
         }
@@ -6709,7 +6843,10 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
             if (d) json = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (weakSelf.liveSessionId != sid) return; // stale socket
+            if (weakSelf.liveSessionId != sid) { // stale or detached socket (backlog 21)
+                [weakSelf handleDetachedLiveSocketMessage:json error:error session:sid task:task];
+                return;
+            }
             if (error) {
                 [weakSelf liveConnectionLost:[NSString stringWithFormat:@"receive: %@ (close code %ld)", error.localizedDescription, (long)task.closeCode]
                                      session:sid task:task error:error];
@@ -6721,6 +6858,107 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
             }
         });
     }];
+}
+
+// Backlog 21: Detach the previous press's connected Live WebSocket into its GFDictation so its final turn can finish
+// concurrently while the new press opens a fresh Live session.
+- (void)detachLiveFinalizerForSupersededDictation:(GFDictation *)prev {
+    if (!self.detachedLiveDictations) self.detachedLiveDictations = [NSMutableArray array];
+    prev.detachedLiveSessionId = self.liveSessionId;
+    prev.detachedLiveSession = self.liveSession;
+    prev.detachedLiveTask = self.liveWebSocketTask;
+    prev.detachedLiveSegments = [NSMutableArray arrayWithArray:(self.liveSegments ?: @[])];
+    prev.detachedLivePendingTurns = MAX((NSUInteger)1, self.livePendingActivityEnds.count);
+    prev.detachedLiveTurnEndCounted = self.liveTurnEndCounted;
+    prev.detachedLiveResolved = NO;
+    [self.detachedLiveDictations addObject:prev];
+    self.liveSession = nil;
+    self.liveWebSocketTask = nil;
+    self.liveWebSocketConnected = NO;
+    self.liveSocketReadyTime = 0;
+    self.hasCompletedGeminiTurn = YES;
+    if (self.recognitionTask) { [self.recognitionTask cancel]; self.recognitionTask = nil; }
+    if (!self.unitTestMode) {
+        GFLog(@"Dictation #%lu: detached Live session %lu (%lu segments, %lu pending turns) to finish concurrently while new press records",
+              (unsigned long)prev.serial, (unsigned long)prev.detachedLiveSessionId,
+              (unsigned long)prev.detachedLiveSegments.count, (unsigned long)prev.detachedLivePendingTurns);
+    }
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kGFDetachedLiveFinalizerTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [weakSelf resolveDetachedLiveDictation:prev success:NO reason:@"detached finalizer 1.5s timeout"];
+    });
+}
+
+- (void)resolveDetachedLiveDictation:(GFDictation *)d success:(BOOL)success reason:(NSString *)reason {
+    if (!d || d.detachedLiveResolved || d.finished) return;
+    d.detachedLiveResolved = YES;
+    [self.detachedLiveDictations removeObjectIdenticalTo:d];
+    if (d.detachedLiveTask) {
+        [d.detachedLiveTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
+        d.detachedLiveTask = nil;
+    }
+    if (d.detachedLiveSession) {
+        [d.detachedLiveSession invalidateAndCancel];
+        d.detachedLiveSession = nil;
+    }
+    NSString *joined = GFJoinLiveSegmentsDeduplicatingSeam(d.detachedLiveSegments);
+    if (success && joined.length > 0) {
+        if (!self.unitTestMode) {
+            GFLog(@"Dictation #%lu: detached Live session %lu finished concurrently (%@, %lu segments, %lu chars)",
+                  (unsigned long)d.serial, (unsigned long)d.detachedLiveSessionId, reason,
+                  (unsigned long)d.detachedLiveSegments.count, (unsigned long)joined.length);
+        }
+        if (d.onDeviceText.length > 0) {
+            joined = GFDualStreamConsensus(joined, d.onDeviceText, [self customVocabularyForDictation]);
+        }
+        [self applyFinalTranscript:[self polishOnDeviceTranscript:joined] dictation:d];
+    } else {
+        if (!self.unitTestMode) {
+            GFLog(@"Dictation #%lu: detached Live session %lu fell back to REST (%@)",
+                  (unsigned long)d.serial, (unsigned long)d.detachedLiveSessionId, reason);
+        }
+        [self performGenerateContentFallbackForDictation:d];
+    }
+}
+
+- (void)handleDetachedLiveSocketMessage:(NSDictionary *)json error:(NSError *)error session:(NSUInteger)sid task:(NSURLSessionWebSocketTask *)task {
+    GFDictation *target = nil;
+    for (GFDictation *d in self.detachedLiveDictations) {
+        if (d.detachedLiveSessionId == sid && !d.detachedLiveResolved) {
+            target = d;
+            break;
+        }
+    }
+    if (!target) return;
+    if (error || ![json isKindOfClass:[NSDictionary class]]) {
+        [self resolveDetachedLiveDictation:target success:NO reason:@"detached socket closed or errored"];
+        return;
+    }
+    NSDictionary *sc = json[@"serverContent"];
+    if ([sc isKindOfClass:[NSDictionary class]]) {
+        NSString *finalText = sc[@"inputTranscription"][@"text"];
+        if ([finalText isKindOfClass:[NSString class]]) {
+            NSString *t = [finalText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (t.length > 0) [target.detachedLiveSegments addObject:t];
+        }
+        BOOL genDone = [sc[@"generationComplete"] boolValue], turnFlag = [sc[@"turnComplete"] boolValue];
+        BOOL turnDone = genDone || (turnFlag && !target.detachedLiveTurnEndCounted);
+        if (turnFlag && !genDone && target.detachedLiveTurnEndCounted) {
+            target.detachedLiveTurnEndCounted = NO;
+        } else if (turnDone) {
+            target.detachedLiveTurnEndCounted = genDone && !turnFlag;
+        }
+        if (turnDone) {
+            if (target.detachedLivePendingTurns > 0) target.detachedLivePendingTurns -= 1;
+            if (target.detachedLivePendingTurns == 0) {
+                [self resolveDetachedLiveDictation:target success:(target.detachedLiveSegments.count > 0) reason:@"final turn complete"];
+                return;
+            }
+        }
+    }
+    if (!target.detachedLiveResolved && target.detachedLiveTask == task && task != nil) {
+        [self listenForWebSocketMessagesSession:sid task:task];
+    }
 }
 
 - (void)handleLiveMessage:(NSDictionary *)json session:(NSUInteger)sid {
@@ -7106,16 +7344,28 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
     NSUInteger sid = self.liveSessionId;
     NSURLSessionWebSocketTask *sendTask = self.liveWebSocketTask;
     __weak typeof(self) weakSelf = self;
-    [self.liveWebSocketTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:@"{\"realtimeInput\":{\"activityEnd\":{}}}"]
-                      completionHandler:^(NSError *error) {
-        if (error) {
-            GFLog(@"Live: activityEnd send failed: %@", error.localizedDescription);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf liveConnectionLost:[NSString stringWithFormat:@"activityEnd send: %@", error.localizedDescription]
-                                     session:sid task:sendTask error:error];
-            });
-        }
-    }];
+    void (^sendWire)(void) = ^{
+        if (weakSelf.liveSessionId != sid || weakSelf.liveWebSocketTask != sendTask || weakSelf.liveFailed) return;
+        [sendTask sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:@"{\"realtimeInput\":{\"activityEnd\":{}}}"]
+            completionHandler:^(NSError *error) {
+            if (error) {
+                GFLog(@"Live: activityEnd send failed: %@", error.localizedDescription);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf liveConnectionLost:[NSString stringWithFormat:@"activityEnd send: %@", error.localizedDescription]
+                                         session:sid task:sendTask error:error];
+                });
+            }
+        }];
+    };
+    if (GFShouldDelaySplitActivityEndWireSend(self.e2eMode.length > 0, self.e2eLiveDelaySplitMs,
+                                              self.liveFinalizing, self.liveActivityEnded)) {
+        double delaySec = self.e2eLiveDelaySplitMs / 1000.0;
+        GFLog(@"E2E: delaying split activityEnd wire send by %.2fs at %.2fs sent (holding subsequent audio behind pending split turn)",
+              delaySec, self.liveSentBytes / 32000.0);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delaySec * NSEC_PER_SEC)), dispatch_get_main_queue(), sendWire);
+    } else {
+        sendWire();
+    }
 }
 
 // Local voice scan for activity splitting. Fixed threshold (150 RMS) is never above the adaptive threshold of
@@ -7960,6 +8210,23 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
         return;
     }
     if (dictation.superseded) GFLog(@"Dictation #%lu: REST on its own recording (%.2fs; a newer press is active)", (unsigned long)dictation.serial, pcm.length / 32000.0);
+    NSUInteger liveSegCount = dictation.superseded ? (dictation.liveJoinedAtSupersede.length > 0 ? 1 : 0) : self.liveSegments.count;
+    NSUInteger coveredBytes = dictation.superseded ? dictation.liveCoveredBytesAtSupersede : self.liveCoveredBytes;
+    NSString *livePrefix = dictation.superseded ? dictation.liveJoinedAtSupersede : GFJoinLiveSegmentsDeduplicatingSeam(self.liveSegments);
+    NSString *onDevPrefix = dictation.superseded ? (dictation.onDeviceText ?: @"") : (self.latestOnDeviceTranscript ?: @"");
+    if (livePrefix.length > 0 && onDevPrefix.length > 0) {
+        livePrefix = GFDualStreamConsensus(livePrefix, onDevPrefix, [self customVocabularyForDictation]);
+    }
+    GFRestAudioSlicePlan slicePlan = GFRestPlanAudioSlice(pcm.length, coveredBytes, liveSegCount, kGFRestMaxInlinePCMBytes);
+    if (slicePlan.sliceOffsetBytes > 0 || slicePlan.sliceLengthBytes < pcm.length) {
+        GFLog(@"Gemini REST slice (dictation #%lu): sending %.1fs tail from %.1fs of %.1fs total audio (prependLivePrefix=%d, capped=%d)",
+              (unsigned long)dictation.serial, slicePlan.sliceLengthBytes / 32000.0, slicePlan.sliceOffsetBytes / 32000.0,
+              pcm.length / 32000.0, slicePlan.prependLivePrefix, slicePlan.cappedForInlineLimit);
+        pcm = [pcm subdataWithRange:NSMakeRange(slicePlan.sliceOffsetBytes, slicePlan.sliceLengthBytes)];
+        dictation.restLivePrefix = (slicePlan.prependLivePrefix && livePrefix.length > 0) ? livePrefix : nil;
+    } else {
+        dictation.restLivePrefix = nil;
+    }
     [self armEarlyPasteForDictation:dictation];
     NSData *wavData = [self createWavDataFromPCM:pcm];
     NSString *b64Audio = [wavData base64EncodedStringWithOptions:0];
@@ -8071,7 +8338,16 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
                     [weakSelf showNoSpeechDetectedForDictation:dictation];
                     return;
                 }
+                if (dictation.restLivePrefix.length > 0) {
+                    cleaned = GFJoinLiveSegmentsDeduplicatingSeam(@[dictation.restLivePrefix, cleaned]);
+                }
                 [weakSelf applyFinalTranscript:[weakSelf polishOnDeviceTranscript:cleaned] dictation:dictation];
+            } else if (dictation.restLivePrefix.length > 0) {
+                if (!dictation.superseded && !weakSelf.isRecording && weakSelf.recognitionTask) {
+                    [weakSelf.recognitionTask cancel];
+                    weakSelf.recognitionTask = nil;
+                }
+                [weakSelf applyFinalTranscript:[weakSelf polishOnDeviceTranscript:dictation.restLivePrefix] dictation:dictation];
             } else {
                 if (!dictation.earlyText && [weakSelf restOutputPlausible:@"." dictation:dictation]) {
                     // Note: empty REST output on no-loud-speech audio with <= 4 on-device noise chars shouldn't paste a stray noise syllable.
@@ -9669,6 +9945,36 @@ static void GFFormatSpokenDatesAndNumbers(NSMutableString *str) {
     replaceRegex(str, @"(?<![\\d-])\\b([2-9]\\d{2})\\s+(\\d{3})\\s+(\\d{4})\\b(?![\\d-])", @"$1-$2-$3", 0);
 }
 
+// Cycle 61 (Backlog 0y): Contextual Software Homophone & Version/Port Formatting (shared with iOS via transplant.py).
+//  - Repairs ASR homophone "bill(s)" -> "build(s)" in unambiguous software release contexts ("ship the new bill" -> "ship the new build",
+//    "deploy the staging bill" -> "deploy the staging build", "nightly bill" -> "nightly build"), while never touching financial/name
+//    contexts ("I have a bill tomorrow", "pay the bill", "split the bill").
+//  - Formats spoken software version numbers ("version 2 point 4" -> "version 2.4", "version 1 point 0 point 2" -> "version 1.0.2").
+//  - Formats spoken localhost and port numbers ("localhost colon 3000" -> "localhost:3000", "port 80 80" -> "port 8080").
+static void GFRepairContextualHomophones(NSMutableString *str) {
+    if (!str || str.length < 6) return;
+    NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+    if ([str rangeOfString:@"bill" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(ship|ships|shipped|shipping|deploy|deploys|deployed|deploying|release|releases|released|releasing|"
+                     @"trigger|triggers|triggered|triggering|test|tests|tested|testing|fix|fixes|fixed|fixing|"
+                     @"push|pushes|pushed|pushing|compile|compiles|compiled|compiling)\\s+"
+                     @"((?:(?:the|a|an|our|this|that|my|your)\\s+)?(?:(?:new|latest|nightly|production|staging|beta|debug|release|clean|broken|current|next|canary)\\s+)?)bill(s?)\\b",
+                     @"$1 $2build$3", ci);
+        replaceRegex(str, @"\\b(nightly|staging|canary|beta|debug|xcode|gradle)\\s+bill(s?)\\b", @"$1 build$2", ci);
+    }
+    if ([str rangeOfString:@"point" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(version|v)\\s+(\\d+)\\s+point\\s+(\\d+)\\s+point\\s+(\\d+)\\b", @"$1 $2.$3.$4", ci);
+        replaceRegex(str, @"\\b(version|v)\\s+(\\d+)\\s+point\\s+(\\d+)\\b", @"$1 $2.$3", ci);
+    }
+    if ([str rangeOfString:@"localhost" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(localhost)\\s+colon\\s+(\\d{2,5})\\b", @"$1:$2", ci);
+    }
+    if ([str rangeOfString:@"port" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(port)\\s+(\\d{2})\\s+(\\d{2})\\b", @"$1 $2$3", ci);
+    }
+}
+
 // Cycle 51: Upgrades a trailing '.' to '?' when the final sentence is a clear grammatical question that ended with an
 // abbreviation dot ("Can we meet at 3:00 p.m." -> "Can we meet at 3:00 p.m.?") or a period left over from a correction
 // fragment ("Can we meet on Tuesday? Wait, no, Wednesday." -> "Can we meet on Wednesday?").
@@ -9890,6 +10196,8 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     GFFormatSpokenEmailsAndDomains(str);
     // 8d. Spoken dates, slash dates, 10-digit phone numbers, and contraction cleanup
     GFFormatSpokenDatesAndNumbers(str);
+    // 8e. Contextual software homophone repair ("ship the new bill" -> "ship the new build") and version/port formatting
+    GFRepairContextualHomophones(str);
 
     // 9. Clean up multiple spaces and spaces before punctuation
     replaceRegex(str, @"\\s+([,;!?])", @"$1", 0);
@@ -15042,6 +15350,117 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
                 printf("%s: mid-sentence cursor continuation, 'oh sorry' backtracks, and spoken dates/phone numbers (%d%d%d%d%d%d%d%d%d)\n",
                        c58Ok ? "PASS" : "FAIL", m1, m2, m3, m4, m5, b1, b2, b3, d1);
             }
+            // Cycle 59: Parallel Live WebSocket pre-connect + event-driven release cushion early stop (Backlog 27 & 28)
+            {
+                BOOL p1 = GFShouldPreConnectLiveBeforeMic(YES, YES, YES, AVAuthorizationStatusAuthorized, nil);
+                BOOL p2 = !GFShouldPreConnectLiveBeforeMic(YES, YES, YES, AVAuthorizationStatusDenied, nil);
+                BOOL p3 = !GFShouldPreConnectLiveBeforeMic(YES, YES, YES, AVAuthorizationStatusAuthorized, @"start");
+                BOOL p4 = !GFShouldPreConnectLiveBeforeMic(YES, YES, YES, AVAuthorizationStatusAuthorized, @"start-once");
+                BOOL p5 = GFShouldPreConnectLiveBeforeMic(YES, YES, YES, AVAuthorizationStatusAuthorized, @"nobuffers");
+                BOOL p6 = !GFShouldPreConnectLiveBeforeMic(NO, YES, YES, AVAuthorizationStatusAuthorized, nil);
+                BOOL r1 = GFShouldStopReleaseCushionEarly(30.0, 32.0, 40.0, 85.0, 0.45);
+                BOOL r2 = !GFShouldStopReleaseCushionEarly(30.0, 32.0, 40.0, 350.0, 0.45);
+                BOOL r3 = GFShouldStopReleaseCushionEarly(60.0, 62.0, 64.0, 180.0, 0.45);
+                BOOL r4 = !GFShouldStopReleaseCushionEarly(10.0, 30.0, 20.0, 60.0, 0.45);
+                BOOL r5 = !GFShouldStopReleaseCushionEarly(NAN, 50.0, 40.0, 50.0, 0.45);
+                BOOL c59Ok = p1 && p2 && p3 && p4 && p5 && p6 && r1 && r2 && r3 && r4 && r5;
+                if (c59Ok) passed++; else failed++;
+                printf("%s: parallel Live pre-connect and event-driven release cushion early stop (%d%d%d%d%d%d%d%d%d%d%d)\n",
+                       c59Ok ? "PASS" : "FAIL", p1, p2, p3, p4, p5, p6, r1, r2, r3, r4, r5);
+            }
+            // Cycle 60: Long-recording covered-prefix reuse & 20 MB inline WAV cap for REST safety net (Backlog 31)
+            {
+                GFRestAudioSlicePlan s1 = GFRestPlanAudioSlice(60u * 32000u, 30u * 32000u, 1, kGFRestMaxInlinePCMBytes);
+                BOOL ok1 = (s1.sliceOffsetBytes == 0 && s1.sliceLengthBytes == 60u * 32000u && !s1.prependLivePrefix && !s1.cappedForInlineLimit);
+                GFRestAudioSlicePlan s2 = GFRestPlanAudioSlice(240u * 32000u, 200u * 32000u, 3, kGFRestMaxInlinePCMBytes);
+                BOOL ok2 = (s2.prependLivePrefix && !s2.cappedForInlineLimit &&
+                            s2.sliceOffsetBytes == (200u * 32000u - kGFRestSlicePreRollBytes) &&
+                            s2.sliceLengthBytes == (40u * 32000u + kGFRestSlicePreRollBytes));
+                GFRestAudioSlicePlan s3 = GFRestPlanAudioSlice(600u * 32000u, 0, 0, kGFRestMaxInlinePCMBytes);
+                BOOL ok3 = (!s3.prependLivePrefix && s3.cappedForInlineLimit &&
+                            s3.sliceLengthBytes == kGFRestMaxInlinePCMBytes &&
+                            s3.sliceOffsetBytes == 150u * 32000u);
+                GFRestAudioSlicePlan s4 = GFRestPlanAudioSlice(600u * 32000u, 100u * 32000u, 2, kGFRestMaxInlinePCMBytes);
+                BOOL ok4 = (s4.prependLivePrefix && s4.cappedForInlineLimit &&
+                            s4.sliceLengthBytes == kGFRestMaxInlinePCMBytes &&
+                            s4.sliceOffsetBytes == 150u * 32000u);
+                BOOL c60Ok = ok1 && ok2 && ok3 && ok4;
+                if (c60Ok) passed++; else failed++;
+                printf("%s: long-recording REST covered-prefix reuse and 20 MB inline cap (%d%d%d%d)\n",
+                       c60Ok ? "PASS" : "FAIL", ok1, ok2, ok3, ok4);
+            }
+            // Cycle 61: Contextual software homophone repair & version/port formatting (Backlog 0y)
+            {
+                BOOL h1 = [[self polishOnDeviceTranscript:@"We need to ship the new bill on Friday."]
+                           isEqualToString:@"We need to ship the new build on Friday. "];
+                BOOL h2 = [[self polishOnDeviceTranscript:@"Please deploy the staging bill and check the nightly bills."]
+                           isEqualToString:@"Please deploy the staging build and check the nightly builds. "];
+                BOOL h3 = [[self polishOnDeviceTranscript:@"I have a bill tomorrow and we should pay the bill."]
+                           isEqualToString:@"I have a bill tomorrow and we should pay the bill. "];
+                BOOL h4 = [[self polishOnDeviceTranscript:@"Update to version 2 point 4 or version 1 point 0 point 2 on localhost colon 3000 and port 80 80."]
+                           isEqualToString:@"Update to version 2.4 or version 1.0.2 on localhost:3000 and port 8080. "];
+                BOOL c61Ok = h1 && h2 && h3 && h4;
+                if (c61Ok) passed++; else failed++;
+                printf("%s: contextual software homophones and version/port formatting (%d%d%d%d)\n",
+                       c61Ok ? "PASS" : "FAIL", h1, h2, h3, h4);
+            }
+            // Cycle 62: Detached Concurrent Live Finalizer (Backlog 21)
+            {
+                BOOL d1 = GFShouldDetachSupersededLiveFinalizer(GFSupersededUseRest, YES, YES, NO, NO);
+                BOOL d2 = !GFShouldDetachSupersededLiveFinalizer(GFSupersededUseLiveText, YES, YES, NO, NO);
+                BOOL d3 = !GFShouldDetachSupersededLiveFinalizer(GFSupersededUseRest, NO, YES, NO, NO);
+                BOOL d4 = !GFShouldDetachSupersededLiveFinalizer(GFSupersededUseRest, YES, YES, NO, YES);
+                AppDelegate *det = [[AppDelegate alloc] init];
+                det.unitTestMode = YES;
+                det.recordedPCMData = [NSMutableData dataWithLength:2 * 32000];
+                int16_t *ds = (int16_t *)det.recordedPCMData.mutableBytes;
+                for (NSUInteger i = 3200; i < 32000; i++) ds[i] = (int16_t)(2400 * sin(i * 0.1));
+                det.activeDictation = [[GFDictation alloc] init];
+                det.activeDictation.serial = 1;
+                GFDictation *firstPress = det.activeDictation;
+                det.liveSessionId = 7;
+                det.liveWebSocketConnected = YES;
+                det.liveWebSocketTask = [[NSURLSession sharedSession] webSocketTaskWithURL:[NSURL URLWithString:@"wss://generativelanguage.googleapis.com/"]];
+                det.liveActivityEnded = YES;
+                det.liveFinalizing = YES;
+                det.liveSegments = [NSMutableArray array];
+                det.livePendingActivityEnds = [NSMutableArray arrayWithObjects:@(32000), @(64000), nil];
+                NSMutableArray<NSString *> *delivered = [NSMutableArray array];
+                det.resultSink = ^(NSString *text, GFDictation *d) {
+                    [delivered addObject:[NSString stringWithFormat:@"#%lu:%@", (unsigned long)d.serial, text]];
+                };
+                [det supersedePreviousDictation];
+                BOOL d5 = (firstPress.detachedLiveSessionId == 7 && !firstPress.detachedLiveResolved &&
+                           firstPress.detachedLivePendingTurns == 2 && det.detachedLiveDictations.count == 1);
+                // Turn #1 sends generationComplete followed by turnComplete (same turn): must only decrement pendingTurns once (2 -> 1)
+                [det handleDetachedLiveSocketMessage:@{@"serverContent": @{@"inputTranscription": @{@"text": @"First press"},
+                                                                          @"generationComplete": @YES}}
+                                               error:nil session:7 task:nil];
+                [det handleDetachedLiveSocketMessage:@{@"serverContent": @{@"turnComplete": @YES}}
+                                               error:nil session:7 task:nil];
+                BOOL d5b = (!firstPress.detachedLiveResolved && firstPress.detachedLivePendingTurns == 1);
+                [det handleDetachedLiveSocketMessage:@{@"serverContent": @{@"inputTranscription": @{@"text": @"finished on Live"},
+                                                                          @"generationComplete": @YES}}
+                                               error:nil session:7 task:nil];
+                BOOL d6 = (d5b && firstPress.detachedLiveResolved && firstPress.finished && delivered.count == 1 &&
+                           [delivered.firstObject isEqualToString:@"#1:First press finished on Live. "]);
+                BOOL c62Ok = d1 && d2 && d3 && d4 && d5 && d6;
+                if (c62Ok) passed++; else failed++;
+                printf("%s: detached concurrent Live finalizer on rapid back-to-back press (%d%d%d%d%d%d)\n",
+                       c62Ok ? "PASS" : "FAIL", d1, d2, d3, d4, d5, d6);
+            }
+            // Cycle 63: Online slow-split-turn simulation hook & zero-warning macOS 27 SDK build (Backlog 0t & 0v)
+            {
+                BOOL s1 = GFShouldDelaySplitActivityEndWireSend(YES, 1800.0, NO, NO);
+                BOOL s2 = !GFShouldDelaySplitActivityEndWireSend(NO, 1800.0, NO, NO);
+                BOOL s3 = !GFShouldDelaySplitActivityEndWireSend(YES, 0.0, NO, NO);
+                BOOL s4 = !GFShouldDelaySplitActivityEndWireSend(YES, 1800.0, YES, NO);
+                BOOL s5 = !GFShouldDelaySplitActivityEndWireSend(YES, 1800.0, NO, YES);
+                BOOL c63Ok = s1 && s2 && s3 && s4 && s5;
+                if (c63Ok) passed++; else failed++;
+                printf("%s: slow split turn wire delay hook and zero-warning SDK compatibility (%d%d%d%d%d)\n",
+                       c63Ok ? "PASS" : "FAIL", s1, s2, s3, s4, s5);
+            }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
@@ -15196,6 +15615,12 @@ int main(int argc, const char * argv[]) {
                 // optional, test-only (backlog 0p): planned Live session rotation at <seconds> of session age instead of 8.5 min
                 if (strcmp(argv[i], "--e2e-live-rotate-age") == 0 && i + 1 < argc) {
                     delegate.e2eLiveRotateAge = atof(argv[i + 1]);
+                    i += 1;
+                    continue;
+                }
+                // optional, test-only (backlog 0t): delay wire send of mid-press split activityEnd by <ms> to test slow split turns online
+                if (strcmp(argv[i], "--e2e-live-delay-split-ms") == 0 && i + 1 < argc) {
+                    delegate.e2eLiveDelaySplitMs = atof(argv[i + 1]);
                     i += 1;
                     continue;
                 }
