@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 128,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:35",
+      "title": "Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'",
+      "highlights": [
+        "Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.",
+        "Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."
+      ]
+    },
+    {
+      "cycle": 127,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:34",
+      "title": "Cleans up 'change that to', 'switch that to', and 'not X, Y' self-corrections",
+      "highlights": [
+        "When you revise an earlier detail mid-sentence with 'change that to', 'switch that to', or 'actually make it' ('Book it for 7 p.m., change that to 8 p.m.' or 'I will take 2 coffees, actually make it 3'), GeminiFlow updates the earlier word or number in place.",
+        "Cleans up comma-separated 'not X, Y' corrections when you repeat the word you are replacing ('Let us meet on Tuesday, not Tuesday, Wednesday' becomes 'Let us meet on Wednesday')."
+      ]
+    },
+    {
+      "cycle": 126,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:33",
+      "title": "Formats spoken household, cooking, fitness, and '24/7' expressions",
+      "highlights": [
+        "Abbreviates everyday personal, cooking, and fitness measurements after numbers, turning '5 feet 10 inches', '16 ounces', '8 fluid ounces', '2 tablespoons', '1 teaspoon', '2,000 kilocalories', and '120 beats per minute' into '5 ft 10 in', '16 oz', '8 fl oz', '2 tbsp', '1 tsp', '2,000 kcal', and '120 bpm'.",
+        "Turns spoken ratio expressions like '24 slash 7' and '50 slash 50' into '24/7' and '50/50'."
+      ]
+    },
+    {
+      "cycle": 125,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:32",
+      "title": "Formats spoken everyday abbreviations like 'RSVP', 'ASAP', 'FYI', 'ETA', and 'PTO' and group 'pax' ranges",
+      "highlights": [
+        "Turns spoken everyday and workplace abbreviations into uppercase, including 'RSVP', 'ASAP', 'FYI', 'TBD', 'TBA', 'Q&A', 'DIY', 'VIP', 'WFH', 'ETA', 'PTO', and 'OOO'.",
+        "Extends 'pax' dining and event count repair to cover numeric ranges and group questions such as 'table for 2 to 3 pax', '10-12 pax', and 'How many pax for dinner?'."
+      ]
+    },
+    {
+      "cycle": 124,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:31",
+      "title": "Removes filler 'like' before frequency words, everyday verbs, and possessives",
+      "highlights": [
+        "Catches filler 'like' before frequency adverbs ('I like often use', 'we like usually meet on Fridays'), before everyday verbs ('I like need to leave', 'we like want to book a table', 'I like think we should wait', 'I have like never been there'), and after possessives or articles ('my like calendar', 'the like whole thing').",
+        "Simplifies redundant connector pairs such as 'but yet', 'and also too', and 'in case if' into 'but', 'and also', and 'in case'."
+      ]
+    },
+    {
       "cycle": 123,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 15:23",

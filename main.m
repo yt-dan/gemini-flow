@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(128), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:35", @"title": @"Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'", @"highlights": @[@"Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.", @"Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."]},
+            @{@"cycle": @(127), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:34", @"title": @"Cleans up 'change that to', 'switch that to', and 'not X, Y' self-corrections", @"highlights": @[@"When you revise an earlier detail mid-sentence with 'change that to', 'switch that to', or 'actually make it' ('Book it for 7 p.m., change that to 8 p.m.' or 'I will take 2 coffees, actually make it 3'), GeminiFlow updates the earlier word or number in place.", @"Cleans up comma-separated 'not X, Y' corrections when you repeat the word you are replacing ('Let us meet on Tuesday, not Tuesday, Wednesday' becomes 'Let us meet on Wednesday')."]},
+            @{@"cycle": @(126), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:33", @"title": @"Formats spoken household, cooking, fitness, and '24/7' expressions", @"highlights": @[@"Abbreviates everyday personal, cooking, and fitness measurements after numbers, turning '5 feet 10 inches', '16 ounces', '8 fluid ounces', '2 tablespoons', '1 teaspoon', '2,000 kilocalories', and '120 beats per minute' into '5 ft 10 in', '16 oz', '8 fl oz', '2 tbsp', '1 tsp', '2,000 kcal', and '120 bpm'.", @"Turns spoken ratio expressions like '24 slash 7' and '50 slash 50' into '24/7' and '50/50'."]},
+            @{@"cycle": @(125), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:32", @"title": @"Formats spoken everyday abbreviations like 'RSVP', 'ASAP', 'FYI', 'ETA', and 'PTO' and group 'pax' ranges", @"highlights": @[@"Turns spoken everyday and workplace abbreviations into uppercase, including 'RSVP', 'ASAP', 'FYI', 'TBD', 'TBA', 'Q&A', 'DIY', 'VIP', 'WFH', 'ETA', 'PTO', and 'OOO'.", @"Extends 'pax' dining and event count repair to cover numeric ranges and group questions such as 'table for 2 to 3 pax', '10-12 pax', and 'How many pax for dinner?'."]},
+            @{@"cycle": @(124), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:31", @"title": @"Removes filler 'like' before frequency words, everyday verbs, and possessives", @"highlights": @[@"Catches filler 'like' before frequency adverbs ('I like often use', 'we like usually meet on Fridays'), before everyday verbs ('I like need to leave', 'we like want to book a table', 'I like think we should wait', 'I have like never been there'), and after possessives or articles ('my like calendar', 'the like whole thing').", @"Simplifies redundant connector pairs such as 'but yet', 'and also too', and 'in case if' into 'but', 'and also', and 'in case'."]},
             @{@"cycle": @(123), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:23", @"title": @"Formats more personal and work email greetings, warm sign-offs, and messaging apps", @"highlights": @[@"Adds paragraph breaks after full-name, family, and role-title email greetings such as 'Hi Sarah Johnson,', 'Dear Hiring Manager,', 'Hi Mom and Dad,', and 'Hey friends,'.", @"Formats warm personal and professional email sign-offs onto their own lines, including 'Warmly,', 'All the best,', 'Take care,', 'Speak soon,', 'See you soon,', 'With gratitude,', 'Lots of love,', and 'Yours truly,', and recognizes WeChat, Line, Messenger, and Viber for casual chat punctuation."]},
             @{@"cycle": @(122), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:22", @"title": @"Formats spoken clock times and cleans up two-word conversational restarts", @"highlights": @[@"Turns space-separated spoken clock times and ranges like '3 30 p.m.', '10 15 a.m.', 'at 6 30 tonight', and 'from 2 30 to 3 30 p.m.' into '3:30 p.m.', '10:15 a.m.', 'at 6:30 tonight', and '2:30-3:30 p.m.'.", @"Collapses mid-sentence restarts when you pause after a short phrase and start over with a new article or preposition ('I want a, I want the corner table' becomes 'I want the corner table' and 'I talked to the, I talked to my manager' becomes 'I talked to my manager')."]},
             @{@"cycle": @(121), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:21", @"title": @"Cleans up 'make it', 'on second thought', and 'you know what' self-corrections", @"highlights": @[@"When you revise a number, time, or day mid-sentence with 'make it' ('I will be there in 10 minutes, make it 15' or 'Table for 2, make it 4'), GeminiFlow updates the earlier number in place.", @"When you change your mind mid-sentence with 'on second thought' or 'actually, you know what' ('Let us meet on Tuesday, on second thought, let us do Wednesday'), GeminiFlow keeps only your updated plan."]},
@@ -9632,7 +9637,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastRe = [NSRegularExpression regularExpressionWithPattern:
-                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+(?:that|it)|oops|whoops|my\\s+bad|rephrase|correct|correction|start\\s+over|second\\s+thought|you\\s+know\\s+what)\\b"
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+(?:that|it)|change\\s+(?:that|it)\\s+to|switch\\s+(?:that|it)\\s+to|oops|whoops|my\\s+bad|rephrase|correct|correction|start\\s+over|second\\s+thought|you\\s+know\\s+what)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
                  @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
@@ -9649,10 +9654,12 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                  @"let\\s+me\\s+(?:rephrase(?:\\s+that)?|correct\\s+that|start\\s+over)|"
                  @"on\\s+second\\s+thought(?=\\s*,)|"
                  @"actually\\s*,?\\s*you\\s+know\\s+what(?=\\s*,)|"
+                 @"(?:actually|or)\\s*,?\\s*make\\s+(?:that|it)|"
+                 @"(?:change|switch)\\s+(?:that|it)\\s+to|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
                  @")\\b)\\s*[.,?!]?\\s*"
-                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+(?:that|it)|my\\s+bad|oops|whoops|correction(?=\\s*,)|on\\s+second\\s+thought|you\\s+know\\s+what(?=\\s*,))\\b)\\s*[.,?!]?\\s*"
+                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+(?:that|it)|(?:change|switch)\\s+(?:that|it)\\s+to|my\\s+bad|oops|whoops|correction(?=\\s*,)|on\\s+second\\s+thought|you\\s+know\\s+what(?=\\s*,))\\b)\\s*[.,?!]?\\s*"
                  @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
                                                           options:ci error:nil];
         abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
@@ -10096,6 +10103,12 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
 }
 
 static void GFRemoveConversationalBacktracks(NSMutableString *str) {
+    // Cycle 127: Comma-delimited contrastive self-correction ("Let's meet on Tuesday, not Tuesday, Wednesday." -> "Let's meet on Wednesday.",
+    // "Send it at 3 p.m., not 3 p.m., 4 p.m." -> "Send it at 4 p.m.") where the negated token repeats the immediately preceding token.
+    if (str.length >= 10 && [str rangeOfString:@"not " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b([A-Za-z0-9:$]+(?:\\s+(?:a\\.m\\.|p\\.m\\.|am|pm))?),\\s*not\\s+\\1,\\s*([A-Za-z0-9:$]+(?:\\s+(?:a\\.m\\.|p\\.m\\.|am|pm))?)(?=[.,;!?]|\\s|$)",
+                     @"$2", NSRegularExpressionCaseInsensitive);
+    }
     for (int pass = 0; pass < 8 && GFRemoveConversationalBacktrackOnce(str); pass++) {}
     // Also strip utterance-initial "Oh sorry, " / "Oh, sorry. " when immediately followed by a greeting or clause restart
     if (str.length >= 10) {
@@ -10701,6 +10714,30 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     if ([str rangeOfString:@"liter" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+milliliters?\\b", @"$1 mL", ci);
     }
+    // 12. Cycle 126: Everyday household, cooking, fitness, and scheduling expressions ("5 feet 10 inches" -> "5 ft 10 in",
+    //     "16 ounces" -> "16 oz", "8 fluid ounces" -> "8 fl oz", "2 tablespoons" -> "2 tbsp", "1 teaspoon" -> "1 tsp",
+    //     "2,000 kilocalories" -> "2,000 kcal", "120 beats per minute" -> "120 bpm", "24 slash 7" -> "24/7", "50 slash 50" -> "50/50")
+    if ([str rangeOfString:@"inch" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d{1,2})\\s+(?:feet|foot)\\s+(?:and\\s+)?(\\d{1,2})\\s+inches\\b", @"$1 ft $2 in", ci);
+    }
+    if ([str rangeOfString:@"ounce" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+fluid\\s+ounces?\\b", @"$1 fl oz", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+ounces?\\b", @"$1 oz", ci);
+    }
+    if ([str rangeOfString:@"spoon" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+tablespoons?\\b", @"$1 tbsp", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+teaspoons?\\b", @"$1 tsp", ci);
+    }
+    if ([str rangeOfString:@"calorie" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*)\\s+kilocalories?\\b", @"$1 kcal", ci);
+    }
+    if ([str rangeOfString:@"minute" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d{2,3})\\s+beats?\\s+per\\s+minute\\b", @"$1 bpm", ci);
+    }
+    if ([str rangeOfString:@"slash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(24)\\s+slash\\s+(7)\\b", @"$1/$2", ci);
+        replaceRegex(str, @"\\b(50)\\s+slash\\s+(50)\\b", @"$1/$2", ci);
+    }
 }
 
 // Cycle 57: Spoken Email Addresses, Web Domains, and Unambiguous Tech Brand Casing (shared with iOS via transplant.py).
@@ -11144,14 +11181,34 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     // "2 packs" / "a 2 packs" -> "2 pax", "table for 4 packs" -> "table for 4 pax", "per packs" / "$50 per pack" -> "per pax" / "$50 per pax",
     // while preserving literal product packs like "2 packs of gum" or "6 packs per box").
     if ([str rangeOfString:@"pack" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))(?:a\\s+)?(\\d+)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"$1 pax", ci);
-        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))(?:a\\s+)?one\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"1 pax", ci);
-        replaceRegex(str, @"(?<!\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d)\\s)\\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"\\b(\\d+)\\s*(to|-|or)\\s*(\\d+)\\s+packs\\b(?!\\s+(?:of|per|a\\s+day|a\\s+week|left)\\b)", @"$1 $2 $3 pax", ci);
+        replaceRegex(str, @"\\b(\\d+)\\s*-\\s*(\\d+)\\s+pax\\b", @"$1-$2 pax", ci);
+        replaceRegex(str, @"\\b(how\\s+many|total|confirm|confirmed|extra|additional|minimum|maximum|max)\\s+packs\\b(?!\\s+(?:of|per|left)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))a\\s+(\\d+)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))(?:a\\s+)?(?:1|one)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"1 pax", ci);
+        replaceRegex(str, @"(?<!\\b(?:buy|bought|buying|sell|sold|open|opened|grab|grabbed|smoke|smoked|smoking|use|used|ice|battery|batteries|card|cards|booster|blister|starter|sample|variety|value|six|6|twelve|12)\\s)\\b(\\d+)\\s+packs\\b(?!\\s+(?:of|per|a\\s+day|a\\s+week|left)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"(?<!\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d|buy|bought|buying|sell|sold|open|opened|grab|grabbed|smoke|smoked|smoking|use|used|ice|battery|batteries|card|cards|booster|blister|starter|sample|variety|value)\\s)\\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+packs\\b(?!\\s+(?:of|per|a\\s+day|a\\s+week|left)\\b)", @"$1 pax", ci);
         replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))a\\s+(?:1|one)\\s+pack\\b(?!\\s+(?:of|per)\\b)", @"1 pax", ci);
         replaceRegex(str, @"\\b(table|tables|booking|bookings|reservation|reservations|party|group|dinner|lunch|breakfast|brunch|room|rooms|ticket|tickets|tour|seat|seats|seating|menu|menus|quote|minimum|max|maximum|total|count|headcount|guest|guests|for)\\s+((?:of\\s+|for\\s+)?)(?:1|one)\\s+pack\\b(?!\\s+(?:of|per)\\b)", @"$1 $21 pax", ci);
         replaceRegex(str, @"\\bper\\s+packs\\b", @"per pax", ci);
         replaceRegex(str, @"([\\$\\u20AC\\u00A3\\u00A5]\\d+(?:,\\d{3})*(?:\\.\\d+)?|\\b(?:price|cost|rate|fee|budget|charge|minimum|spend)\\b[^.,;!?]{0,20}?)\\s+per\\s+pack\\b(?!\\s+of\\b)", @"$1 per pax", ci);
     }
+    // Cycle 125: Everyday personal & workplace spoken abbreviations ("R S V P" -> "RSVP", "A S A P" -> "ASAP", "F Y I" -> "FYI",
+    // "T B D" -> "TBD", "T B A" -> "TBA", "Q and A" -> "Q&A", "D I Y" -> "DIY", "V I P" -> "VIP", "W F H" -> "WFH",
+    // and context-guarded "E T A" -> "ETA", "P T O" -> "PTO", "O O O" -> "OOO").
+    replaceRegex(str, @"\\b(?:r\\s+s\\s+v\\s+p|rsvp)\\b", @"RSVP", ci);
+    replaceRegex(str, @"\\b(?:a\\s+s\\s+a\\s+p|asap)\\b", @"ASAP", ci);
+    replaceRegex(str, @"\\b(?:f\\s+y\\s+i|fyi)\\b", @"FYI", ci);
+    replaceRegex(str, @"\\b(?:t\\s+b\\s+d|tbd)\\b", @"TBD", ci);
+    replaceRegex(str, @"\\b(?:t\\s+b\\s+a|tba)\\b", @"TBA", ci);
+    replaceRegex(str, @"\\b(?:q\\s+and\\s+a)\\b", @"Q&A", ci);
+    replaceRegex(str, @"\\b(?:d\\s+i\\s+y)\\b", @"DIY", ci);
+    replaceRegex(str, @"\\b(?:v\\s+i\\s+p)\\b", @"VIP", ci);
+    replaceRegex(str, @"\\b(?:w\\s+f\\s+h|wfh)\\b", @"WFH", ci);
+    replaceRegex(str, @"\\b(my|your|our|their|his|her|the|an|what's|what\\s+is)\\s+(?:e\\s+t\\s+a|eta)\\b", @"$1 ETA", ci);
+    replaceRegex(str, @"\\b(?:e\\s+t\\s+a)\\s+(is|was|for)\\b", @"ETA $1", ci);
+    replaceRegex(str, @"\\b(on|taking|take|took|my|your|our|their|his|her|request|approved|paid)\\s+(?:p\\s+t\\s+o|pto)\\b", @"$1 PTO", ci);
+    replaceRegex(str, @"\\b(am|is|are|was|were|be|i'm|you're|we're|they're|he's|she's)\\s+(?:o\\s+o\\s+o)\\b", @"$1 OOO", ci);
 }
 
 // Cycle 77: Spoken Hyphenated Technical Modifiers & Compound Adjectives (shared with iOS via transplant.py).
@@ -11291,6 +11348,74 @@ static void GFFormatSpokenHyphenatedCompounds(NSMutableString *str) {
         replaceRegex(str,
                      @"\\b([Nn])on\\s+blocking(?=\\s+(?:io|socket|sockets|read|reads|write|writes|call|calls|queue|check|mode|lock|operation|operations)\\b)",
                      @"$1on-blocking", 0);
+    }
+    // Cycle 128: Everyday Knowledge-Work & Personal Hyphenated Modifiers (follow-up, check-in, full-time, part-time,
+    // long-term, short-term, last-minute, in-person, one-way, round-trip, day-to-day, face-to-face, step-by-step, up-to-date, 1-on-1).
+    if ([str rangeOfString:@"follow up" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ff])ollow\\s+up(?=\\s+(?:emails?|calls?|meetings?|questions?|notes?|messages?|appointments?|visits?|sessions?|items?|tasks?|chats?|reminders?)\\b)",
+                     @"$1ollow-up", 0);
+    }
+    if ([str rangeOfString:@"check in" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Cc])heck\\s+in(?=\\s+(?:calls?|meetings?|times?|desks?|counters?|notes?|questions?|sessions?|syncs?)\\b)",
+                     @"$1heck-in", 0);
+    }
+    if ([str rangeOfString:@"time" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ff]ull|[Pp]art)\\s+time(?=\\s+(?:jobs?|roles?|positions?|work|workers?|employees?|staff|schedules?|students?|parents?|basis|hours?)\\b)",
+                     @"$1-time", 0);
+    }
+    if ([str rangeOfString:@"term" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ll]ong|[Ss]hort)\\s+term(?=\\s+(?:plans?|planning|goals?|strategy|strategies|relationships?|solutions?|rentals?|leases?|memory|care|view|impact|growth|success|fixes|fix)\\b)",
+                     @"$1-term", 0);
+    }
+    if ([str rangeOfString:@"last minute" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ll])ast\\s+minute(?=\\s+(?:changes?|cancellations?|trips?|bookings?|reservations?|requests?|plans?|gifts?|additions?|adjustments?|deals?|decisions?|flights?)\\b)",
+                     @"$1ast-minute", 0);
+    }
+    if ([str rangeOfString:@"in person" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ii])n\\s+person(?=\\s+(?:meetings?|events?|interviews?|classes|class|sessions?|visits?|dinners?|lunches|lunch|chats?|workshops?|appointments?|conversations?)\\b)",
+                     @"$1n-person", 0);
+    }
+    if ([str rangeOfString:@"one way" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Oo])ne\\s+way(?=\\s+(?:tickets?|flights?|trips?|fares?|streets?|drives?)\\b)",
+                     @"$1ne-way", 0);
+    }
+    if ([str rangeOfString:@"round trip" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Rr])ound\\s+trip(?=\\s+(?:tickets?|flights?|trips?|fares?|drives?)\\b)",
+                     @"$1ound-trip", 0);
+    }
+    if ([str rangeOfString:@"day to day" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Dd])ay\\s+to\\s+day(?=\\s+(?:work|operations|life|tasks|responsibilities|activities|management|routine|running)\\b)",
+                     @"$1ay-to-day", 0);
+    }
+    if ([str rangeOfString:@"face to face" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ff])ace\\s+to\\s+face(?=\\s+(?:meetings?|conversations?|chats?|interviews?|sessions?|discussions?|interactions?)\\b)",
+                     @"$1ace-to-face", 0);
+    }
+    if ([str rangeOfString:@"step by step" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ss])tep\\s+by\\s+step(?=\\s+(?:guides?|instructions|plans?|walkthroughs?|process|explanations?|tutorials?)\\b)",
+                     @"$1tep-by-step", 0);
+    }
+    if ([str rangeOfString:@"up to date" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Uu])p\\s+to\\s+date(?=\\s+(?:information|schedules?|lists?|calendars?|numbers|notes|records|status|versions?|copy|documents?)\\b)",
+                     @"$1p-to-date", 0);
+    }
+    if ([str rangeOfString:@"on one" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"on 1" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(?:one\\s+on\\s+one|1\\s+on\\s+1)(?=\\s+(?:meetings?|calls?|chats?|sessions?|syncs?|catch[- ]?ups?|conversations?|interviews?|coaching)\\b)",
+                     @"1-on-1", NSRegularExpressionCaseInsensitive);
     }
 }
 
@@ -11933,20 +12058,29 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
             replaceRegex(str, @"\\b(have|has|had|got|take|takes|took|cost|costs|spent|spend|wait|waited|need|needs|needed|want|wants|wanted|get|gets|make|makes|made|give|gave)\\s+like[,]?\\s+(?=(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|thousand|half|a\\s+hundred|a\\s+thousand|a\\s+couple|a\\s+few|a\\s+lot|a\\s+bunch|a\\s+little|a\\s+bit|no\\s+idea|\\d+|[\\$\\u20AC\\u00A3\\u00A5]\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
         }
 
-        // 6i-like. Subject pronoun + "like" + past-tense/finite verb ("I like went to the store", "we like talked about it", "she like told me", "he like wants to go")
+        // 6i-like. Subject pronoun + "like" + past-tense/finite verb, frequency adverb, or cognitive/volitional verb ("I like went to the store",
+        // "I like often use", "I like need to leave", "we've like never been there", "my like calendar", "the like whole thing")
         if ([str rangeOfString:@"like" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-            replaceRegex(str, @"\\b(i|you|we|they|he|she|it|who)\\s+like[,]?\\s+(?=(went|wanted|thought|said|told|asked|called|tried|needed|forgot|saw|heard|made|got|took|gave|came|knew|felt|left|bought|brought|sent|spent|found|paid|met|ran|spoke|wrote|drove|flew|ate|slept|woke|started|stopped|finished|checked|looked|talked|walked|worked|waited|stayed|moved|happened|seemed|turned|showed|helped|changed|opened|closed|booked|ordered|cancelled|canceled|decided|realized|noticed|figured|agreed|promised|mentioned|explained)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(i|you|we|they|he|she|it|who)\\s+like[,]?\\s+(?=(went|wanted|thought|said|told|asked|called|tried|needed|forgot|saw|heard|made|got|took|gave|came|knew|felt|left|bought|brought|sent|spent|found|paid|met|ran|spoke|wrote|drove|flew|ate|slept|woke|started|stopped|finished|checked|looked|talked|walked|worked|waited|stayed|moved|happened|seemed|turned|showed|helped|changed|opened|closed|booked|ordered|cancelled|canceled|decided|realized|noticed|figured|agreed|promised|mentioned|explained|always|usually|often|sometimes|rarely|never|normally|typically|generally|hardly|barely)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(i|you|we|they)\\s+like[,]?\\s+(?=(need|want|have|know|think|believe|suppose|remember|understand|agree|hope|feel)\\s+(?:to|that|it|a|an|the|my|your|our|their|his|her|this|these|those|what|how|when|where|why|if|whether|we|i|you|they|he|she|there|so|bad|good|great|better|worse)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(i've|you've|we've|they've|have|has|had)\\s+like[,]?\\s+(?=(never|ever|already|just|always|been|done|gone|seen|heard|made|had|got|gotten|taken|given|said|told|asked|called|tried|started|finished|left|lost|found|paid|met|sent|spent|bought|brought|booked|ordered|cancelled|canceled|changed|moved|worked|talked|decided|forgotten|written|read)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
             replaceRegex(str, @"(?<!\\b(?:does|did|do|doesn't|didn't|don't|would|could|should|will|can|may|might|must|to)\\s)\\b(he|she|it)\\s+like[,]?\\s+(?=(wants|needs|thinks|knows|says|tells|asks|calls|goes|comes|makes|takes|gets|gives|has|works|looks|seems|feels|means|keeps|tries|starts|stops|helps|lives|stays)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(my|your|our|their|his|her|its|every)\\s+like[,]?\\s+(?!(?:manner|kind|mind)\\b)(?=[a-zA-Z0-9])", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"(?<!\\b(?:and|or)\\s)\\b(the|a|an)\\s+like[,]?\\s+(?=(whole|entire|same|only|first|last|next|other|main|best|worst|new|old|big|huge|small|full|actual|exact|real|current|final|original|total|really|very|super|pretty|\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
         }
     }
 
     // 6j. Redundant stacked causal/resultative/contrastive connectors ("Because then so that the output..." -> "So that the output...", "so therefore" -> "so", "but however" -> "but")
     if ([str rangeOfString:@"so" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-        [str rangeOfString:@"however" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        [str rangeOfString:@"however" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"yet" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"case" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"(^|[.!?\\n\\uE000\\uE001]\\s*)Because\\s+(?:then\\s+)?so\\s+that\\b", @"$1So that", 0);
         replaceRegex(str, @"\\bbecause\\s+(?:then\\s+)?so\\s+that\\b", @"so that", NSRegularExpressionCaseInsensitive);
         replaceRegex(str, @"\\b([Ss])o\\s+therefore\\b", @"$1o", 0);
-        replaceRegex(str, @"\\b([Bb])ut\\s+however\\b\\s*,?", @"$1ut", 0);
+        replaceRegex(str, @"\\b([Bb])ut\\s+(?:however|yet)\\b\\s*,?", @"$1ut", 0);
+        replaceRegex(str, @"\\b([Aa])nd\\s+also\\s+too\\b", @"$1nd also", 0);
+        replaceRegex(str, @"\\b([Ii])n\\s+case\\s+if\\b", @"$1n case", 0);
     }
 
     // 6i. Spoken technical filenames ("main dot m" -> "main.m"), slash compounds ("CI slash CD" -> "CI/CD"), and CLI flags
@@ -18301,6 +18435,71 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c123Ok) passed++; else failed++;
                 printf("%s: personal and knowledge-work email greetings, warm sign-offs, and WeChat/Line chat context (%d%d%d)\n",
                        c123Ok ? "PASS" : "FAIL", em1, em2, em3);
+            }
+            // Cycle 124: Deeper filler "like" cleanup (frequency adverbs, everyday cognitive/volitional verbs, perfect auxiliaries, possessives) & redundant connectors
+            {
+                BOOL lk4 = [[self polishOnDeviceTranscript:@"I like often use this app and we like usually meet on Fridays."]
+                            isEqualToString:@"I often use this app and we usually meet on Fridays. "];
+                BOOL lk5 = [[self polishOnDeviceTranscript:@"I like need to leave because we like want to book a table and I've like never been there."]
+                            isEqualToString:@"I need to leave because we want to book a table and I've never been there. "];
+                BOOL lk6 = [[self polishOnDeviceTranscript:@"Check my like calendar for the like whole week, in case if it changes, and also too let me know."]
+                            isEqualToString:@"Check my calendar for the whole week, in case it changes, and also let me know. "];
+                BOOL c124Ok = lk4 && lk5 && lk6;
+                if (c124Ok) passed++; else failed++;
+                printf("%s: deeper filler 'like' cleanup (frequency words, everyday verbs, possessives) and redundant connectors (%d%d%d)\n",
+                       c124Ok ? "PASS" : "FAIL", lk4, lk5, lk6);
+            }
+            // Cycle 125: Everyday personal & workplace spoken abbreviations (RSVP, ASAP, FYI, ETA, PTO, OOO, Q&A) & group "pax" ranges
+            {
+                BOOL ab1 = [[self polishOnDeviceTranscript:@"Please r s v p a s a p and send the notes f y i before the q and a."]
+                            isEqualToString:@"Please RSVP ASAP and send the notes FYI before the Q&A. "];
+                BOOL ab2 = [[self polishOnDeviceTranscript:@"What is your e t a? I'm taking p t o tomorrow and I'm o o o on Friday."]
+                            isEqualToString:@"What is your ETA? I'm taking PTO tomorrow and I'm OOO on Friday. "];
+                BOOL ab3 = [[self polishOnDeviceTranscript:@"How many packs for dinner? We have a booking for 2 to 3 packs or 10-12 packs."]
+                            isEqualToString:@"How many pax for dinner? We have a booking for 2 to 3 pax or 10-12 pax. "];
+                BOOL c125Ok = ab1 && ab2 && ab3;
+                if (c125Ok) passed++; else failed++;
+                printf("%s: everyday spoken abbreviations (RSVP, ASAP, FYI, ETA, PTO, OOO) and group 'pax' ranges (%d%d%d)\n",
+                       c125Ok ? "PASS" : "FAIL", ab1, ab2, ab3);
+            }
+            // Cycle 126: Everyday household, cooking, fitness, and scheduling expressions (ft/in, oz, fl oz, tbsp, tsp, kcal, bpm, 24/7, 50/50)
+            {
+                BOOL cu1 = [[self polishOnDeviceTranscript:@"He is 5 feet 10 inches and drinks 16 ounces or 8 fluid ounces of water."]
+                            isEqualToString:@"He is 5 ft 10 in and drinks 16 oz or 8 fl oz of water. "];
+                BOOL cu2 = [[self polishOnDeviceTranscript:@"Add 2 tablespoons of olive oil and 1 teaspoon of salt for 2,000 kilocalories at 120 beats per minute."]
+                            isEqualToString:@"Add 2 tbsp of olive oil and 1 tsp of salt for 2,000 kcal at 120 bpm. "];
+                BOOL cu3 = [[self polishOnDeviceTranscript:@"The store is open 24 slash 7 and we split the bill 50 slash 50."]
+                            isEqualToString:@"The store is open 24/7 and we split the bill 50/50. "];
+                BOOL c126Ok = cu1 && cu2 && cu3;
+                if (c126Ok) passed++; else failed++;
+                printf("%s: everyday household, cooking, fitness, and ratio expressions (ft/in, oz, tbsp, bpm, 24/7, 50/50) (%d%d%d)\n",
+                       c126Ok ? "PASS" : "FAIL", cu1, cu2, cu3);
+            }
+            // Cycle 127: Conversational self-corrections for "change that to", "switch that to", "actually make it", and "not X, Y"
+            {
+                BOOL ch1 = [[self polishOnDeviceTranscript:@"Book it for 7 p.m., change that to 8 p.m."]
+                            isEqualToString:@"Book it for 8 p.m. "];
+                BOOL ch2 = [[self polishOnDeviceTranscript:@"I'll take 2 coffees, actually make it 3."]
+                            isEqualToString:@"I'll take 3 coffees. "];
+                BOOL ch3 = [[self polishOnDeviceTranscript:@"Let's meet on Tuesday, not Tuesday, Wednesday."]
+                            isEqualToString:@"Let's meet on Wednesday. "];
+                BOOL c127Ok = ch1 && ch2 && ch3;
+                if (c127Ok) passed++; else failed++;
+                printf("%s: conversational self-corrections for 'change that to', 'actually make it', and 'not X, Y' (%d%d%d)\n",
+                       c127Ok ? "PASS" : "FAIL", ch1, ch2, ch3);
+            }
+            // Cycle 128: Everyday personal & knowledge-work hyphenated modifiers (follow-up, check-in, full-time, long-term, last-minute, in-person, 1-on-1)
+            {
+                BOOL hy1 = [[self polishOnDeviceTranscript:@"Send a follow up email after our check in call and 1 on 1 meeting."]
+                            isEqualToString:@"Send a follow-up email after our check-in call and 1-on-1 meeting. "];
+                BOOL hy2 = [[self polishOnDeviceTranscript:@"She took a full time role with a long term plan after a last minute change."]
+                            isEqualToString:@"She took a full-time role with a long-term plan after a last-minute change. "];
+                BOOL hy3 = [[self polishOnDeviceTranscript:@"We booked a round trip flight for an in person meeting and a face to face chat."]
+                            isEqualToString:@"We booked a round-trip flight for an in-person meeting and a face-to-face chat. "];
+                BOOL c128Ok = hy1 && hy2 && hy3;
+                if (c128Ok) passed++; else failed++;
+                printf("%s: everyday personal and knowledge-work hyphenated modifiers (follow-up, check-in, full-time, 1-on-1) (%d%d%d)\n",
+                       c128Ok ? "PASS" : "FAIL", hy1, hy2, hy3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
