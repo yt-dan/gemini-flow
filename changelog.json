@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 103,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:22",
+      "title": "Cleans up 'let me rephrase' and 'let me start over' self-corrections and higher ordinals",
+      "highlights": [
+        "When you change your mind mid-sentence with 'let me rephrase', 'let me rephrase that', or 'let me start over', GeminiFlow removes the earlier draft and keeps only your revised sentence or clause.",
+        "Expands spoken ordinal number self-corrections through 'thirteenth' to 'thirtieth' ('On the thirteenth floor, wait, fifteenth floor' becomes 'On the fifteenth floor')."
+      ]
+    },
+    {
+      "cycle": 102,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:20",
+      "title": "Formats spoken Canadian, Australian, Singapore, and Swiss currencies and hardware units",
+      "highlights": [
+        "Turns spoken currency amounts like '50 Canadian dollars', '80 Australian dollars', '100 Singapore dollars', and '2.5 million Swiss francs' into 'CA$50', 'A$80', 'S$100', and 'CHF 2.5 million'.",
+        "Abbreviates spoken hardware, battery, and audio measurements after numbers, turning '120 hertz', '96 watts', '5,000 milliamp hours', and '24 decibels' into '120 Hz', '96 W', '5,000 mAh', and '24 dB'."
+      ]
+    },
+    {
+      "cycle": 101,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:18",
+      "title": "Formats spoken Git branch names and single-dash command flags",
+      "highlights": [
+        "Turns spoken Git remote and branch references like 'origin slash main', 'upstream slash main', 'feature slash oauth', and 'hotfix slash login' into 'origin/main', 'upstream/main', 'feature/oauth', and 'hotfix/login'.",
+        "Formats spoken single-dash command-line flags such as 'git checkout dash b', 'git commit dash m', 'rm dash rf', 'ls dash la', and 'pytest dash v' into 'git checkout -b', 'git commit -m', 'rm -rf', 'ls -la', and 'pytest -v'."
+      ]
+    },
+    {
+      "cycle": 100,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:16",
+      "title": "Joins 4-letter split acronyms and more developer terms across speech engines",
+      "highlights": [
+        "Combines 4-part split acronyms and technical names like 'g r p c', 'u u i d', 'c o r s', 'fast a p i', and 'tailwind c s s' into 'gRPC', 'UUID', 'CORS', 'FastAPI', and 'TailwindCSS' when cross-checking both speech engines.",
+        "Expands built-in recognition for cloud, database, and developer terms including 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Redis', 'SQLite', 'CocoaPods', and 'VoiceOver'."
+      ]
+    },
+    {
+      "cycle": 99,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:15",
+      "title": "Cleans up two-word mid-thought restarts and speeds up phrase repetition checks",
+      "highlights": [
+        "Collapses mid-sentence restarts where you pause after a two-word connector like 'to the' or 'on the' and repeat the start of your phrase ('We should ship to the we should ship the update tomorrow' becomes 'We should ship the update tomorrow').",
+        "Uses fast in-memory buffers during phrase stutter and voice activity checks so short and medium dictations avoid extra memory allocations."
+      ]
+    },
+    {
       "cycle": 98,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 13:58",

@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(103), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:22", @"title": @"Cleans up 'let me rephrase' and 'let me start over' self-corrections and higher ordinals", @"highlights": @[@"When you change your mind mid-sentence with 'let me rephrase', 'let me rephrase that', or 'let me start over', GeminiFlow removes the earlier draft and keeps only your revised sentence or clause.", @"Expands spoken ordinal number self-corrections through 'thirteenth' to 'thirtieth' ('On the thirteenth floor, wait, fifteenth floor' becomes 'On the fifteenth floor')."]},
+            @{@"cycle": @(102), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:20", @"title": @"Formats spoken Canadian, Australian, Singapore, and Swiss currencies and hardware units", @"highlights": @[@"Turns spoken currency amounts like '50 Canadian dollars', '80 Australian dollars', '100 Singapore dollars', and '2.5 million Swiss francs' into 'CA$50', 'A$80', 'S$100', and 'CHF 2.5 million'.", @"Abbreviates spoken hardware, battery, and audio measurements after numbers, turning '120 hertz', '96 watts', '5,000 milliamp hours', and '24 decibels' into '120 Hz', '96 W', '5,000 mAh', and '24 dB'."]},
+            @{@"cycle": @(101), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:18", @"title": @"Formats spoken Git branch names and single-dash command flags", @"highlights": @[@"Turns spoken Git remote and branch references like 'origin slash main', 'upstream slash main', 'feature slash oauth', and 'hotfix slash login' into 'origin/main', 'upstream/main', 'feature/oauth', and 'hotfix/login'.", @"Formats spoken single-dash command-line flags such as 'git checkout dash b', 'git commit dash m', 'rm dash rf', 'ls dash la', and 'pytest dash v' into 'git checkout -b', 'git commit -m', 'rm -rf', 'ls -la', and 'pytest -v'."]},
+            @{@"cycle": @(100), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:16", @"title": @"Joins 4-letter split acronyms and more developer terms across speech engines", @"highlights": @[@"Combines 4-part split acronyms and technical names like 'g r p c', 'u u i d', 'c o r s', 'fast a p i', and 'tailwind c s s' into 'gRPC', 'UUID', 'CORS', 'FastAPI', and 'TailwindCSS' when cross-checking both speech engines.", @"Expands built-in recognition for cloud, database, and developer terms including 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Redis', 'SQLite', 'CocoaPods', and 'VoiceOver'."]},
+            @{@"cycle": @(99), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 14:15", @"title": @"Cleans up two-word mid-thought restarts and speeds up phrase repetition checks", @"highlights": @[@"Collapses mid-sentence restarts where you pause after a two-word connector like 'to the' or 'on the' and repeat the start of your phrase ('We should ship to the we should ship the update tomorrow' becomes 'We should ship the update tomorrow').", @"Uses fast in-memory buffers during phrase stutter and voice activity checks so short and medium dictations avoid extra memory allocations."]},
             @{@"cycle": @(98), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:58", @"title": @"Formats spoken IPv4 addresses, API and file paths, and 'v1.2.0' version tags", @"highlights": @[@"Turns spoken local and network IPv4 addresses like '127 dot 0 dot 0 dot 1 colon 8080', '192 dot 168 dot 1 dot 1', and '10 dot 0 dot 0 dot 1 slash 24' into '127.0.0.1:8080', '192.168.1.1', and '10.0.0.1/24'.", @"Formats spoken API routes, Unix paths, and version tags such as 'slash api slash v1 slash users', 'slash etc slash hosts', 'src slash components slash button dot tsx', and 'v 1 point 2 point 0' into '/api/v1/users', '/etc/hosts', 'src/components/button.tsx', and 'v1.2.0'."]},
             @{@"cycle": @(97), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:52", @"title": @"Restores casing on cloud, '.js' framework, and Apple developer names", @"highlights": @[@"Formats spoken '.js' framework names and cloud services including 'Next.js' (whether spoken as 'nextjs' or 'next dot js'), 'Vue.js', 'Node.js', 'Nuxt.js', 'NestJS', 'Three.js', 'TailwindCSS', 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Netlify', 'Firebase', 'Redis', 'SQLite', and 'gRPC'.", @"Restores official capitalization on Apple developer tools and platforms including 'iPadOS', 'Xcode', 'TestFlight', 'CocoaPods', and 'VoiceOver'."]},
             @{@"cycle": @(96), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:51", @"title": @"Hyphenates spoken modifiers like 'open-source', 'cross-platform', and 'built-in'", @"highlights": @[@"Adds hyphens to common technical modifiers before their nouns, turning 'open source library', 'cross platform support', 'built in cache', 'client side validation', 'server side rendering', 'in memory store', 'low latency streaming', 'high priority bug', and 'long running session' into hyphenated compounds.", @"Keeps normal phrases like 'built in Swift' or 'kept in memory' unchanged without hyphens."]},
@@ -4087,8 +4092,15 @@ static GFSpeechEvidence GFMeasureSpeechEvidence(const int16_t *samples, NSUInteg
     const NSUInteger frame = 320;
     NSUInteger total = samples ? count / frame : 0;
     if (total == 0) return e;
-    double *rms = malloc(sizeof(double) * total), *sorted = malloc(sizeof(double) * total);
-    if (!rms || !sorted) { free(rms); free(sorted); e.peakRMS = 1e9; e.evidenceSeconds = 1e9; e.loudSeconds = 1e9; return e; } // fail-safe: speech
+    double stackRMS[1024], stackSorted[1024];
+    BOOL useHeap = (total > 1024);
+    double *rms = useHeap ? malloc(sizeof(double) * total) : stackRMS;
+    double *sorted = useHeap ? malloc(sizeof(double) * total) : stackSorted;
+    if (!rms || !sorted) {
+        if (useHeap) { free(rms); free(sorted); }
+        e.peakRMS = 1e9; e.evidenceSeconds = 1e9; e.loudSeconds = 1e9;
+        return e; // fail-safe: speech
+    }
     NSUInteger loud = 0;
     for (NSUInteger f = 0; f < total; f++) {
         double acc = 0;
@@ -4125,7 +4137,7 @@ static GFSpeechEvidence GFMeasureSpeechEvidence(const int16_t *samples, NSUInteg
             e.evidenceSeconds = MAX(e.evidenceSeconds, kSpeechEvidenceMinSeconds);
         }
     }
-    free(rms); free(sorted);
+    if (useHeap) { free(rms); free(sorted); }
     return e;
 }
 // YES = nothing in the audio a quiet room couldn't produce on its own.
@@ -8177,6 +8189,25 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
             @"coreaudio": @"CoreAudio", @"avaudioengine": @"AVAudioEngine",
             @"cloudkit": @"CloudKit", @"widgetkit": @"WidgetKit",
             @"oauth": @"OAuth", @"opengl": @"OpenGL", @"webrtc": @"WebRTC",
+            @"kubernetes": @"Kubernetes", @"cloudflare": @"Cloudflare", @"supabase": @"Supabase",
+            @"vercel": @"Vercel", @"netlify": @"Netlify", @"firebase": @"Firebase",
+            @"redis": @"Redis", @"sqlite": @"SQLite", @"grpc": @"gRPC",
+            @"mongodb": @"MongoDB", @"fastapi": @"FastAPI", @"pytorch": @"PyTorch",
+            @"openai": @"OpenAI", @"deepseek": @"DeepSeek", @"gitlab": @"GitLab",
+            @"cocoapods": @"CocoaPods", @"voiceover": @"VoiceOver",
+            @"tailwindcss": @"TailwindCSS", @"nestjs": @"NestJS",
+            @"ipados": @"iPadOS", @"macos": @"macOS", @"watchos": @"watchOS", @"tvos": @"tvOS", @"visionos": @"visionOS",
+            @"cors": @"CORS", @"uuid": @"UUID", @"wasm": @"WASM", @"json": @"JSON", @"yaml": @"YAML",
+            @"codebase": @"codebase", @"codebases": @"codebases",
+            @"database": @"database", @"databases": @"databases",
+            @"workflow": @"workflow", @"workflows": @"workflows",
+            @"namespace": @"namespace", @"namespaces": @"namespaces",
+            @"timestamp": @"timestamp", @"timestamps": @"timestamps",
+            @"endpoint": @"endpoint", @"endpoints": @"endpoints",
+            @"changelog": @"changelog", @"changelogs": @"changelogs",
+            @"subagent": @"subagent", @"subagents": @"subagents",
+            @"toolchain": @"toolchain", @"toolchains": @"toolchains",
+            @"mockup": @"mockup", @"mockups": @"mockups",
             @"webhook": @"webhook", @"webhooks": @"webhooks",
             @"keychain": @"keychain", @"hotkey": @"hotkey", @"hotkeys": @"hotkeys",
             @"lifecycle": @"lifecycle", @"middleware": @"middleware", @"metadata": @"metadata",
@@ -8224,10 +8255,40 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
 
     NSMutableString *out = [NSMutableString stringWithString:geminiText];
 
-    // Pass 1 (right-to-left): Custom Words & Compound Technical Terms phonetic tie-breaker (1-to-1, 2-to-1 & 3-to-1 split fusion, and 2-word phrases)
+    // Pass 1 (right-to-left): Custom Words & Compound Technical Terms phonetic tie-breaker (1-to-1, 2-to-1, 3-to-1 & 4-to-1 split fusion, and 2-word phrases)
     for (NSInteger i = (NSInteger)m - 1; i >= 0; i--) {
         BOOL replacedSpan = NO;
-        if (i >= 2) {
+        if (i >= 3) {
+            NSRange r0 = gMatches[i - 3].range;
+            NSRange r1 = gMatches[i - 2].range;
+            NSRange r2 = gMatches[i - 1].range;
+            NSRange r3 = gMatches[i].range;
+            NSString *s0 = [out substringWithRange:NSMakeRange(NSMaxRange(r0), r1.location - NSMaxRange(r0))];
+            NSString *s1 = [out substringWithRange:NSMakeRange(NSMaxRange(r1), r2.location - NSMaxRange(r1))];
+            NSString *s2 = [out substringWithRange:NSMakeRange(NSMaxRange(r2), r3.location - NSMaxRange(r2))];
+            BOOL plainSpace4 = ([s0 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]].length == 0 &&
+                                [s1 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]].length == 0 &&
+                                [s2 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]].length == 0);
+            if (plainSpace4 && gLow[i - 2].length <= 2 && gLow[i - 1].length <= 2 && gLow[i].length <= 2) {
+                // Cycle 100 (Pass 1a-4): 4-to-1 split acronym/compound fusion ("g r p c" -> "gRPC", "c o r s" -> "CORS", "fast a p i" -> "FastAPI")
+                NSString *gConcat4 = [NSString stringWithFormat:@"%@%@%@%@", gLow[i - 3], gLow[i - 2], gLow[i - 1], gLow[i]];
+                for (NSUInteger j = 0; j < n; j++) {
+                    NSString *aw = aLow[j];
+                    NSString *canon = customMap[aw] ?: builtInTechMap[aw];
+                    if (!canon || aw.length < 4) continue;
+                    BOOL leftAgree = (i >= 4 && j >= 1 && [gLow[i - 4] isEqualToString:aLow[j - 1]]);
+                    BOOL rightAgree = ((NSUInteger)(i + 1) < m && j + 1 < n && [gLow[i + 1] isEqualToString:aLow[j + 1]]);
+                    if ((leftAgree || rightAgree) && GFWordsArePhoneticallyClose(gConcat4, aw, 1)) {
+                        NSRange span = NSMakeRange(r0.location, NSMaxRange(r3) - r0.location);
+                        [out replaceCharactersInRange:span withString:canon];
+                        i -= 3;
+                        replacedSpan = YES;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!replacedSpan && i >= 2) {
             NSRange firstR = gMatches[i - 2].range;
             NSRange midR = gMatches[i - 1].range;
             NSRange currR = gMatches[i].range;
@@ -9080,7 +9141,7 @@ static NSSet<NSString *> *GFStutterWordSet(NSString *list) {
 static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
     static NSSet<NSString *> *spokenSymbols, *keepPhrases, *chainWords, *idiomChainWords, *idiomNouns, *quantityNouns, *ofFollowers,
                              *tautologyHeads, *determiners, *giveVerbs, *sContractions, *unfinishedEnd, *unfinishedIfContinues,
-                             *helperVerbs, *beforeYou, *abortedStrong, *abortedBare;
+                             *helperVerbs, *beforeYou, *abortedStrong, *abortedBare, *abortedPrep;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         spokenSymbols = GFStutterWordSet(@"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
@@ -9132,13 +9193,20 @@ static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
         beforeYou = [helperVerbs setByAddingObjectsFromSet:GFStutterWordSet(@"if when and so but that because as while once")];
         abortedStrong = GFStutterWordSet(@"a an the my your our their its every");
         abortedBare = GFStutterWordSet(@"some any each another");
+        abortedPrep = GFStutterWordSet(@"to in on for with from at by of into about");
     });
 
     NSUInteger len = str.length;
     if (len < 7) return NO; // the shortest repeat is "I'm I'm"
-    unichar *low = malloc(len * sizeof(unichar));
-    GFStutterToken *tok = malloc((len / 2 + 1) * sizeof(GFStutterToken));
-    if (!low || !tok) { free(low); free(tok); return NO; }
+    unichar stackLow[512];
+    GFStutterToken stackTok[256];
+    BOOL useHeap = (len > 512);
+    unichar *low = useHeap ? malloc(len * sizeof(unichar)) : stackLow;
+    GFStutterToken *tok = useHeap ? malloc((len / 2 + 1) * sizeof(GFStutterToken)) : stackTok;
+    if (!low || !tok) {
+        if (useHeap) { free(low); free(tok); }
+        return NO;
+    }
     [str getCharacters:low range:NSMakeRange(0, len)];
 
     // words and what separates them
@@ -9265,19 +9333,35 @@ static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
             if (n >= 3 && ([first isEqualToString:@"and"] || [first isEqualToString:@"or"]) && !unfinished) continue;
             cut = NSMakeRange(tok[i + n - 1].end, tok[last].end - tok[i + n - 1].end);
         }
-        // Rule B: P + one aborted word + P
+        // Rule B: P + one or two aborted words + P (Cycle 99: supports 1-word determiner/demonstrative or 2-word preposition+determiner restarts)
         for (NSUInteger n = kGFStutterMaxPhrase; n >= 3 && cut.location == NSNotFound; n--) {
-            if (i + 2 * n + 1 > T) continue;
-            NSUInteger x = i + n, again = x + 1;
-            if (tok[x].sep != 1 || tok[again].sep == 0 || !sameRun(i, again, n)) continue;
-            NSString *aborted = word(x);
-            if (!([abortedStrong containsObject:aborted] || (tok[again].sep == 1 && [abortedBare containsObject:aborted]))) continue;
-            if (sameWordOrSpoken(i, n)) continue;
-            cut = NSMakeRange(tok[i + n - 1].end, tok[again + n - 1].end - tok[i + n - 1].end);
+            if (i + 2 * n + 1 <= T) {
+                NSUInteger x = i + n, again = x + 1;
+                if (tok[x].sep == 1 && tok[again].sep != 0 && sameRun(i, again, n)) {
+                    NSString *aborted = word(x);
+                    if (([abortedStrong containsObject:aborted] || (tok[again].sep == 1 && [abortedBare containsObject:aborted])) &&
+                        !sameWordOrSpoken(i, n)) {
+                        cut = NSMakeRange(tok[i + n - 1].end, tok[again + n - 1].end - tok[i + n - 1].end);
+                        break;
+                    }
+                }
+            }
+            if (i + 2 * n + 2 <= T) {
+                NSUInteger x1 = i + n, x2 = x1 + 1, again2 = x2 + 1;
+                if (tok[x1].sep == 1 && tok[x2].sep == 1 && tok[again2].sep != 0 && sameRun(i, again2, n)) {
+                    NSString *w1 = word(x1), *w2 = word(x2);
+                    if ([abortedPrep containsObject:w1] && [abortedStrong containsObject:w2] && !sameWordOrSpoken(i, n)) {
+                        cut = NSMakeRange(tok[i + n - 1].end, tok[again2 + n - 1].end - tok[i + n - 1].end);
+                        break;
+                    }
+                }
+            }
         }
     }
-    free(low);
-    free(tok);
+    if (useHeap) {
+        free(low);
+        free(tok);
+    }
     if (cut.location == NSNotFound) return NO;
     [str deleteCharactersInRange:cut];
     return YES;
@@ -9497,7 +9581,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastRe = [NSRegularExpression regularExpressionWithPattern:
-                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad)\\b"
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad|rephrase|start\\s+over)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
                  @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
@@ -9511,6 +9595,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                  @"(?:sorry\\s*,?\\s*)?my\\s+bad(?:\\s*,?\\s*(?:no|wait|actually|i\\s+(?:mean|meant)))?|"
                  @"(?:oops|whoops)(?:\\s*,?\\s*(?:no|wait|sorry|actually|my\\s+bad|i\\s+(?:mean|meant)))?|"
                  @"(?:scratch|strike|disregard)\\s+that|"
+                 @"let\\s+me\\s+(?:rephrase(?:\\s+that)?|start\\s+over)|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
                  @")\\b)\\s*[.,?!]?\\s*"
@@ -9526,7 +9611,8 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
         numSet = GFStutterWordSet(@"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
                                   @"fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty "
                                   @"ninety hundred thousand million billion half quarter first second third fourth fifth sixth "
-                                  @"seventh eighth ninth tenth eleventh twelfth");
+                                  @"seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth sixteenth "
+                                  @"seventeenth eighteenth nineteenth twentieth thirtieth");
         modSet = GFStutterWordSet(@"red blue green yellow black white gray grey orange purple pink brown gold silver "
                                   @"left right north south east west morning afternoon evening night upstairs downstairs "
                                   @"indoor indoors outdoor outdoors internal external public private minimum maximum "
@@ -9727,10 +9813,12 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
             NSString *cueCore = [[[str substringWithRange:coreRange] lowercaseString]
                                  stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             // Normalize internal whitespace in cueCore
+            BOOL isStartOver = [cueCore containsString:@"start over"];
+            BOOL isRephrase = [cueCore containsString:@"rephrase"];
             BOOL isClauseCue = [cueCore containsString:@"scratch"] || [cueCore containsString:@"strike"] ||
                                [cueCore containsString:@"forget"] || [cueCore containsString:@"disregard"] ||
                                [cueCore containsString:@"cancel"] || [cueCore containsString:@"delete"] ||
-                               [cueCore containsString:@"never"];
+                               [cueCore containsString:@"never"] || isRephrase || isStartOver;
 
             // If g2 matched "(?:forget|cancel|delete) that" or "never mind", require a trailing comma after the cue
             // so " don't forget that file" after a comma doesn't misfire.
@@ -9758,7 +9846,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
 
             // Rule 1: Lead-Word / Anchor Match (R[0] repeats an earlier lead word L[j])
             NSSet<NSString *> *allowedLeads = isStrong ? strongLeadWords : softLeadWords;
-            if ([allowedLeads containsObject:Rlow[0]]) {
+            if (!isRephrase && !isStartOver && [allowedLeads containsObject:Rlow[0]]) {
                 NSInteger minJ = MAX((NSInteger)0, m_eff - (isStrong ? 7 : 4));
                 NSInteger matchedJ = -1;
                 for (NSInteger j = m_eff - 1; j >= minJ; j--) {
@@ -9789,9 +9877,9 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
             }
 
             // Rule 2: Semantic Category Match (Day / Month / Number-Time-Amount / Modifier)
-            NSInteger rCat = R[0].cat;
+            NSInteger rCat = (isRephrase || isStartOver) ? 0 : R[0].cat;
             BOOL rHasDeicticLead = NO;
-            if (rCat == 0 && k >= 2 && ([Rlow[0] isEqualToString:@"this"] || [Rlow[0] isEqualToString:@"next"] || [Rlow[0] isEqualToString:@"last"]) &&
+            if (!isRephrase && !isStartOver && rCat == 0 && k >= 2 && ([Rlow[0] isEqualToString:@"this"] || [Rlow[0] isEqualToString:@"next"] || [Rlow[0] isEqualToString:@"last"]) &&
                 (R[1].cat == 1 || R[1].cat == 2)) {
                 rCat = R[1].cat;
                 rHasDeicticLead = YES;
@@ -9867,7 +9955,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                                     (rClauseIdx + 1 < k && [finiteAuxVerbs containsObject:Rlow[rClauseIdx]] && [clauseSubjectPronouns containsObject:Rlow[rClauseIdx + 1]]);
             if (isStrong || (rHasGreetingLead && rStartsNewClause && ([cueCore isEqualToString:@"sorry"] || [cueCore isEqualToString:@"i mean"] || [cueCore isEqualToString:@"i meant"]))) {
                 // Case 3a: Object / complement after an anchor word (verb, preposition, or determiner)
-                if (isStrong && !rStartsNewClause && m_eff >= 2) {
+                if (isStrong && !isRephrase && !isStartOver && !rStartsNewClause && m_eff >= 2) {
                     NSInteger anchorIdx = -1;
                     if (R[0].isCap) {
                         NSInteger minCapA = MAX((NSInteger)0, m_eff - 6);
@@ -9897,7 +9985,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                 // Case 3b: Whole-clause retraction for "scratch/strike/forget/disregard that" or when R starts a new clause
                 if (isClauseCue || rStartsNewClause) {
                     NSInteger clauseStartIdx = 0;
-                    if (!rHasGreetingLead) {
+                    if (!rHasGreetingLead && !isStartOver) {
                         for (NSInteger c = m_eff - 1; c >= 1; c--) {
                             if (L[c].hasCommaBefore) {
                                 clauseStartIdx = c;
@@ -10390,6 +10478,14 @@ static void GFFormatSmartEntities(NSMutableString *str) {
         replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+(million|billion|trillion)\\s+yen\\b", @"\u00A5$1 $2", ci);
         replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+yen\\b", @"\u00A5$1", ci);
     }
+    if ([str rangeOfString:@"dollar" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+canadian\\s+dollars?\\b", @"CA$$1", ci);
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+australian\\s+dollars?\\b", @"A$$1", ci);
+        replaceRegex(str, @"(?<![\\u20AC\\u00A3\\u00A5\\w.])\\$?(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+singapore(?:an)?\\s+dollars?\\b", @"S$$1", ci);
+    }
+    if ([str rangeOfString:@"franc" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?<![\\$\\u20AC\\u00A3\\u00A5\\w.])\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:\\s+(?:hundred|thousand|million|billion|trillion))?)\\s+swiss\\s+francs?\\b", @"CHF $1", ci);
+    }
     // 9. Spoken computing & engineering units ("16 gigabytes" -> "16 GB", "500 megabytes" -> "500 MB", "100 megabits per second" -> "100 Mbps",
     //    "48 kilobits per second" -> "48 kbps", "16 kilohertz" -> "16 kHz", "2.4 gigahertz" -> "2.4 GHz", "60 frames per second" -> "60 fps",
     //    "190.5 milliseconds" -> "190.5 ms", "50 microseconds" -> "50 µs", "10 nanoseconds" -> "10 ns")
@@ -10412,6 +10508,20 @@ static void GFFormatSmartEntities(NSMutableString *str) {
         replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+kilohertz\\b", @"$1 kHz", ci);
         replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+megahertz\\b", @"$1 MHz", ci);
         replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+gigahertz\\b", @"$1 GHz", ci);
+        replaceRegex(str, @"\\b(\\d+(?:\\.\\d+)?)\\s+hertz\\b", @"$1 Hz", ci);
+    }
+    if ([str rangeOfString:@"watt" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilowatt[-\\s]+hours?\\b", @"$1 kWh", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+watt[-\\s]+hours?\\b", @"$1 Wh", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+kilowatts?\\b", @"$1 kW", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+megawatts?\\b", @"$1 MW", ci);
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+watts?\\b", @"$1 W", ci);
+    }
+    if ([str rangeOfString:@"milliamp" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s+milliamp(?:ere)?[-\\s]+hours?\\b", @"$1 mAh", ci);
+    }
+    if ([str rangeOfString:@"decibel" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(-?\\d+(?:\\.\\d+)?)\\s+decibels?\\b", @"$1 dB", ci);
     }
 }
 
@@ -10936,7 +11046,7 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
                                  @"(?<![/\\w.-])\\bslash\\s+(tmp|etc|var|usr|opt|dev|proc|sys|healthz)\\b"
                                                                           options:ci error:nil];
             relSlashPathRe = [NSRegularExpression regularExpressionWithPattern:
-                              @"(?<![/\\w.-])\\b((?:src|pkg|cmd|components|pages|routes|assets|scripts|include|dist|node_modules)(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9._-]+){1,5}|[a-z][a-z0-9_-]{1,24}(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9_-]{1,32}){0,4}\\s+slash\\s+[a-z0-9_-]{1,40}\\.[a-z0-9]{1,12})\\b"
+                              @"(?<![/\\w.-])\\b((?:src|pkg|cmd|components|pages|routes|assets|scripts|include|dist|node_modules|origin|upstream|feature|feat|bugfix|hotfix|chore)(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9._-]+){1,5}|[a-z][a-z0-9_-]{1,24}(?:\\s+slash\\s+(?!or\\b|and\\b)[a-z0-9_-]{1,32}){0,4}\\s+slash\\s+[a-z0-9_-]{1,40}\\.[a-z0-9]{1,12})\\b"
                                                                        options:ci error:nil];
             slashSplitRe = [NSRegularExpression regularExpressionWithPattern:@"\\s+slash\\s+" options:ci error:nil];
             urlHostBeforeSlashRe = [NSRegularExpression regularExpressionWithPattern:
@@ -10972,16 +11082,32 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
     }
     if ([str rangeOfString:@"dash" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\bdash\\s+dash\\s+dry\\s+run\\b", @"--dry-run", ci);
-        static NSRegularExpression *flagRe;
+        static NSRegularExpression *flagRe, *shortFlagRe;
+        static NSSet<NSString *> *nonShortFlagWords;
         static dispatch_once_t onceFlag;
         dispatch_once(&onceFlag, ^{
             flagRe = [NSRegularExpression regularExpressionWithPattern:@"\\bdash\\s+dash\\s+([a-z][a-z0-9-]{1,24})\\b"
                                                                options:ci error:nil];
+            shortFlagRe = [NSRegularExpression regularExpressionWithPattern:
+                           @"\\b(git(?:\\s+(?:commit|checkout|switch|branch|merge|rebase|push|pull|fetch|tag|log|diff|clean|reset|stash|add))?|rm|ls|cp|mv|mkdir|chmod|chown|ln|tar|curl|grep|rg|sed|awk|ssh|scp|pytest|pip|npm|pnpm|yarn|cargo|docker|kubectl)\\s+dash\\s+([a-z]{1,4})\\b"
+                                                                    options:ci error:nil];
+            nonShortFlagWords = [NSSet setWithArray:@[
+                @"to", @"of", @"in", @"on", @"at", @"by", @"or", @"as", @"is", @"it", @"up",
+                @"an", @"no", @"so", @"if", @"we", @"he", @"me", @"us", @"my", @"do", @"go",
+                @"the", @"and", @"for", @"out", @"off", @"now", @"all", @"one", @"two"
+            ]];
         });
         NSArray<NSTextCheckingResult *> *fMatches = [flagRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
         for (NSTextCheckingResult *m in [fMatches reverseObjectEnumerator]) {
             NSString *flagName = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
             [str replaceCharactersInRange:m.range withString:[@"--" stringByAppendingString:flagName]];
+        }
+        NSArray<NSTextCheckingResult *> *sfMatches = [shortFlagRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [sfMatches reverseObjectEnumerator]) {
+            NSString *cmdPart = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *flagPart = [[str substringWithRange:[m rangeAtIndex:2]] lowercaseString];
+            if ([nonShortFlagWords containsObject:flagPart]) continue;
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@ -%@", cmdPart, flagPart]];
         }
     }
     // Cycle 90: Spoken Keyboard Shortcuts ("command shift p" -> "Cmd+Shift+P", "press command a" -> "press Cmd+A", "control c" -> "Ctrl+C")
@@ -17397,6 +17523,75 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c98Ok) passed++; else failed++;
                 printf("%s: spoken IPv4 addresses, Unix/API slash paths, and compact v-prefixed semver tags (%d%d%d)\n",
                        c98Ok ? "PASS" : "FAIL", ip1, ip2, ip3);
+            }
+            // Cycle 99: Stack-Buffered GFCollapsePhraseRepeatOnce / GFMeasureSpeechEvidence & 2-Token Aborted Prefix Restart Collapse
+            {
+                BOOL st1 = [[self polishOnDeviceTranscript:@"We should ship to the we should ship the update tomorrow."]
+                            isEqualToString:@"We should ship the update tomorrow. "];
+                BOOL st2 = [[self polishOnDeviceTranscript:@"I want to check on the I want to check the logs because we need to fix in a we need to fix the bug."]
+                            isEqualToString:@"I want to check the logs because we need to fix the bug. "];
+                int16_t quietBuf[640] = {0};
+                GFSpeechEvidence ev = GFMeasureSpeechEvidence(quietBuf, 640);
+                BOOL st3 = (ev.peakRMS == 0.0 && ev.evidenceSeconds == 0.0);
+                BOOL c99Ok = st1 && st2 && st3;
+                if (c99Ok) passed++; else failed++;
+                printf("%s: stack-buffered stutter/evidence helpers and 2-token aborted prefix restart collapse (%d%d%d)\n",
+                       c99Ok ? "PASS" : "FAIL", st1, st2, st3);
+            }
+            // Cycle 100: Dual-Stream Phonetic Consensus 4-to-1 Split-Acronym Fusion (Pass 1a-4) & Expanded builtInTechMap
+            {
+                BOOL dc1 = [GFDualStreamConsensus(@"The g r p c service uses u u i d keys.",
+                                                  @"The gRPC service uses UUID keys.", @[])
+                            isEqualToString:@"The gRPC service uses UUID keys."];
+                BOOL dc2 = [GFDualStreamConsensus(@"Enable c o r s on the fast a p i endpoint.",
+                                                  @"Enable CORS on the FastAPI endpoint.", @[])
+                            isEqualToString:@"Enable CORS on the FastAPI endpoint."];
+                BOOL dc3 = [GFDualStreamConsensus(@"Check the tailwind c s s and cocoa pods config.",
+                                                  @"Check the TailwindCSS and CocoaPods config.", @[])
+                            isEqualToString:@"Check the TailwindCSS and CocoaPods config."];
+                BOOL c100Ok = dc1 && dc2 && dc3;
+                if (c100Ok) passed++; else failed++;
+                printf("%s: 4-to-1 split-acronym fusion and expanded builtInTechMap in GFDualStreamConsensus (%d%d%d)\n",
+                       c100Ok ? "PASS" : "FAIL", dc1, dc2, dc3);
+            }
+            // Cycle 101: Spoken Git Remote/Branch Slash References & Single-Dash CLI Flags in GFFormatSpokenTechnicalTokens
+            {
+                BOOL g1 = [[self polishOnDeviceTranscript:@"Push origin slash main and upstream slash main after merging feature slash oauth."]
+                           isEqualToString:@"Push origin/main and upstream/main after merging feature/oauth. "];
+                BOOL g2 = [[self polishOnDeviceTranscript:@"Run git checkout dash b hotfix slash login and git commit dash m."]
+                           isEqualToString:@"Run git checkout -b hotfix/login and git commit -m. "];
+                BOOL g3 = [[self polishOnDeviceTranscript:@"Use rm dash rf, ls dash la, and pytest dash v to verify."]
+                           isEqualToString:@"Use rm -rf, ls -la, and pytest -v to verify. "];
+                BOOL c101Ok = g1 && g2 && g3;
+                if (c101Ok) passed++; else failed++;
+                printf("%s: spoken Git remote/branch slash references and single-dash CLI flags (%d%d%d)\n",
+                       c101Ok ? "PASS" : "FAIL", g1, g2, g3);
+            }
+            // Cycle 102: Spoken Commonwealth & Swiss Currencies (CA$, A$, S$, CHF) and Hardware/Audio Units (Hz, W, kW, Wh, kWh, mAh, dB)
+            {
+                BOOL cu1 = [[self polishOnDeviceTranscript:@"The price is 50 Canadian dollars, 80 Australian dollars, or 100 Singapore dollars."]
+                            isEqualToString:@"The price is CA$50, A$80, or S$100. "];
+                BOOL cu2 = [[self polishOnDeviceTranscript:@"The grant was 2.5 million Swiss francs for the 120 hertz display."]
+                            isEqualToString:@"The grant was CHF 2.5 million for the 120 Hz display. "];
+                BOOL cu3 = [[self polishOnDeviceTranscript:@"It uses a 96 watt adapter, a 5,000 milliamp hour battery, and stays under 24 decibels."]
+                            isEqualToString:@"It uses a 96 W adapter, a 5,000 mAh battery, and stays under 24 dB. "];
+                BOOL c102Ok = cu1 && cu2 && cu3;
+                if (c102Ok) passed++; else failed++;
+                printf("%s: spoken CA$/A$/S$/CHF currencies and Hz/W/mAh/dB hardware units (%d%d%d)\n",
+                       c102Ok ? "PASS" : "FAIL", cu1, cu2, cu3);
+            }
+            // Cycle 103: Conversational Self-Correction for "let me rephrase" / "let me start over" & Higher Spelled-Out Ordinals
+            {
+                BOOL rp1 = [[self polishOnDeviceTranscript:@"I think the API is broken, let me rephrase that, the authentication token expired."]
+                            isEqualToString:@"The authentication token expired. "];
+                BOOL rp2 = [[self polishOnDeviceTranscript:@"After we merge the branch, we should deploy immediately, let me rephrase, we should wait for the staging checks to pass."]
+                            isEqualToString:@"After we merge the branch, we should wait for the staging checks to pass. "];
+                BOOL rp3 = [[self polishOnDeviceTranscript:@"We had a bug in the router, let me start over, let's run the full test suite on the fifteenth, wait, twentieth floor."]
+                            isEqualToString:@"Let's run the full test suite on the twentieth floor. "];
+                BOOL c103Ok = rp1 && rp2 && rp3;
+                if (c103Ok) passed++; else failed++;
+                printf("%s: 'let me rephrase' / 'let me start over' clause retractions and higher ordinal self-corrections (%d%d%d)\n",
+                       c103Ok ? "PASS" : "FAIL", rp1, rp2, rp3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
