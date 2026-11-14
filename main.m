@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(93), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:36", @"title": @"Smarter Custom Words learning for dotted tech names and possessive names", @"highlights": @[@"When you edit spoken words into dotted, slashed, or hyphenated names like 'Next.js', 'Vue.js', or 'CI/CD' after pasting, GeminiFlow now recognizes the full name and offers to remember it in Custom Words.", @"When you fix the spelling of a possessive name like 'Owen's' to 'Eoin's', GeminiFlow automatically learns the base name ('Owen' to 'Eoin') so future dictations match both forms."]},
+            @{@"cycle": @(92), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:35", @"title": @"Cleaner dictation inside and right after parentheses and brackets", @"highlights": @[@"When you place your cursor inside empty parentheses or square brackets and dictate a note, GeminiFlow keeps the first word lowercase and leaves out the extra period and trailing space before the closing bracket.", @"Adds a leading space and lowercases continuing words when you dictate immediately after a closing parenthesis or bracket mid-sentence."]},
+            @{@"cycle": @(91), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:34", @"title": @"Formats spoken pull requests, issue numbers, and platform version numbers", @"highlights": @[@"Turns spoken references like 'pull request 42', 'PR 105', 'issue number 108', 'ticket number 512', and 'bug number 79' into 'PR #42', 'PR #105', 'issue #108', 'ticket #512', and 'bug #79'.", @"Formats spoken version numbers after platform and tool names such as 'iOS 18 point 2', 'macOS 15 point 1', and 'Python 3 point 12 point 1' into 'iOS 18.2', 'macOS 15.1', and 'Python 3.12.1'."]},
+            @{@"cycle": @(90), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:33", @"title": @"Formats spoken keyboard shortcuts like 'Cmd+Shift+P' and 'Ctrl+C'", @"highlights": @[@"Turns spoken keyboard shortcuts such as 'command shift P', 'command option escape', 'press command A', 'command C', 'command V', and 'control C' into 'Cmd+Shift+P', 'Cmd+Opt+Esc', 'press Cmd+A', 'Cmd+C', 'Cmd+V', and 'Ctrl+C'.", @"Leaves ordinary sentences like 'command a large fleet' or 'control a remote system' untouched."]},
+            @{@"cycle": @(89), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:32", @"title": @"Faster settings and combined vocabulary lookup across dictations", @"highlights": @[@"Checks whether your rules settings file has changed on disk before reading it, avoiding repeat file reads when your settings are unchanged.", @"Reuses the combined vocabulary list in memory when neither your Custom Words nor your rules file has changed."]},
             @{@"cycle": @(88), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:16", @"title": @"Formats spoken dotfiles like '.env' and '.gitignore' and more terminal commands", @"highlights": @[@"Turns spoken dotfiles like 'dot env', 'dot env dot local', 'dot gitignore', 'dot zshrc', and 'dot npmrc' into '.env', '.env.local', '.gitignore', '.zshrc', and '.npmrc', and adds support for shell, Protobuf, GraphQL, SQLite, and Xcode project extensions.", @"Keeps more spoken command-line tools in lowercase when dictating into code editors and terminals, including 'swift', 'gh', 'uv', 'bun', 'pnpm', 'terraform', 'kubectl', and 'gcloud'."]},
             @{@"cycle": @(87), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:15", @"title": @"Formats spoken euros, pounds, and computing units like 'GB', 'Mbps', and 'kHz'", @"highlights": @[@"Formats spoken euro and pound amounts such as '20 euros and 50 cents', '3.5 million euros', '25 pounds and 50 pence', and '100 million pounds' into '\u20AC20.50', '\u20AC3.5 million', '\u00A325.50', and '\u00A3100 million'.", @"Abbreviates spoken technical units after numbers, turning '16 gigabytes', '500 megabytes', '100 megabits per second', '16 kilohertz', '2.4 gigahertz', and '60 frames per second' into '16 GB', '500 MB', '100 Mbps', '16 kHz', '2.4 GHz', and '60 fps'."]},
             @{@"cycle": @(86), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 13:14", @"title": @"Formats spoken web links, URL paths, and developer brand names", @"highlights": @[@"Turns spoken web addresses and local server paths such as 'https colon slash slash docs dot github dot com slash en slash actions' and 'http colon slash slash localhost colon 3000 slash api slash v1' into clean links.", @"Restores proper capitalization on developer and tech names including 'TypeScript', 'JavaScript', 'GraphQL', 'PostgreSQL', 'MongoDB', 'FastAPI', 'PyTorch', 'OpenAI', 'DeepSeek', 'GitLab', 'SwiftUI', and 'WebSocket'."]},
@@ -3332,6 +3337,46 @@ static NSArray<NSString *> *GFCleanVocabulary(id raw) {
     }
     return out;
 }
+// Cycle 89 (Backlog 12): stat()-backed file cache for rules.json (GFLoadRulesDataFromPath).
+// Avoids opening/reading rules.json from disk on every speech turn when (path, ino, size, mtime, ctime) are unchanged.
+static NSData *GFLoadRulesDataFromPath(NSString *path) {
+    if (!path || path.length == 0) return nil;
+    const char *cpath = path.fileSystemRepresentation;
+    struct stat st;
+    if (!cpath || stat(cpath, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) return nil;
+    static NSString *sLastRulesPath = nil;
+    static ino_t sLastRulesIno = 0;
+    static off_t sLastRulesSize = 0;
+    static time_t sLastRulesMtimeSec = 0, sLastRulesCtimeSec = 0;
+    static long sLastRulesMtimeNsec = 0, sLastRulesCtimeNsec = 0;
+    static NSData *sLastRulesData = nil;
+    static os_unfair_lock sRulesPathLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sRulesPathLock);
+    if (sLastRulesData && sLastRulesIno == st.st_ino && sLastRulesSize == st.st_size &&
+        sLastRulesMtimeSec == st.st_mtimespec.tv_sec && sLastRulesMtimeNsec == st.st_mtimespec.tv_nsec &&
+        sLastRulesCtimeSec == st.st_ctimespec.tv_sec && sLastRulesCtimeNsec == st.st_ctimespec.tv_nsec &&
+        sLastRulesPath && [sLastRulesPath isEqualToString:path]) {
+        NSData *cached = sLastRulesData;
+        os_unfair_lock_unlock(&sRulesPathLock);
+        return cached;
+    }
+    os_unfair_lock_unlock(&sRulesPathLock);
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (!data || data.length == 0) return nil;
+    NSData *immutableData = [data copy];
+    os_unfair_lock_lock(&sRulesPathLock);
+    sLastRulesPath = [path copy];
+    sLastRulesIno = st.st_ino;
+    sLastRulesSize = st.st_size;
+    sLastRulesMtimeSec = st.st_mtimespec.tv_sec;
+    sLastRulesMtimeNsec = st.st_mtimespec.tv_nsec;
+    sLastRulesCtimeSec = st.st_ctimespec.tv_sec;
+    sLastRulesCtimeNsec = st.st_ctimespec.tv_nsec;
+    sLastRulesData = immutableData;
+    os_unfair_lock_unlock(&sRulesPathLock);
+    return immutableData;
+}
+
 // Parsed rules dictionary cached by file bytes/identity (backlog 12). Avoids re-parsing JSON on every speech turn.
 static NSDictionary *GFParsedRulesFromData(NSData *rulesData) {
     if (!rulesData || rulesData.length == 0) return nil;
@@ -3339,7 +3384,7 @@ static NSDictionary *GFParsedRulesFromData(NSData *rulesData) {
     static NSDictionary *sCachedRules = nil;
     static os_unfair_lock sLock = OS_UNFAIR_LOCK_INIT;
     os_unfair_lock_lock(&sLock);
-    if (sCachedData && [sCachedData isEqualToData:rulesData]) {
+    if (sCachedData && (sCachedData == rulesData || [sCachedData isEqualToData:rulesData])) {
         NSDictionary *rules = sCachedRules;
         os_unfair_lock_unlock(&sLock);
         return rules;
@@ -3361,7 +3406,7 @@ static NSArray<NSString *> *GFVocabularyFromRulesData(NSData *data) {
     static NSArray<NSString *> *sCachedVocab = nil;
     static os_unfair_lock sVocabLock = OS_UNFAIR_LOCK_INIT;
     os_unfair_lock_lock(&sVocabLock);
-    if (sCachedVocabData && [sCachedVocabData isEqualToData:data] && sCachedVocab) {
+    if (sCachedVocabData && (sCachedVocabData == data || [sCachedVocabData isEqualToData:data]) && sCachedVocab) {
         NSArray<NSString *> *cached = sCachedVocab;
         os_unfair_lock_unlock(&sVocabLock);
         return cached;
@@ -3686,7 +3731,7 @@ static NSArray<NSString *> *GFTokenizeWordsForEditDiff(NSString *text) {
     static NSRegularExpression *wordRe;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        wordRe = [NSRegularExpression regularExpressionWithPattern:@"[\\p{L}\\p{N}]+(?:['\u2019-][\\p{L}\\p{N}]+)*" options:0 error:nil];
+        wordRe = [NSRegularExpression regularExpressionWithPattern:@"[\\p{L}\\p{N}]+(?:['\u2019./-][\\p{L}\\p{N}]+)*" options:0 error:nil];
     });
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     for (NSTextCheckingResult *m in [wordRe matchesInString:text options:0 range:NSMakeRange(0, text.length)]) {
@@ -3703,12 +3748,12 @@ static NSDictionary<NSString *, NSString *> *GFDetectEditedCustomWordPair(
     NSArray<NSString *> *pWords = GFTokenizeWordsForEditDiff(pastedText);
     NSArray<NSString *> *eWords = GFTokenizeWordsForEditDiff(editedText);
     NSUInteger m = pWords.count, n = eWords.count;
-    if (m < 3 || n + 2 < m) return nil;
+    if (m < 3 || n + 3 < m) return nil;
 
     NSString *bestHear = nil, *bestWrite = nil;
     NSUInteger bestContext = 0, bestPMid = 0, bestEMid = 0;
-    NSUInteger minL = (m > 2) ? (m - 2) : 1;
-    NSUInteger maxL = MIN(n, m + 2);
+    NSUInteger minL = (m > 3) ? (m - 3) : 1;
+    NSUInteger maxL = MIN(n, m + 3);
     for (NSUInteger L = minL; L <= maxL; L++) {
         for (NSInteger s = (NSInteger)(n - L); s >= 0; s--) {
             NSUInteger start = (NSUInteger)s;
@@ -3723,7 +3768,7 @@ static NSDictionary<NSString *, NSString *> *GFDetectEditedCustomWordPair(
             NSUInteger ctx = pref + suff;
             NSUInteger pMid = m - ctx;
             NSUInteger eMid = L - ctx;
-            if (ctx >= 2 && ctx * 2 >= m && pMid >= 1 && pMid <= 3 && eMid >= 1 && eMid <= 3 && ctx > bestContext) {
+            if (ctx >= 2 && ctx * 2 >= m && pMid >= 1 && pMid <= 4 && eMid >= 1 && eMid <= 3 && ctx > bestContext) {
                 bestContext = ctx;
                 bestPMid = pMid;
                 bestEMid = eMid;
@@ -3733,6 +3778,18 @@ static NSDictionary<NSString *, NSString *> *GFDetectEditedCustomWordPair(
         }
     }
     if (!bestHear || !bestWrite || [bestHear isEqualToString:bestWrite]) return nil;
+    // Cycle 93: Strip shared possessive suffix ('s / ’s) so editing "Owen's" -> "Eoin's" learns the base pair "Owen" -> "Eoin".
+    if (bestHear.length >= 4 && bestWrite.length >= 4) {
+        NSString *hTail = [[bestHear substringFromIndex:bestHear.length - 2] lowercaseString];
+        NSString *wTail = [[bestWrite substringFromIndex:bestWrite.length - 2] lowercaseString];
+        BOOL hPoss = [hTail isEqualToString:@"'s"] || [hTail isEqualToString:@"\u2019s"];
+        BOOL wPoss = [wTail isEqualToString:@"'s"] || [wTail isEqualToString:@"\u2019s"];
+        if (hPoss && wPoss) {
+            bestHear = [bestHear substringToIndex:bestHear.length - 2];
+            bestWrite = [bestWrite substringToIndex:bestWrite.length - 2];
+            if ([bestHear isEqualToString:bestWrite]) return nil;
+        }
+    }
     if (bestHear.length > kVocabularyMaxTermLength || bestWrite.length > kVocabularyMaxTermLength) return nil;
 
     // `write` must look like a proper name, brand, or technical term (contains at least one uppercase letter)
@@ -3751,14 +3808,15 @@ static NSDictionary<NSString *, NSString *> *GFDetectEditedCustomWordPair(
     });
     if ([commonCapSkipSet containsObject:[bestWrite lowercaseString]]) return nil;
 
-    NSString *hFlat = [[bestHear lowercaseString] stringByReplacingOccurrencesOfString:@" " withString:@""];
-    NSString *wFlat = [[bestWrite lowercaseString] stringByReplacingOccurrencesOfString:@" " withString:@""];
+    NSCharacterSet *flatStripSet = [NSCharacterSet characterSetWithCharactersInString:@" ./-"];
+    NSString *hFlat = [[[bestHear lowercaseString] componentsSeparatedByCharactersInSet:flatStripSet] componentsJoinedByString:@""];
+    NSString *wFlat = [[[bestWrite lowercaseString] componentsSeparatedByCharactersInSet:flatStripSet] componentsJoinedByString:@""];
     if (hFlat.length < 2 || wFlat.length < 2) return nil;
     if ([hFlat isEqualToString:wFlat]) {
         // Single-word case-only edit ("meeting" -> "Meeting" at a new sentence boundary): require an uppercase letter after index 0
-        // (e.g. "macos" -> "macOS", "github" -> "GitHub", "api" -> "API"), whereas multi-token joins ("web socket" -> "WebSocket",
-        // "L L M" -> "LLM") are always genuine compound/acronym edits.
-        if (bestPMid == 1 && bestEMid == 1) {
+        // or internal punctuation added ("nextjs" -> "Next.js"), whereas multi-token joins ("web socket" -> "WebSocket",
+        // "next js" -> "Next.js", "L L M" -> "LLM") are always genuine compound/acronym edits.
+        if (bestPMid == 1 && bestEMid == 1 && [[bestHear lowercaseString] isEqualToString:[bestWrite lowercaseString]]) {
             BOOL hasUpperAfterFirst = NO;
             for (NSUInteger i = 1; i < bestWrite.length; i++) {
                 if ([[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[bestWrite characterAtIndex:i]]) {
@@ -3799,14 +3857,37 @@ static NSArray<NSString *> *GFLoadCustomWordsFromPath(NSString *path) {
 // The user's vocabulary from its two sources: the custom words file first (every entry's "write": plain terms and the targets of
 // pairs), then rules.json "customVocabulary" (the first readable of `rulesPaths`), cleaned together (so duplicates across the two
 // collapse and the 100-term limit applies to the whole list).
+// Cycle 89 (Backlog 12): Uses stat()-backed GFLoadRulesDataFromPath and caches the merged GFCleanVocabulary output by the
+// pointer/value identity of (cwVocab, rulesVocab) under os_unfair_lock.
 static NSArray<NSString *> *GFUserVocabularyFromFiles(NSString *customWordsPath, NSArray<NSString *> *rulesPaths) {
     NSData *rules = nil;
     for (NSString *path in rulesPaths) {
-        rules = [NSData dataWithContentsOfFile:path];
+        rules = GFLoadRulesDataFromPath(path);
         if (rules) break;
     }
-    return GFCleanVocabulary([GFVocabularyFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(customWordsPath))
-                              arrayByAddingObjectsFromArray:GFVocabularyFromRulesData(rules)]);
+    NSArray<NSString *> *cwVocab = GFVocabularyFromCustomWordEntries(GFLoadCustomWordEntriesFromPath(customWordsPath));
+    NSArray<NSString *> *rulesVocab = GFVocabularyFromRulesData(rules);
+    if (cwVocab.count == 0 && rulesVocab.count == 0) return @[];
+    static NSArray<NSString *> *sLastCwVocab = nil;
+    static NSArray<NSString *> *sLastRulesVocab = nil;
+    static NSArray<NSString *> *sLastMergedVocab = nil;
+    static os_unfair_lock sMergedVocabLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sMergedVocabLock);
+    if (sLastMergedVocab && sLastCwVocab && sLastRulesVocab &&
+        (sLastCwVocab == cwVocab || [sLastCwVocab isEqualToArray:cwVocab]) &&
+        (sLastRulesVocab == rulesVocab || [sLastRulesVocab isEqualToArray:rulesVocab])) {
+        NSArray<NSString *> *cached = sLastMergedVocab;
+        os_unfair_lock_unlock(&sMergedVocabLock);
+        return cached;
+    }
+    os_unfair_lock_unlock(&sMergedVocabLock);
+    NSArray<NSString *> *merged = GFCleanVocabulary([cwVocab arrayByAddingObjectsFromArray:rulesVocab]);
+    os_unfair_lock_lock(&sMergedVocabLock);
+    sLastCwVocab = [cwVocab copy];
+    sLastRulesVocab = [rulesVocab copy];
+    sLastMergedVocab = merged;
+    os_unfair_lock_unlock(&sMergedVocabLock);
+    return merged;
 }
 // Which list a Live connect sends. Test isolation: in --test and in e2e mode ONLY the injected list (--e2e-vocabulary) is used
 // and the user's files are never read (`loadUser` is not called), so the user's real words are never sent by an automated test
@@ -4657,7 +4738,8 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
         BOOL isMidSentence = !beforeEndsSentence &&
                              ((lastChar >= 'a' && lastChar <= 'z') || (lastChar >= 'A' && lastChar <= 'Z') ||
                               (lastChar >= '0' && lastChar <= '9') || lastChar == ',' || lastChar == ';' ||
-                              lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '/' || lastChar == '.');
+                              lastChar == ':' || lastChar == '-' || lastChar == '(' || lastChar == '[' ||
+                              lastChar == ')' || lastChar == ']' || lastChar == '/' || lastChar == '.');
         if (isMidSentence) {
             NSTextCheckingResult *fw = [firstWordRe firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
             if (fw) {
@@ -4689,10 +4771,11 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
 
             unichar rawLast = [lineBefore characterAtIndex:lineBefore.length - 1];
             BOOL flushAfterWordOrComma = ((rawLast >= 'a' && rawLast <= 'z') || (rawLast >= 'A' && rawLast <= 'Z') ||
-                                          (rawLast >= '0' && rawLast <= '9') || rawLast == ',' || rawLast == ';' || rawLast == ':');
+                                          (rawLast >= '0' && rawLast <= '9') || rawLast == ',' || rawLast == ';' ||
+                                          rawLast == ':' || rawLast == ')' || rawLast == ']');
             if (flushAfterWordOrComma && out.length > 0) {
                 unichar firstOut = [out characterAtIndex:0];
-                if (firstOut != ' ' && firstOut != '\n' && firstOut != ',' && firstOut != '.' && firstOut != '?' && firstOut != '!' && firstOut != ';' && firstOut != ':') {
+                if (firstOut != ' ' && firstOut != '\n' && firstOut != ',' && firstOut != '.' && firstOut != '?' && firstOut != '!' && firstOut != ';' && firstOut != ':' && firstOut != ')' && firstOut != ']') {
                     [out insertString:@" " atIndex:0];
                 }
             }
@@ -4711,7 +4794,9 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
         NSString *trimmedAfter = [afterCursor stringByTrimmingCharactersInSet:horizWS];
         if (trimmedAfter.length > 0) {
             unichar firstAfter = [trimmedAfter characterAtIndex:0];
-            BOOL continuesSentence = ((firstAfter >= 'a' && firstAfter <= 'z') || firstAfter == ',' || firstAfter == ';' || firstAfter == ':');
+            BOOL closingBracketAfter = (firstAfter == ')' || firstAfter == ']');
+            BOOL punctAttachedAfter = (firstAfter == ',' || firstAfter == ';' || firstAfter == ':' || closingBracketAfter);
+            BOOL continuesSentence = ((firstAfter >= 'a' && firstAfter <= 'z') || punctAttachedAfter);
             if (continuesSentence) {
                 if ([out hasSuffix:@". "]) {
                     NSString *withoutTrailingSpace = [out substringToIndex:out.length - 1];
@@ -4723,9 +4808,9 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
                         [out deleteCharactersInRange:NSMakeRange(out.length - 1, 1)];
                     }
                 }
-                if (([afterCursor hasPrefix:@" "] || firstAfter == ',' || firstAfter == ';' || firstAfter == ':') && [out hasSuffix:@" "]) {
+                if (([afterCursor hasPrefix:@" "] || punctAttachedAfter) && [out hasSuffix:@" "]) {
                     [out deleteCharactersInRange:NSMakeRange(out.length - 1, 1)];
-                } else if (![afterCursor hasPrefix:@" "] && firstAfter != ',' && firstAfter != ';' && firstAfter != ':' && ![out hasSuffix:@" "]) {
+                } else if (![afterCursor hasPrefix:@" "] && !punctAttachedAfter && ![out hasSuffix:@" "]) {
                     [out appendString:@" "];
                 }
             }
@@ -10482,8 +10567,9 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
         replaceRegex(str, @"\\b(nightly|staging|canary|beta|debug|xcode|gradle)\\s+bill(s?)\\b", @"$1 build$2", ci);
     }
     if ([str rangeOfString:@"point" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        replaceRegex(str, @"\\b(version|v)\\s+(\\d+)\\s+point\\s+(\\d+)\\s+point\\s+(\\d+)\\b", @"$1 $2.$3.$4", ci);
-        replaceRegex(str, @"\\b(version|v)\\s+(\\d+)\\s+point\\s+(\\d+)\\b", @"$1 $2.$3", ci);
+        NSString *verLead = @"(version|v|release|ios|ipados|macos|watchos|tvos|visionos|python|swift|node|xcode|ruby|rust|kotlin|clang|gcc)";
+        replaceRegex(str, [NSString stringWithFormat:@"\\b%@\\s+(\\d+)\\s+point\\s+(\\d+)\\s+point\\s+(\\d+)\\b", verLead], @"$1 $2.$3.$4", ci);
+        replaceRegex(str, [NSString stringWithFormat:@"\\b%@\\s+(\\d+)\\s+point\\s+(\\d+)\\b", verLead], @"$1 $2.$3", ci);
     }
     if ([str rangeOfString:@"localhost" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(localhost)\\s+colon\\s+(\\d{2,5})\\b", @"$1:$2", ci);
@@ -10606,6 +10692,17 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
         replaceRegex(str,
                      @"\\b(?:off|after)\\s+the\\s+(laptop|macbook|mac|computer|system|device|display)\\s+(?:link\\s+to|links\\s+to|wakes?\\s+to)\\s+sleep\\b",
                      @"after the $1 wakes from sleep", ci);
+    }
+    // Cycle 91: Spoken Pull Request, Issue, Ticket, and Bug Number References ("pull request 42" -> "PR #42", "issue number 108" -> "issue #108")
+    if ([str rangeOfString:@"request" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\bpull\\s+request(?:\\s+number)?\\s+(\\d{1,6})\\b", @"PR #$1", ci);
+    }
+    if ([str rangeOfString:@"pr " options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"p r " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(?:p\\s+r|pr)(?:\\s+number)?\\s+(\\d{1,6})\\b", @"PR #$1", ci);
+    }
+    if ([str rangeOfString:@"number" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(issue|ticket|bug)\\s+number\\s+(\\d{1,6})\\b", @"$1 #$2", ci);
     }
 }
 
@@ -10754,6 +10851,76 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
         for (NSTextCheckingResult *m in [fMatches reverseObjectEnumerator]) {
             NSString *flagName = [[str substringWithRange:[m rangeAtIndex:1]] lowercaseString];
             [str replaceCharactersInRange:m.range withString:[@"--" stringByAppendingString:flagName]];
+        }
+    }
+    // Cycle 90: Spoken Keyboard Shortcuts ("command shift p" -> "Cmd+Shift+P", "press command a" -> "press Cmd+A", "control c" -> "Ctrl+C")
+    if ([str rangeOfString:@"command" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"control" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"cmd" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"ctrl" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"option" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"alt" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        static NSRegularExpression *multiModRe, *trigSingleModRe, *bareSingleModRe;
+        static NSDictionary<NSString *, NSString *> *modMap, *keyMap;
+        static dispatch_once_t onceKey;
+        dispatch_once(&onceKey, ^{
+            NSString *modPat = @"(command|cmd|control|ctrl|option|opt|alt|shift)";
+            NSString *allKeyPat = @"([a-z0-9]|tab|space|spacebar|enter|return|escape|esc|delete|backspace|up|down|left|right)";
+            NSString *nonArticleKeyPat = @"([b-hj-z0-9]|tab|space|spacebar|enter|return|escape|esc|delete|backspace)";
+            multiModRe = [NSRegularExpression regularExpressionWithPattern:
+                          [NSString stringWithFormat:@"(?<![+\\w-])\\b%@\\s+%@(?:\\s+%@)?\\s+%@\\b(?![+\\w-])", modPat, modPat, modPat, allKeyPat]
+                                                                   options:ci error:nil];
+            trigSingleModRe = [NSRegularExpression regularExpressionWithPattern:
+                               [NSString stringWithFormat:@"\\b(press|pressing|pressed|hit|hitting|shortcut)\\s+%@\\s+%@\\b(?![+\\w-])", modPat, allKeyPat]
+                                                                        options:ci error:nil];
+            bareSingleModRe = [NSRegularExpression regularExpressionWithPattern:
+                               [NSString stringWithFormat:@"(?<![+\\w-])\\b(command|cmd|control|ctrl)\\s+%@\\b(?![+\\w-])", nonArticleKeyPat]
+                                                                        options:ci error:nil];
+            modMap = @{
+                @"command": @"Cmd", @"cmd": @"Cmd",
+                @"control": @"Ctrl", @"ctrl": @"Ctrl",
+                @"option": @"Opt", @"opt": @"Opt",
+                @"alt": @"Alt", @"shift": @"Shift"
+            };
+            keyMap = @{
+                @"tab": @"Tab", @"space": @"Space", @"spacebar": @"Space",
+                @"enter": @"Enter", @"return": @"Return",
+                @"escape": @"Esc", @"esc": @"Esc",
+                @"delete": @"Delete", @"backspace": @"Backspace",
+                @"up": @"Up", @"down": @"Down", @"left": @"Left", @"right": @"Right"
+            };
+        });
+        NSString *(^formatKey)(NSString *) = ^NSString *(NSString *rawKey) {
+            NSString *kLow = rawKey.lowercaseString;
+            return keyMap[kLow] ?: [kLow uppercaseString];
+        };
+        NSArray<NSTextCheckingResult *> *mMatches = [multiModRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [mMatches reverseObjectEnumerator]) {
+            NSString *m1 = modMap[[[str substringWithRange:[m rangeAtIndex:1]] lowercaseString]];
+            NSString *m2 = modMap[[[str substringWithRange:[m rangeAtIndex:2]] lowercaseString]];
+            if (!m1 || !m2 || [m1 isEqualToString:m2]) continue;
+            NSRange r3 = [m rangeAtIndex:3];
+            NSString *m3 = (r3.location != NSNotFound) ? modMap[[[str substringWithRange:r3] lowercaseString]] : nil;
+            if (m3 && ([m3 isEqualToString:m1] || [m3 isEqualToString:m2])) continue;
+            NSString *kOut = formatKey([str substringWithRange:[m rangeAtIndex:4]]);
+            NSString *combo = m3 ? [NSString stringWithFormat:@"%@+%@+%@+%@", m1, m2, m3, kOut]
+                                 : [NSString stringWithFormat:@"%@+%@+%@", m1, m2, kOut];
+            [str replaceCharactersInRange:m.range withString:combo];
+        }
+        NSArray<NSTextCheckingResult *> *tMatches = [trigSingleModRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [tMatches reverseObjectEnumerator]) {
+            NSString *verb = [str substringWithRange:[m rangeAtIndex:1]];
+            NSString *m1 = modMap[[[str substringWithRange:[m rangeAtIndex:2]] lowercaseString]];
+            NSString *kOut = formatKey([str substringWithRange:[m rangeAtIndex:3]]);
+            if (!m1 || !kOut) continue;
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@ %@+%@", verb, m1, kOut]];
+        }
+        NSArray<NSTextCheckingResult *> *bMatches = [bareSingleModRe matchesInString:str options:0 range:NSMakeRange(0, str.length)];
+        for (NSTextCheckingResult *m in [bMatches reverseObjectEnumerator]) {
+            NSString *m1 = modMap[[[str substringWithRange:[m rangeAtIndex:1]] lowercaseString]];
+            NSString *kOut = formatKey([str substringWithRange:[m rangeAtIndex:2]]);
+            if (!m1 || !kOut) continue;
+            [str replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@+%@", m1, kOut]];
         }
     }
 }
@@ -16865,6 +17032,86 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c88Ok) passed++; else failed++;
                 printf("%s: spoken dotfile formatting, expanded developer file extensions, and terminal CLI commands (%d%d%d)\n",
                        c88Ok ? "PASS" : "FAIL", d1, d2, d3);
+            }
+            // Cycle 89: stat()-Backed GFLoadRulesDataFromPath Cache & Merged GFUserVocabularyFromFiles Pointer-Identity Cache
+            {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSString *dir = [[NSTemporaryDirectory() stringByStandardizingPath]
+                                 stringByAppendingPathComponent:[NSString stringWithFormat:@"gf-c89-rules-%@", [NSUUID UUID].UUIDString]];
+                [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+                NSString *cwPath = [dir stringByAppendingPathComponent:@"custom-words.json"];
+                NSString *rPath = [dir stringByAppendingPathComponent:@"rules.json"];
+                [@"[\"Siobhan\"]" writeToFile:cwPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [@"{\"customVocabulary\": [\"Zyphra\", \"Siobhan\"]}" writeToFile:rPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSData *d1 = GFLoadRulesDataFromPath(rPath);
+                NSData *d2 = GFLoadRulesDataFromPath(rPath);
+                BOOL r1 = (d1 != nil && d1 == d2);
+                NSArray *m1 = GFUserVocabularyFromFiles(cwPath, @[rPath]);
+                NSArray *m2 = GFUserVocabularyFromFiles(cwPath, @[rPath]);
+                BOOL r2 = (m1.count == 2 && m1 == m2 && [m1[0] isEqualToString:@"Siobhan"] && [m1[1] isEqualToString:@"Zyphra"]);
+                [@"{\"customVocabulary\": [\"Kristoffer\"]}" writeToFile:rPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSArray *m3 = GFUserVocabularyFromFiles(cwPath, @[rPath]);
+                BOOL r3 = (m3.count == 2 && m3 != m1 && [m3[1] isEqualToString:@"Kristoffer"]);
+                [fm removeItemAtPath:dir error:nil];
+                BOOL c89Ok = r1 && r2 && r3;
+                if (c89Ok) passed++; else failed++;
+                printf("%s: stat()-backed GFLoadRulesDataFromPath cache and merged GFUserVocabularyFromFiles pointer-identity cache (%d%d%d)\n",
+                       c89Ok ? "PASS" : "FAIL", r1, r2, r3);
+            }
+            // Cycle 90: Spoken Keyboard Shortcut Formatting in GFFormatSpokenTechnicalTokens
+            {
+                BOOL k1 = [[self polishOnDeviceTranscript:@"Press command shift p to open the palette, or use command option escape."]
+                           isEqualToString:@"Press Cmd+Shift+P to open the palette, or use Cmd+Opt+Esc. "];
+                BOOL k2 = [[self polishOnDeviceTranscript:@"Press command a, then command c and command v, or control c to stop."]
+                           isEqualToString:@"Press Cmd+A, then Cmd+C and Cmd+V, or Ctrl+C to stop. "];
+                BOOL k3 = [[self polishOnDeviceTranscript:@"They command a large fleet and control a remote system."]
+                           isEqualToString:@"They command a large fleet and control a remote system. "];
+                BOOL c90Ok = k1 && k2 && k3;
+                if (c90Ok) passed++; else failed++;
+                printf("%s: spoken keyboard shortcut formatting in GFFormatSpokenTechnicalTokens (%d%d%d)\n",
+                       c90Ok ? "PASS" : "FAIL", k1, k2, k3);
+            }
+            // Cycle 91: Spoken Pull Request, Issue/Ticket/Bug Number, & Platform/Toolchain Version Formatting
+            {
+                BOOL p1 = [[self polishOnDeviceTranscript:@"Please review pull request 42 and P R 105 before closing issue number 108."]
+                           isEqualToString:@"Please review PR #42 and PR #105 before closing issue #108. "];
+                BOOL p2 = [[self polishOnDeviceTranscript:@"Link ticket number 512 and bug number 79 to the release notes."]
+                           isEqualToString:@"Link ticket #512 and bug #79 to the release notes. "];
+                BOOL p3 = [[self polishOnDeviceTranscript:@"We tested on iOS 18 point 2, macOS 15 point 1, and Python 3 point 12 point 1."]
+                           isEqualToString:@"We tested on iOS 18.2, macOS 15.1, and Python 3.12.1. "];
+                BOOL c91Ok = p1 && p2 && p3;
+                if (c91Ok) passed++; else failed++;
+                printf("%s: spoken PR/issue/ticket/bug numbers and platform/toolchain version formatting (%d%d%d)\n",
+                       c91Ok ? "PASS" : "FAIL", p1, p2, p3);
+            }
+            // Cycle 92: Mid-Sentence Cursor Continuation Inside & After Parentheses/Brackets in GFAdaptTextForMidSentenceCursor
+            {
+                BOOL m1 = [GFAdaptTextForMidSentenceCursor(@"Wait for review. ", @"We shipped the fix (", @") today.", @[])
+                           isEqualToString:@"wait for review"];
+                BOOL m2 = [GFAdaptTextForMidSentenceCursor(@"See section two. ", @"Check the notes [", @"] before deploying.", @[])
+                           isEqualToString:@"see section two"];
+                BOOL m3 = [GFAdaptTextForMidSentenceCursor(@"And updated the docs. ", @"We shipped the fix (v2.4)", @"", @[])
+                           isEqualToString:@" and updated the docs. "];
+                BOOL c92Ok = m1 && m2 && m3;
+                if (c92Ok) passed++; else failed++;
+                printf("%s: mid-sentence cursor continuation inside and after parentheses/brackets (%d%d%d)\n",
+                       c92Ok ? "PASS" : "FAIL", m1, m2, m3);
+            }
+            // Cycle 93: Auto-Learning Custom Words for Dotted/Slashed Tech Terms & Possessive Suffix Stripping
+            {
+                NSDictionary *a1 = GFDetectEditedCustomWordPair(@"We migrated the next js frontend yesterday.",
+                                                                @"We migrated the Next.js frontend yesterday.", @[]);
+                BOOL l1 = (a1 && [a1[kGFCustomWordHear] isEqualToString:@"next js"] && [a1[kGFCustomWordWrite] isEqualToString:@"Next.js"]);
+                NSDictionary *a2 = GFDetectEditedCustomWordPair(@"Please ask Owen's team to review the build.",
+                                                                @"Please ask Eoin's team to review the build.", @[]);
+                BOOL l2 = (a2 && [a2[kGFCustomWordHear] isEqualToString:@"Owen"] && [a2[kGFCustomWordWrite] isEqualToString:@"Eoin"]);
+                NSDictionary *a3 = GFDetectEditedCustomWordPair(@"Check the c i c d pipeline status.",
+                                                                @"Check the CI/CD pipeline status.", @[]);
+                BOOL l3 = (a3 && [a3[kGFCustomWordHear] isEqualToString:@"c i c d"] && [a3[kGFCustomWordWrite] isEqualToString:@"CI/CD"]);
+                BOOL c93Ok = l1 && l2 && l3;
+                if (c93Ok) passed++; else failed++;
+                printf("%s: auto-learning custom words for dotted/slashed tech terms and possessive suffix stripping (%d%d%d)\n",
+                       c93Ok ? "PASS" : "FAIL", l1, l2, l3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

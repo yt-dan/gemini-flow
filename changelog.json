@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 93,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:36",
+      "title": "Smarter Custom Words learning for dotted tech names and possessive names",
+      "highlights": [
+        "When you edit spoken words into dotted, slashed, or hyphenated names like 'Next.js', 'Vue.js', or 'CI/CD' after pasting, GeminiFlow now recognizes the full name and offers to remember it in Custom Words.",
+        "When you fix the spelling of a possessive name like 'Owen's' to 'Eoin's', GeminiFlow automatically learns the base name ('Owen' to 'Eoin') so future dictations match both forms."
+      ]
+    },
+    {
+      "cycle": 92,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:35",
+      "title": "Cleaner dictation inside and right after parentheses and brackets",
+      "highlights": [
+        "When you place your cursor inside empty parentheses or square brackets and dictate a note, GeminiFlow keeps the first word lowercase and leaves out the extra period and trailing space before the closing bracket.",
+        "Adds a leading space and lowercases continuing words when you dictate immediately after a closing parenthesis or bracket mid-sentence."
+      ]
+    },
+    {
+      "cycle": 91,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:34",
+      "title": "Formats spoken pull requests, issue numbers, and platform version numbers",
+      "highlights": [
+        "Turns spoken references like 'pull request 42', 'PR 105', 'issue number 108', 'ticket number 512', and 'bug number 79' into 'PR #42', 'PR #105', 'issue #108', 'ticket #512', and 'bug #79'.",
+        "Formats spoken version numbers after platform and tool names such as 'iOS 18 point 2', 'macOS 15 point 1', and 'Python 3 point 12 point 1' into 'iOS 18.2', 'macOS 15.1', and 'Python 3.12.1'."
+      ]
+    },
+    {
+      "cycle": 90,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:33",
+      "title": "Formats spoken keyboard shortcuts like 'Cmd+Shift+P' and 'Ctrl+C'",
+      "highlights": [
+        "Turns spoken keyboard shortcuts such as 'command shift P', 'command option escape', 'press command A', 'command C', 'command V', and 'control C' into 'Cmd+Shift+P', 'Cmd+Opt+Esc', 'press Cmd+A', 'Cmd+C', 'Cmd+V', and 'Ctrl+C'.",
+        "Leaves ordinary sentences like 'command a large fleet' or 'control a remote system' untouched."
+      ]
+    },
+    {
+      "cycle": 89,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:32",
+      "title": "Faster settings and combined vocabulary lookup across dictations",
+      "highlights": [
+        "Checks whether your rules settings file has changed on disk before reading it, avoiding repeat file reads when your settings are unchanged.",
+        "Reuses the combined vocabulary list in memory when neither your Custom Words nor your rules file has changed."
+      ]
+    },
+    {
       "cycle": 88,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 13:16",
