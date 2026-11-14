@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 83,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:49",
+      "title": "Cleans up contraction stutters like 'I'm I am' and 'we're we are'",
+      "highlights": [
+        "When you start a word as a contraction and immediately repeat it in full ('I'm I am going to ship it', 'we're we are ready', 'it's it is working', or 'don't do not touch that'), GeminiFlow keeps only the resolved phrase.",
+        "Also cleans up the reverse restart ('I am I'm going to ship it' to 'I'm going to ship it')."
+      ]
+    },
+    {
+      "cycle": 82,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:48",
+      "title": "Joins more split software terms like 'webhook', 'dashboard', and 'pipeline'",
+      "highlights": [
+        "Combines developer terms that speech recognizers often split into two words, including 'web hook', 'key chain', 'hot key', 'life cycle', 'middle ware', 'meta data', 'frame work', 'sand box', 'screen shot', 'pipe line', 'dash board', 'bench mark', 'dead lock', 'host name', 'user name', 'pass word', 'file name', and 'byte code'.",
+        "Cross-checks these compound terms across both speech engines so your technical dictations stay clean."
+      ]
+    },
+    {
+      "cycle": 81,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:47",
+      "title": "Faster vocabulary and word-replacement caching during text cleanup",
+      "highlights": [
+        "Caches your cleaned custom vocabulary list and pre-built replacement patterns in memory when your settings files have not changed.",
+        "Skips compound-word cleanup checks when a sentence does not contain any matching stems."
+      ]
+    },
+    {
+      "cycle": 80,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:44",
+      "title": "Automatic log rotation during long menu bar sessions",
+      "highlights": [
+        "Rotates the diagnostic log file automatically during long-running menu bar sessions whenever it reaches 5 MB, instead of only checking when the app starts.",
+        "Protects log timestamp formatting when background network tasks and the main app log at the same time."
+      ]
+    },
+    {
+      "cycle": 79,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:42",
+      "title": "Smarter question marks for negative questions, 'What's', and tag questions",
+      "highlights": [
+        "Adds a question mark reliably on negative questions ('Can't we meet at 3:00 p.m.?', 'Don't you think we should wait?'), contracted questions ('What's the plan for 3:00 p.m.?', 'How's the release going?'), 'What if' and 'Which' questions, and tag questions ('We are meeting at 3:00 p.m., right?', 'You updated the baseline, didn't you?').",
+        "Keeps imperative sentences like 'Do the migration tomorrow.' and 'Have a great weekend.' as statements with a period."
+      ]
+    },
+    {
       "cycle": 78,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 12:19",

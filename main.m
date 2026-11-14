@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(83), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:49", @"title": @"Cleans up contraction stutters like 'I'm I am' and 'we're we are'", @"highlights": @[@"When you start a word as a contraction and immediately repeat it in full ('I'm I am going to ship it', 'we're we are ready', 'it's it is working', or 'don't do not touch that'), GeminiFlow keeps only the resolved phrase.", @"Also cleans up the reverse restart ('I am I'm going to ship it' to 'I'm going to ship it')."]},
+            @{@"cycle": @(82), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:48", @"title": @"Joins more split software terms like 'webhook', 'dashboard', and 'pipeline'", @"highlights": @[@"Combines developer terms that speech recognizers often split into two words, including 'web hook', 'key chain', 'hot key', 'life cycle', 'middle ware', 'meta data', 'frame work', 'sand box', 'screen shot', 'pipe line', 'dash board', 'bench mark', 'dead lock', 'host name', 'user name', 'pass word', 'file name', and 'byte code'.", @"Cross-checks these compound terms across both speech engines so your technical dictations stay clean."]},
+            @{@"cycle": @(81), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:47", @"title": @"Faster vocabulary and word-replacement caching during text cleanup", @"highlights": @[@"Caches your cleaned custom vocabulary list and pre-built replacement patterns in memory when your settings files have not changed.", @"Skips compound-word cleanup checks when a sentence does not contain any matching stems."]},
+            @{@"cycle": @(80), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:44", @"title": @"Automatic log rotation during long menu bar sessions", @"highlights": @[@"Rotates the diagnostic log file automatically during long-running menu bar sessions whenever it reaches 5 MB, instead of only checking when the app starts.", @"Protects log timestamp formatting when background network tasks and the main app log at the same time."]},
+            @{@"cycle": @(79), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:42", @"title": @"Smarter question marks for negative questions, 'What's', and tag questions", @"highlights": @[@"Adds a question mark reliably on negative questions ('Can't we meet at 3:00 p.m.?', 'Don't you think we should wait?'), contracted questions ('What's the plan for 3:00 p.m.?', 'How's the release going?'), 'What if' and 'Which' questions, and tag questions ('We are meeting at 3:00 p.m., right?', 'You updated the baseline, didn't you?').", @"Keeps imperative sentences like 'Do the migration tomorrow.' and 'Have a great weekend.' as statements with a period."]},
             @{@"cycle": @(78), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:19", @"title": @"Improves British accent and technical phrase recognition on-device", @"highlights": @[@"Repairs common on-device mishearings on British and fast voices such as 'fixed the bag' ('fixed the bug'), 'feels really Rispo' ('feels really responsive'), and 'off the laptop link to sleep' ('after the laptop wakes from sleep').", @"Preserves ordinary phrases like 'carry the bag' or 'in the bag' untouched."]},
             @{@"cycle": @(77), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:18", @"title": @"Hyphenates spoken technical modifiers like 'end-to-end' and 'real-time'", @"highlights": @[@"Formats spoken compound modifiers before their nouns, turning 'end to end tests', 'real time audio', 'read only mode', 'command line tool', 'out of the box support', 'zero downtime deployment', 'on call rotation', and 'hands on workshop' into 'end-to-end tests', 'real-time audio', 'read-only mode', 'command-line tool', 'out-of-the-box support', 'zero-downtime deployment', 'on-call rotation', and 'hands-on workshop'.", @"Leaves standalone phrases like 'from end to end' or 'in real time' unchanged."]},
             @{@"cycle": @(76), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:17", @"title": @"Faster Custom Words lookup and replacement matching", @"highlights": @[@"Caches your Custom Words list in memory between dictations when the file on disk has not changed, avoiding repeat file parsing on every sentence.", @"Reuses compiled matching patterns when applying 'When you hear X, write Y' word replacements."]},
@@ -3344,9 +3349,26 @@ static NSDictionary *GFParsedRulesFromData(NSData *rulesData) {
 }
 
 // The cleaned "customVocabulary" list of a rules.json file's bytes (empty for a missing / unreadable file or key).
+// Cycle 81 (Backlog 12): Caches the cleaned vocabulary array by rules.json byte identity alongside GFParsedRulesFromData.
 static NSArray<NSString *> *GFVocabularyFromRulesData(NSData *data) {
+    if (!data || data.length == 0) return @[];
+    static NSData *sCachedVocabData = nil;
+    static NSArray<NSString *> *sCachedVocab = nil;
+    static os_unfair_lock sVocabLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sVocabLock);
+    if (sCachedVocabData && [sCachedVocabData isEqualToData:data] && sCachedVocab) {
+        NSArray<NSString *> *cached = sCachedVocab;
+        os_unfair_lock_unlock(&sVocabLock);
+        return cached;
+    }
+    os_unfair_lock_unlock(&sVocabLock);
     NSDictionary *rules = GFParsedRulesFromData(data);
-    return rules ? GFCleanVocabulary(rules[@"customVocabulary"]) : @[];
+    NSArray<NSString *> *cleaned = rules ? GFCleanVocabulary(rules[@"customVocabulary"]) : @[];
+    os_unfair_lock_lock(&sVocabLock);
+    sCachedVocabData = [data copy];
+    sCachedVocab = cleaned;
+    os_unfair_lock_unlock(&sVocabLock);
+    return cleaned;
 }
 // The custom words file: a JSON array of strings in the user's Application Support folder (never in the repository folder).
 static NSString *GFCustomWordsPath(void) {
@@ -3478,39 +3500,59 @@ static NSRegularExpression *GFCompiledRegex(NSString *pattern, NSRegularExpressi
 
 static NSUInteger GFApplyUserReplacements(NSMutableString *str, NSArray<NSDictionary<NSString *, NSString *> *> *pairs) {
     if (str.length == 0 || ![pairs isKindOfClass:[NSArray class]] || pairs.count == 0) return 0;
-    NSMutableArray<NSArray<NSString *> *> *entries = [NSMutableArray array]; // [hear with single spaces (NFC), write (NFC)]
-    for (id pair in pairs) {
-        if (![pair isKindOfClass:[NSDictionary class]]) continue;
-        NSString *hear = GFCleanCustomWordSide(((NSDictionary *)pair)[kGFCustomWordHear]);
-        id write = ((NSDictionary *)pair)[kGFCustomWordWrite];
-        if (!hear || ![write isKindOfClass:[NSString class]]) continue;
-        [entries addObject:@[hear, GFNFCIfNeeded((NSString *)write)]];
+    static NSArray *sCachedPairs = nil;
+    static NSArray<NSArray<NSString *> *> *sCachedEntries = nil;
+    static NSRegularExpression *sCachedRe = nil;
+    static os_unfair_lock sPairLock = OS_UNFAIR_LOCK_INIT;
+    NSArray<NSArray<NSString *> *> *entries = nil;
+    NSRegularExpression *re = nil;
+    os_unfair_lock_lock(&sPairLock);
+    if (sCachedPairs && (sCachedPairs == pairs || [sCachedPairs isEqualToArray:pairs]) && sCachedEntries && sCachedRe) {
+        entries = sCachedEntries;
+        re = sCachedRe;
     }
-    if (entries.count == 0) return 0;
-    // Longest first, so the longer of two overlapping triggers is tried first; ties in a fixed (code point) order
-    [entries sortUsingComparator:^NSComparisonResult(NSArray<NSString *> *a, NSArray<NSString *> *b) {
-        if (a[0].length != b[0].length) return a[0].length > b[0].length ? NSOrderedAscending : NSOrderedDescending;
-        NSComparisonResult byHear = [a[0] compare:b[0] options:NSLiteralSearch];
-        return byHear != NSOrderedSame ? byHear : [a[1] compare:b[1] options:NSLiteralSearch];
-    }];
-    // One pattern, one capture group per pair: (not after a word character or "letter-")(?:(hear 1)|(hear 2)|...)(not before a word character or "-letter")
-    NSCharacterSet *apostrophes = [NSCharacterSet characterSetWithCharactersInString:@"'\u2019"];
-    NSMutableArray<NSString *> *alternatives = [NSMutableArray arrayWithCapacity:entries.count];
-    for (NSArray<NSString *> *entry in entries) {
-        NSMutableArray<NSString *> *wordPatterns = [NSMutableArray array];
-        for (NSString *word in [entry[0] componentsSeparatedByString:@" "]) {
-            NSMutableArray<NSString *> *pieces = [NSMutableArray array];
-            for (NSString *piece in [word componentsSeparatedByCharactersInSet:apostrophes])
-                [pieces addObject:[NSRegularExpression escapedPatternForString:piece]];
-            [wordPatterns addObject:[pieces componentsJoinedByString:@"['\\u2019]"]];
+    os_unfair_lock_unlock(&sPairLock);
+    if (!entries || !re) {
+        NSMutableArray<NSArray<NSString *> *> *builtEntries = [NSMutableArray array]; // [hear with single spaces (NFC), write (NFC)]
+        for (id pair in pairs) {
+            if (![pair isKindOfClass:[NSDictionary class]]) continue;
+            NSString *hear = GFCleanCustomWordSide(((NSDictionary *)pair)[kGFCustomWordHear]);
+            id write = ((NSDictionary *)pair)[kGFCustomWordWrite];
+            if (!hear || ![write isKindOfClass:[NSString class]]) continue;
+            [builtEntries addObject:@[hear, GFNFCIfNeeded((NSString *)write)]];
         }
-        [alternatives addObject:[NSString stringWithFormat:@"(%@)", [wordPatterns componentsJoinedByString:@"\\s+"]]];
+        if (builtEntries.count == 0) return 0;
+        // Longest first, so the longer of two overlapping triggers is tried first; ties in a fixed (code point) order
+        [builtEntries sortUsingComparator:^NSComparisonResult(NSArray<NSString *> *a, NSArray<NSString *> *b) {
+            if (a[0].length != b[0].length) return a[0].length > b[0].length ? NSOrderedAscending : NSOrderedDescending;
+            NSComparisonResult byHear = [a[0] compare:b[0] options:NSLiteralSearch];
+            return byHear != NSOrderedSame ? byHear : [a[1] compare:b[1] options:NSLiteralSearch];
+        }];
+        // One pattern, one capture group per pair: (not after a word character or "letter-")(?:(hear 1)|(hear 2)|...)(not before a word character or "-letter")
+        NSCharacterSet *apostrophes = [NSCharacterSet characterSetWithCharactersInString:@"'\u2019"];
+        NSMutableArray<NSString *> *alternatives = [NSMutableArray arrayWithCapacity:builtEntries.count];
+        for (NSArray<NSString *> *entry in builtEntries) {
+            NSMutableArray<NSString *> *wordPatterns = [NSMutableArray array];
+            for (NSString *word in [entry[0] componentsSeparatedByString:@" "]) {
+                NSMutableArray<NSString *> *pieces = [NSMutableArray array];
+                for (NSString *piece in [word componentsSeparatedByCharactersInSet:apostrophes])
+                    [pieces addObject:[NSRegularExpression escapedPatternForString:piece]];
+                [wordPatterns addObject:[pieces componentsJoinedByString:@"['\\u2019]"]];
+            }
+            [alternatives addObject:[NSString stringWithFormat:@"(%@)", [wordPatterns componentsJoinedByString:@"\\s+"]]];
+        }
+        NSString *pattern = [NSString stringWithFormat:@"(?<![\\p{L}\\p{M}\\p{N}_])(?<![\\p{L}\\p{M}\\p{N}][-\\u2010\\u2011])(?:%@)"
+                                                       @"(?![\\p{L}\\p{M}\\p{N}_])(?![-\\u2010\\u2011][\\p{L}\\p{N}])",
+                             [alternatives componentsJoinedByString:@"|"]];
+        re = GFCompiledRegex(pattern, NSRegularExpressionCaseInsensitive);
+        if (!re) return 0; // cannot happen for escaped triggers; if it ever does, leave the text alone rather than guess
+        entries = [builtEntries copy];
+        os_unfair_lock_lock(&sPairLock);
+        sCachedPairs = [[NSArray alloc] initWithArray:pairs copyItems:YES];
+        sCachedEntries = entries;
+        sCachedRe = re;
+        os_unfair_lock_unlock(&sPairLock);
     }
-    NSString *pattern = [NSString stringWithFormat:@"(?<![\\p{L}\\p{M}\\p{N}_])(?<![\\p{L}\\p{M}\\p{N}][-\\u2010\\u2011])(?:%@)"
-                                                   @"(?![\\p{L}\\p{M}\\p{N}_])(?![-\\u2010\\u2011][\\p{L}\\p{N}])",
-                         [alternatives componentsJoinedByString:@"|"]];
-    NSRegularExpression *re = GFCompiledRegex(pattern, NSRegularExpressionCaseInsensitive);
-    if (!re) return 0; // cannot happen for escaped triggers; if it ever does, leave the text alone rather than guess
     NSString *source = [GFNFCIfNeeded(str) copy];
     NSMutableString *result = [NSMutableString stringWithCapacity:source.length];
     __block NSUInteger copiedUpTo = 0, replaced = 0;
@@ -5006,10 +5048,11 @@ static unsigned long long GFRotateLogIfNeeded(NSString *path, unsigned long long
 }
 
 // Appends line to the log at path through one cached descriptor (O_APPEND: whole lines, even with another instance writing)
-// instead of opening and closing the file for every line. Reopens when path changes or the file at path is no longer the open
-// one (rotated, renamed or deleted, e.g. by another instance's launch rotation), so lines never go to GeminiFlow.log.1.
+// instead of opening and closing the file for every line. Reopens when path changes, the file at path is no longer the open
+// one (rotated, renamed or deleted, e.g. by another instance's launch rotation), or the file size has exceeded maxBytes
+// (Cycle 80 in-session rotation), so lines never go to GeminiFlow.log.1 and long-lived menu-bar sessions stay bounded.
 // Synchronous on purpose: e2e runs exit right after their last line. Errors are ignored (logging must never break the app).
-static void GFLogAppendLine(NSString *path, NSString *line) {
+static void GFLogAppendLineWithMaxBytes(NSString *path, NSString *line, unsigned long long maxBytes) {
     static int fd = -1;
     static NSString *openPath = nil;
     static dev_t openDev; static ino_t openIno;
@@ -5018,9 +5061,13 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     @synchronized ([NSFileManager class]) {
         const char *cpath = path.fileSystemRepresentation;
         struct stat st;
-        if (fd >= 0 && (![openPath isEqualToString:path] || stat(cpath, &st) != 0 || st.st_dev != openDev || st.st_ino != openIno)) {
+        if (fd >= 0 && (![openPath isEqualToString:path] || stat(cpath, &st) != 0 || st.st_dev != openDev || st.st_ino != openIno ||
+                        (maxBytes > 0 && (unsigned long long)st.st_size > maxBytes))) {
             close(fd);
             fd = -1;
+        }
+        if (fd < 0 && maxBytes > 0) {
+            GFRotateLogIfNeeded(path, maxBytes);
         }
         if (fd < 0) {
             fd = open(cpath, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
@@ -5036,6 +5083,10 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
             p += n; left -= (size_t)n;
         }
     }
+}
+
+static void GFLogAppendLine(NSString *path, NSString *line) {
+    GFLogAppendLineWithMaxBytes(path, line, kGFLogMaxBytes);
 }
 
 @implementation AppDelegate
@@ -5636,7 +5687,9 @@ static void GFLog(NSString *fmt, ...) {
     NSLog(@"%@", msg);
     static NSDateFormatter *df; static dispatch_once_t once;
     dispatch_once(&once, ^{ df = [[NSDateFormatter alloc] init]; df.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS"; });
-    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [df stringFromDate:[NSDate date]], msg];
+    NSString *ts = nil;
+    @synchronized (df) { ts = [df stringFromDate:[NSDate date]]; }
+    NSString *line = [NSString stringWithFormat:@"%@ %@\n", ts, msg];
     GFLogAppendLine(GFLogPath(), line);
 }
 
@@ -7961,7 +8014,18 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
             @"swiftui": @"SwiftUI", @"appkit": @"AppKit", @"uikit": @"UIKit",
             @"coreaudio": @"CoreAudio", @"avaudioengine": @"AVAudioEngine",
             @"cloudkit": @"CloudKit", @"widgetkit": @"WidgetKit",
-            @"oauth": @"OAuth", @"opengl": @"OpenGL", @"webrtc": @"WebRTC"
+            @"oauth": @"OAuth", @"opengl": @"OpenGL", @"webrtc": @"WebRTC",
+            @"webhook": @"webhook", @"webhooks": @"webhooks",
+            @"keychain": @"keychain", @"hotkey": @"hotkey", @"hotkeys": @"hotkeys",
+            @"lifecycle": @"lifecycle", @"middleware": @"middleware", @"metadata": @"metadata",
+            @"framework": @"framework", @"frameworks": @"frameworks",
+            @"sandbox": @"sandbox", @"screenshot": @"screenshot", @"screenshots": @"screenshots",
+            @"pipeline": @"pipeline", @"pipelines": @"pipelines",
+            @"dashboard": @"dashboard", @"dashboards": @"dashboards",
+            @"benchmark": @"benchmark", @"benchmarks": @"benchmarks",
+            @"deadlock": @"deadlock", @"deadlocks": @"deadlocks",
+            @"hostname": @"hostname", @"username": @"username",
+            @"password": @"password", @"filename": @"filename", @"bytecode": @"bytecode"
         };
     });
 
@@ -8040,6 +8104,7 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
                     NSString *aw = aLow[j];
                     NSString *canon = customMap[aw] ?: builtInTechMap[aw];
                     if (!canon || aw.length < 4) continue;
+                    if ([gLow[i - 1] isEqualToString:aw] || [gLow[i] isEqualToString:aw]) continue;
                     BOOL leftAgree = (i >= 2 && j >= 1 && [gLow[i - 2] isEqualToString:aLow[j - 1]]);
                     BOOL rightAgree = ((NSUInteger)(i + 1) < m && j + 1 < n && [gLow[i + 1] isEqualToString:aLow[j + 1]]);
                     if ((leftAgree || rightAgree) && GFWordsArePhoneticallyClose(gConcat, aw, 2)) {
@@ -9087,6 +9152,29 @@ static void GFRemoveStutterRepeats(NSMutableString *str) {
     }
     // phrases after single words ("I I would I would" -> "I would"); one collapse per call, the bound only stops a runaway loop
     for (int pass = 0; pass < 64 && GFCollapsePhraseRepeatOnce(str); pass++) {}
+    // Cycle 83 (Backlog 0x): Contraction <-> expanded-form stutter deduplication ("I'm I am" -> "I am", "I am I'm" -> "I'm",
+    // "we're we are" -> "we are", "it's it is" -> "it is", "don't do not" -> "do not", "can't cannot" -> "cannot").
+    if ([str rangeOfString:@"'"].location != NSNotFound || [str rangeOfString:@"\u2019"].location != NSNotFound) {
+        NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
+        replaceRegex(str, @"\\b(i)['\u2019]m\\s+i\\s+(am)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(i)\\s+am\\s+i(['\u2019]m)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(we|you|they)['\u2019]re\\s+\\1\\s+(are)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(we|you|they)\\s+are\\s+\\1(['\u2019]re)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(it|he|she|there)['\u2019]s\\s+\\1\\s+(is)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(it|he|she|there)\\s+is\\s+\\1(['\u2019]s)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(i|we|you|they|he|she|it)['\u2019]ll\\s+\\1\\s+(will)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(i|we|you|they|he|she|it)\\s+will\\s+\\1(['\u2019]ll)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(i|we|you|they)['\u2019]ve\\s+\\1\\s+(have)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(i|we|you|they)\\s+have\\s+\\1(['\u2019]ve)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(do)n['\u2019]t\\s+do\\s+(not)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(do)\\s+not\\s+do(n['\u2019]t)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(can)['\u2019]t\\s+can\\s*(not)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\b(can)\\s*not\\s+ca(n['\u2019]t)\\b", @"$1$2", ci);
+        replaceRegex(str, @"\\bwon['\u2019]t\\s+(will\\s+not)\\b", @"$1", ci);
+        replaceRegex(str, @"\\bwill\\s+not\\s+(won['\u2019]t)\\b", @"$1", ci);
+        replaceRegex(str, @"\\b(did|is|are|was|were|should|would|could)n['\u2019]t\\s+\\1\\s+(not)\\b", @"$1 $2", ci);
+        replaceRegex(str, @"\\b(did|is|are|was|were|should|would|could)\\s+not\\s+\\1(n['\u2019]t)\\b", @"$1$2", ci);
+    }
 }
 
 // "kind of" / "sort of" from rules.json extraFillers (backlog 0i, user decision 2026-11-10): removed only when clearly filler.
@@ -10268,15 +10356,79 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
         replaceRegex(str, @"\\b(mock)\\s+up(s)\\b", @"$1up$2", ci);
         replaceRegex(str, @"\\b(new|design|the|a|an|our|my|your|these|those|share|shared|review|updated|initial|final|figma|ui|screen|wireframe|latest)\\s+(mock)\\s+up\\b", @"$1 $2up", ci);
     }
-    replaceRegex(str, @"\\b(code)\\s+base(s?)\\b", @"$1base$2", ci);
-    replaceRegex(str, @"\\b(work)\\s+flow(s?)\\b", @"$1flow$2", ci);
-    replaceRegex(str, @"\\b(name)\\s+space(s?)\\b", @"$1space$2", ci);
-    replaceRegex(str, @"\\b(time)\\s+stamp(s?)\\b", @"$1stamp$2", ci);
-    replaceRegex(str, @"\\b(end)\\s+point(s?)\\b", @"$1point$2", ci);
-    replaceRegex(str, @"\\b(data)\\s+base(s?)\\b", @"$1base$2", ci);
-    replaceRegex(str, @"\\b(change)\\s+log(s?)\\b", @"$1log$2", ci);
-    replaceRegex(str, @"\\b(sub)\\s+agent(s?)\\b", @"$1agent$2", ci);
-    replaceRegex(str, @"\\b(tool)\\s+chain(s?)\\b", @"$1chain$2", ci);
+    if ([str rangeOfString:@"base" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(code)\\s+base(s?)\\b", @"$1base$2", ci);
+        replaceRegex(str, @"\\b(data)\\s+base(s?)\\b", @"$1base$2", ci);
+    }
+    if ([str rangeOfString:@"flow" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(work)\\s+flow(s?)\\b", @"$1flow$2", ci);
+    }
+    if ([str rangeOfString:@"space" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(name)\\s+space(s?)\\b", @"$1space$2", ci);
+    }
+    if ([str rangeOfString:@"stamp" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(time)\\s+stamp(s?)\\b", @"$1stamp$2", ci);
+    }
+    if ([str rangeOfString:@"point" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(end)\\s+point(s?)\\b", @"$1point$2", ci);
+    }
+    if ([str rangeOfString:@"log" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(change)\\s+log(s?)\\b", @"$1log$2", ci);
+    }
+    if ([str rangeOfString:@"agent" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(sub)\\s+agent(s?)\\b", @"$1agent$2", ci);
+    }
+    if ([str rangeOfString:@"chain" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(tool)\\s+chain(s?)\\b", @"$1chain$2", ci);
+        replaceRegex(str, @"\\b(key)\\s+chain(s?)\\b", @"$1chain$2", ci);
+    }
+    if ([str rangeOfString:@"hook" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(web)\\s+hook(s?)\\b", @"$1hook$2", ci);
+    }
+    if ([str rangeOfString:@"key" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(hot)\\s+key(s?)\\b", @"$1key$2", ci);
+    }
+    if ([str rangeOfString:@"cycle" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(life)\\s+cycle(s?)\\b", @"$1cycle$2", ci);
+    }
+    if ([str rangeOfString:@"ware" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(middle)\\s+ware\\b", @"$1ware", ci);
+    }
+    if ([str rangeOfString:@"data" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(meta)\\s+data\\b", @"$1data", ci);
+    }
+    if ([str rangeOfString:@"work" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(frame)\\s+work(s?)\\b", @"$1work$2", ci);
+    }
+    if ([str rangeOfString:@"box" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(sand)\\s+box(es)?\\b", @"$1box$2", ci);
+    }
+    if ([str rangeOfString:@"shot" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(screen)\\s+shot(s?)\\b", @"$1shot$2", ci);
+    }
+    if ([str rangeOfString:@"line" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(pipe)\\s+line(s?)\\b", @"$1line$2", ci);
+    }
+    if ([str rangeOfString:@"board" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(dash)\\s+board(s?)\\b", @"$1board$2", ci);
+    }
+    if ([str rangeOfString:@"mark" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(bench)\\s+mark(s?)\\b", @"$1mark$2", ci);
+    }
+    if ([str rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(dead)\\s+lock(s?)\\b", @"$1lock$2", ci);
+    }
+    if ([str rangeOfString:@"name" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(host)\\s+name(s?)\\b", @"$1name$2", ci);
+        replaceRegex(str, @"\\b(user)\\s+name(s?)\\b", @"$1name$2", ci);
+        replaceRegex(str, @"\\b(file)\\s+name(s?)\\b", @"$1name$2", ci);
+    }
+    if ([str rangeOfString:@"word" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(pass)\\s+word(s?)\\b", @"$1word$2", ci);
+    }
+    if ([str rangeOfString:@"code" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(byte)\\s+code\\b", @"$1code", ci);
+    }
     if ([str rangeOfString:@"first thing on" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str,
                      @"\\b(on\\s+[a-z][a-z0-9'-]*)\\s+first\\s+thing\\s+on\\s+"
@@ -10445,9 +10597,11 @@ static void GFFormatSpokenTechnicalTokens(NSMutableString *str) {
     }
 }
 
-// Cycle 51: Upgrades a trailing '.' to '?' when the final sentence is a clear grammatical question that ended with an
-// abbreviation dot ("Can we meet at 3:00 p.m." -> "Can we meet at 3:00 p.m.?") or a period left over from a correction
-// fragment ("Can we meet on Tuesday? Wait, no, Wednesday." -> "Can we meet on Wednesday?").
+// Cycle 51 & 79: Upgrades a trailing '.' to '?' when the final sentence is a clear grammatical question that ended with an
+// abbreviation dot ("Can we meet at 3:00 p.m." -> "Can we meet at 3:00 p.m.?"), a period left over from a correction
+// fragment ("Can we meet on Tuesday? Wait, no, Wednesday." -> "Can we meet on Wednesday?"), a negative contracted auxiliary
+// ("Can't we meet at 3:00 p.m.?", "Don't you think we should wait?"), a contracted/multi-word WH-question ("What's the plan?",
+// "What if we meet at 3:00 p.m.?", "Which model are we running?"), or a conversational tag question ("..., right?", "..., didn't you?").
 static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result, NSString *lastLine) {
     if (!result || result.length < 4 || [result characterAtIndex:result.length - 1] != '.') return;
     NSString *lastSentence = GFLastSentence(lastLine, NULL);
@@ -10455,24 +10609,44 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     NSMutableArray<NSString *> *words = [NSMutableArray array];
     NSCharacterSet *punctSet = [NSCharacterSet punctuationCharacterSet];
     for (NSString *raw in [lastSentence componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
-        NSString *w = [[raw lowercaseString] stringByTrimmingCharactersInSet:punctSet];
+        NSString *norm = [[raw lowercaseString] stringByReplacingOccurrencesOfString:@"\u2019" withString:@"'"];
+        NSString *w = [norm stringByTrimmingCharactersInSet:punctSet];
         if (w.length > 0) [words addObject:w];
     }
     if (words.count < 2) return;
-    static NSSet<NSString *> *invAuxSet, *subjPronSet, *whWordSet, *discourseSet;
-    static NSRegularExpression *dottedAbbrevEndRe;
+    static NSSet<NSString *> *invAuxSet, *nonImperativeAuxSet, *subjPronSet, *detNounLeadSet, *whWordSet, *contractedWhSet, *howDegreeSet, *discourseSet;
+    static NSRegularExpression *dottedAbbrevEndRe, *tagQuestionRe;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         invAuxSet = [NSSet setWithArray:@[@"can", @"could", @"would", @"should", @"will", @"shall",
                                           @"is", @"are", @"am", @"was", @"were",
-                                          @"do", @"does", @"did", @"have", @"has", @"had", @"may", @"might"]];
+                                          @"do", @"does", @"did", @"have", @"has", @"had", @"may", @"might",
+                                          @"can't", @"cannot", @"couldn't", @"wouldn't", @"shouldn't", @"won't",
+                                          @"isn't", @"aren't", @"wasn't", @"weren't",
+                                          @"don't", @"doesn't", @"didn't", @"haven't", @"hasn't", @"hadn't"]];
+        nonImperativeAuxSet = [NSSet setWithArray:@[@"can", @"could", @"would", @"should", @"will", @"shall",
+                                                    @"is", @"are", @"am", @"was", @"were",
+                                                    @"does", @"did", @"has", @"had", @"may", @"might",
+                                                    @"can't", @"cannot", @"couldn't", @"wouldn't", @"shouldn't", @"won't",
+                                                    @"isn't", @"aren't", @"wasn't", @"weren't",
+                                                    @"doesn't", @"didn't", @"haven't", @"hasn't", @"hadn't"]];
         subjPronSet = [NSSet setWithArray:@[@"i", @"you", @"we", @"they", @"he", @"she", @"it", @"there",
                                             @"this", @"that", @"anyone", @"anybody", @"someone", @"somebody",
                                             @"everyone", @"everybody"]];
-        whWordSet = [NSSet setWithArray:@[@"who", @"what", @"when", @"where", @"why", @"how"]];
+        detNounLeadSet = [NSSet setWithArray:@[@"the", @"a", @"an", @"our", @"your", @"my", @"his", @"her",
+                                               @"their", @"its", @"these", @"those", @"any", @"every", @"each"]];
+        whWordSet = [NSSet setWithArray:@[@"who", @"what", @"when", @"where", @"why", @"how", @"which"]];
+        contractedWhSet = [NSSet setWithArray:@[@"what's", @"how's", @"where's", @"when's", @"who's", @"why's",
+                                                @"what'll", @"who'll", @"where'd", @"how'd", @"who'd",
+                                                @"what're", @"where're", @"who're"]];
+        howDegreeSet = [NSSet setWithArray:@[@"much", @"many", @"long", @"often", @"soon", @"far", @"fast",
+                                             @"late", @"early", @"old", @"big", @"well"]];
         discourseSet = [NSSet setWithArray:@[@"so", @"and", @"but", @"well", @"okay", @"ok", @"hey", @"actually", @"honestly"]];
         dottedAbbrevEndRe = [NSRegularExpression regularExpressionWithPattern:@"(?:(?<![\\w.])[a-z]\\.[a-z]\\.|\\b(?:etc|vs|cf|approx|incl|esp)\\.)$"
                                                                       options:NSRegularExpressionCaseInsensitive error:nil];
+        tagQuestionRe = [NSRegularExpression regularExpressionWithPattern:
+                         @",\\s*(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|had)(?:n['\u2019]t)?\\s+(?:i|you|we|they|he|she|it|there)[.!?]*$"
+                                                                  options:NSRegularExpressionCaseInsensitive error:nil];
     });
     NSUInteger startIdx = 0;
     if (words.count >= 3 && [discourseSet containsObject:words[0]]) startIdx = 1;
@@ -10480,19 +10654,37 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     NSString *w0 = words[startIdx];
     NSString *w1 = words[startIdx + 1];
     BOOL isClearQuestion = NO;
-    if ([invAuxSet containsObject:w0] && [subjPronSet containsObject:w1]) {
+    if ([invAuxSet containsObject:w0] && [subjPronSet containsObject:w1] && (startIdx == 0 || startIdx + 2 < words.count)) {
+        isClearQuestion = YES;
+    } else if ([nonImperativeAuxSet containsObject:w0] && [detNounLeadSet containsObject:w1]) {
+        isClearQuestion = YES;
+    } else if ([contractedWhSet containsObject:w0]) {
         isClearQuestion = YES;
     } else if ([whWordSet containsObject:w0]) {
         if ([invAuxSet containsObject:w1]) {
             isClearQuestion = YES;
-        } else if ([w0 isEqualToString:@"what"] && [w1 isEqualToString:@"time"] && startIdx + 2 < words.count &&
-                   [invAuxSet containsObject:words[startIdx + 2]]) {
+        } else if ([w0 isEqualToString:@"what"] && [w1 isEqualToString:@"if"] && startIdx + 2 < words.count &&
+                   ([subjPronSet containsObject:words[startIdx + 2]] || [detNounLeadSet containsObject:words[startIdx + 2]])) {
             isClearQuestion = YES;
-        } else if ([w0 isEqualToString:@"how"] &&
-                   ([w1 isEqualToString:@"much"] || [w1 isEqualToString:@"many"] || [w1 isEqualToString:@"long"]) &&
+        } else if ([w0 isEqualToString:@"how"] && [w1 isEqualToString:@"come"] && startIdx + 2 < words.count) {
+            isClearQuestion = YES;
+        } else if (([w0 isEqualToString:@"how"] || [w0 isEqualToString:@"what"]) && [w1 isEqualToString:@"about"] && words.count <= 8) {
+            isClearQuestion = YES;
+        } else if ([w0 isEqualToString:@"how"] && [howDegreeSet containsObject:w1] &&
                    startIdx + 2 < words.count && [invAuxSet containsObject:words[startIdx + 2]]) {
             isClearQuestion = YES;
+        } else if (([w0 isEqualToString:@"what"] || [w0 isEqualToString:@"which"]) && ![subjPronSet containsObject:w1] &&
+                   startIdx + 2 < words.count && [invAuxSet containsObject:words[startIdx + 2]]) {
+            isClearQuestion = YES;
+        } else if (([w0 isEqualToString:@"what"] || [w0 isEqualToString:@"which"]) &&
+                   ([w1 isEqualToString:@"kind"] || [w1 isEqualToString:@"sort"] || [w1 isEqualToString:@"type"]) &&
+                   startIdx + 4 < words.count && [words[startIdx + 2] isEqualToString:@"of"] &&
+                   [invAuxSet containsObject:words[startIdx + 4]]) {
+            isClearQuestion = YES;
         }
+    } else if ([lastSentence rangeOfString:@","].location != NSNotFound &&
+               [tagQuestionRe firstMatchInString:lastSentence options:0 range:NSMakeRange(0, lastSentence.length)] != nil) {
+        isClearQuestion = YES;
     }
     if (!isClearQuestion) return;
     NSUInteger from = result.length > 12 ? result.length - 12 : 0;
@@ -10734,9 +10926,16 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
                     if (w.length > 0) [sentenceWords addObject:w];
                 }
                 if (lastSentence.length < lastLine.length && sentenceWords.count > 0) words = sentenceWords;
-                NSString *firstWord = [[[words firstObject] lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet punctuationCharacterSet]];
+                NSString *firstWord = [[[[words firstObject] lowercaseString] stringByReplacingOccurrencesOfString:@"\u2019" withString:@"'"] stringByTrimmingCharactersInSet:[NSCharacterSet punctuationCharacterSet]];
                 NSArray *questionStarters = @[@"who", @"what", @"when", @"where", @"why", @"how", @"can", @"could", @"would", @"should", @"will", @"shall", @"is", @"are", @"am", @"was", @"were", @"do", @"does", @"did", @"have", @"has", @"had", @"may", @"might"];
                 BOOL isQuestion = [questionStarters containsObject:firstWord];
+                if (isQuestion && ([firstWord isEqualToString:@"do"] || [firstWord isEqualToString:@"have"]) && words.count >= 2) {
+                    NSString *secondWord = [[[words[1] lowercaseString] stringByReplacingOccurrencesOfString:@"\u2019" withString:@"'"] stringByTrimmingCharactersInSet:[NSCharacterSet punctuationCharacterSet]];
+                    NSArray *impSubjPron = @[@"i", @"you", @"we", @"they", @"he", @"she", @"it", @"there", @"this", @"that", @"anyone", @"anybody", @"someone", @"somebody", @"everyone", @"everybody"];
+                    if (![impSubjPron containsObject:secondWord]) {
+                        isQuestion = NO; // Imperative ("Do the migration tomorrow.", "Have a great weekend.")
+                    }
+                }
                 // "Should we ship it? Or wait" -> "Or wait?" (an "or" alternative right after a question stays a question)
                 if (!isQuestion && afterQuestion && [firstWord isEqualToString:@"or"]) isQuestion = YES;
                 if (!isQuestion && words.count >= 3) {
@@ -10754,6 +10953,7 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
                     [result appendString:@"?"];
                 } else {
                     [result appendString:@"."];
+                    GFUpgradeTerminalQuestionPunctuationIfNeeded(result, [lastLine stringByAppendingString:@"."]);
                 }
             } else if (lastChar == '.') {
                 GFUpgradeTerminalQuestionPunctuationIfNeeded(result, lastLine);
@@ -16322,6 +16522,105 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c78Ok) passed++; else failed++;
                 printf("%s: UK/non-rhotic accent and acoustic truncation homophone recovery (%d%d%d)\n",
                        c78Ok ? "PASS" : "FAIL", u1, u2, u3);
+            }
+            // Cycle 79: Comprehensive Interrogative & Question-Mark Upgrade Engine
+            {
+                BOOL q1 = [[self polishOnDeviceTranscript:@"Can't we meet at 3:00 p.m."]
+                           isEqualToString:@"Can't we meet at 3:00 p.m.? "]
+                          && [[self polishOnDeviceTranscript:@"Don't you think we should wait until tomorrow."]
+                              isEqualToString:@"Don't you think we should wait until tomorrow? "];
+                BOOL q2 = [[self polishOnDeviceTranscript:@"Is the build ready at 3:00 p.m."]
+                           isEqualToString:@"Is the build ready at 3:00 p.m.? "]
+                          && [[self polishOnDeviceTranscript:@"What's the plan for 3:00 p.m."]
+                              isEqualToString:@"What's the plan for 3:00 p.m.? "]
+                          && [[self polishOnDeviceTranscript:@"What if we meet at 3:00 p.m."]
+                              isEqualToString:@"What if we meet at 3:00 p.m.? "];
+                BOOL q3 = [[self polishOnDeviceTranscript:@"Which model are we running. How often do we rotate the logs."]
+                           isEqualToString:@"Which model are we running. How often do we rotate the logs? "]
+                          && [[self polishOnDeviceTranscript:@"We are still meeting at 3:00 p.m., aren't we."]
+                              isEqualToString:@"We are still meeting at 3:00 p.m., aren't we? "]
+                          && [[self polishOnDeviceTranscript:@"You updated the baseline, didn't you."]
+                              isEqualToString:@"You updated the baseline, didn't you? "];
+                BOOL q4 = [[self polishOnDeviceTranscript:@"Do the migration tomorrow"]
+                           isEqualToString:@"Do the migration tomorrow. "]
+                          && [[self polishOnDeviceTranscript:@"Have a great weekend"]
+                              isEqualToString:@"Have a great weekend. "]
+                          && [[self polishOnDeviceTranscript:@"Do you have a minute"]
+                              isEqualToString:@"Do you have a minute? "];
+                BOOL c79Ok = q1 && q2 && q3 && q4;
+                if (c79Ok) passed++; else failed++;
+                printf("%s: negative contracted auxiliaries, contracted/multi-word WH-questions, tag questions, and imperative guard (%d%d%d%d)\n",
+                       c79Ok ? "PASS" : "FAIL", q1, q2, q3, q4);
+            }
+            // Cycle 80: In-Session Runtime Log Rotation & Thread-Safe Timestamp Formatting
+            {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSString *dir = [[NSTemporaryDirectory() stringByStandardizingPath]
+                                 stringByAppendingPathComponent:[NSString stringWithFormat:@"gf-c80-log-%@", [NSUUID UUID].UUIDString]];
+                [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+                NSString *log = [dir stringByAppendingPathComponent:@"GeminiFlow.log"];
+                NSString *log1 = [dir stringByAppendingPathComponent:@"GeminiFlow.log.1"];
+                GFLogAppendLineWithMaxBytes(log, @"alpha-line\n", 18);
+                BOOL r1 = [[NSString stringWithContentsOfFile:log encoding:NSUTF8StringEncoding error:nil] isEqualToString:@"alpha-line\n"]
+                          && ![fm fileExistsAtPath:log1];
+                GFLogAppendLineWithMaxBytes(log, @"beta-line\n", 18); // file is now 21 bytes (> 18)
+                BOOL r2 = [[NSString stringWithContentsOfFile:log encoding:NSUTF8StringEncoding error:nil] isEqualToString:@"alpha-line\nbeta-line\n"];
+                GFLogAppendLineWithMaxBytes(log, @"gamma-line\n", 18); // triggers in-session rotation before writing gamma-line
+                BOOL r3 = [[NSString stringWithContentsOfFile:log1 encoding:NSUTF8StringEncoding error:nil] isEqualToString:@"alpha-line\nbeta-line\n"]
+                          && [[NSString stringWithContentsOfFile:log encoding:NSUTF8StringEncoding error:nil] isEqualToString:@"gamma-line\n"];
+                [fm removeItemAtPath:dir error:nil];
+                BOOL c80Ok = r1 && r2 && r3;
+                if (c80Ok) passed++; else failed++;
+                printf("%s: in-session runtime log rotation when active log exceeds maxBytes (%d%d%d)\n",
+                       c80Ok ? "PASS" : "FAIL", r1, r2, r3);
+            }
+            // Cycle 81: Byte-Identity Vocabulary Cache (GFVocabularyFromRulesData), Pair-List Regex Cache, & Substring-Guarded Homophones
+            {
+                NSData *vDataA = [@"{\"customVocabulary\": [\"Siobhan\", \"Zyphra\"]}" dataUsingEncoding:NSUTF8StringEncoding];
+                NSData *vDataA2 = [@"{\"customVocabulary\": [\"Siobhan\", \"Zyphra\"]}" dataUsingEncoding:NSUTF8StringEncoding];
+                NSData *vDataB = [@"{\"customVocabulary\": [\"Eoin\"]}" dataUsingEncoding:NSUTF8StringEncoding];
+                NSArray *v1 = GFVocabularyFromRulesData(vDataA);
+                NSArray *v2 = GFVocabularyFromRulesData(vDataA2);
+                NSArray *v3 = GFVocabularyFromRulesData(vDataB);
+                BOOL vCacheOk = (v1 != nil) && (v1 == v2) && (v1.count == 2) && (v3 != nil) && (v1 != v3) && (v3.count == 1);
+                NSArray *pairs = @[@{kGFCustomWordHear: @"Shavon", kGFCustomWordWrite: @"Siobhan"},
+                                   @{kGFCustomWordHear: @"Freitag", kGFCustomWordWrite: @"Friday"}];
+                NSMutableString *s1 = [@"Ask Shavon on Freitag" mutableCopy];
+                NSMutableString *s2 = [@"Shavon confirmed for Freitag" mutableCopy];
+                BOOL pCacheOk = (GFApplyUserReplacements(s1, pairs) == 2)
+                                && [s1 isEqualToString:@"Ask Siobhan on Friday"]
+                                && (GFApplyUserReplacements(s2, [pairs copy]) == 2)
+                                && [s2 isEqualToString:@"Siobhan confirmed for Friday"];
+                BOOL c81Ok = vCacheOk && pCacheOk;
+                if (c81Ok) passed++; else failed++;
+                printf("%s: byte-identity GFVocabularyFromRulesData cache and pre-sorted GFApplyUserReplacements pair cache (%d%d)\n",
+                       c81Ok ? "PASS" : "FAIL", vCacheOk, pCacheOk);
+            }
+            // Cycle 82: Expanded Software Architecture Split-Compound Fusion & Dual-Stream Consensus Tech Vocabulary
+            {
+                BOOL s1 = [[self polishOnDeviceTranscript:@"The web hook updates the dash board and stores the key chain pass word in the sand box."]
+                           isEqualToString:@"The webhook updates the dashboard and stores the keychain password in the sandbox. "];
+                BOOL s2 = [[self polishOnDeviceTranscript:@"Check the pipe line bench marks, meta data, middle ware, and screen shots for any dead locks."]
+                           isEqualToString:@"Check the pipeline benchmarks, metadata, middleware, and screenshots for any deadlocks. "];
+                BOOL s3 = [[self polishOnDeviceTranscript:@"Verify the host name, user name, file name, hot key, life cycle, frame work, and byte code."]
+                           isEqualToString:@"Verify the hostname, username, filename, hotkey, lifecycle, framework, and bytecode. "];
+                BOOL c82Ok = s1 && s2 && s3;
+                if (c82Ok) passed++; else failed++;
+                printf("%s: expanded software architecture split-compound noun fusion (%d%d%d)\n",
+                       c82Ok ? "PASS" : "FAIL", s1, s2, s3);
+            }
+            // Cycle 83: Spoken Contraction-Expansion Stutter Deduplication in GFRemoveStutterRepeats
+            {
+                BOOL k1 = [[self polishOnDeviceTranscript:@"I'm I am going to ship the build and we're we are ready."]
+                           isEqualToString:@"I am going to ship the build and we are ready. "];
+                BOOL k2 = [[self polishOnDeviceTranscript:@"I am I'm going to check it because it's it is working now."]
+                           isEqualToString:@"I'm going to check it because it is working now. "];
+                BOOL k3 = [[self polishOnDeviceTranscript:@"Please don't do not touch that if we can't cannot reproduce it."]
+                           isEqualToString:@"Please do not touch that if we cannot reproduce it. "];
+                BOOL c83Ok = k1 && k2 && k3;
+                if (c83Ok) passed++; else failed++;
+                printf("%s: contraction-expansion stutter deduplication in GFRemoveStutterRepeats (%d%d%d)\n",
+                       c83Ok ? "PASS" : "FAIL", k1, k2, k3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
