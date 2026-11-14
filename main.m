@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(78), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:19", @"title": @"Improves British accent and technical phrase recognition on-device", @"highlights": @[@"Repairs common on-device mishearings on British and fast voices such as 'fixed the bag' ('fixed the bug'), 'feels really Rispo' ('feels really responsive'), and 'off the laptop link to sleep' ('after the laptop wakes from sleep').", @"Preserves ordinary phrases like 'carry the bag' or 'in the bag' untouched."]},
+            @{@"cycle": @(77), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:18", @"title": @"Hyphenates spoken technical modifiers like 'end-to-end' and 'real-time'", @"highlights": @[@"Formats spoken compound modifiers before their nouns, turning 'end to end tests', 'real time audio', 'read only mode', 'command line tool', 'out of the box support', 'zero downtime deployment', 'on call rotation', and 'hands on workshop' into 'end-to-end tests', 'real-time audio', 'read-only mode', 'command-line tool', 'out-of-the-box support', 'zero-downtime deployment', 'on-call rotation', and 'hands-on workshop'.", @"Leaves standalone phrases like 'from end to end' or 'in real time' unchanged."]},
+            @{@"cycle": @(76), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:17", @"title": @"Faster Custom Words lookup and replacement matching", @"highlights": @[@"Caches your Custom Words list in memory between dictations when the file on disk has not changed, avoiding repeat file parsing on every sentence.", @"Reuses compiled matching patterns when applying 'When you hear X, write Y' word replacements."]},
+            @{@"cycle": @(75), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:15", @"title": @"Fixes 'defer loading' and 'settings screen' phrasing across speech engines", @"highlights": @[@"Repairs 'differ loading' or 'differ rendering' to 'defer loading' and 'defer rendering' when followed by an action word, while keeping real comparisons like 'differ from the baseline' untouched.", @"Restores the dropped plural in 'the setting screen' or 'user setting menu' ('the settings screen', 'user settings menu') and keeps capitalized compound words like 'Code Base' formatted cleanly as 'Codebase'."]},
+            @{@"cycle": @(74), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 12:10", @"title": @"More reliable background finishing for multi-part live dictations", @"highlights": @[@"When a long dictation with multiple speech segments finishes in the background while you start a new press, GeminiFlow now tracks each segment's completion echo and covered audio position individually.", @"Prevents an earlier segment's completion signal from ending the final segment early."]},
             @{@"cycle": @(73), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:51", @"title": @"Joins split software compound words and fixes 'first, then on' phrasing", @"highlights": @[@"Combines software compound words that speech recognizers often split apart, turning 'mock ups', 'code base', 'work flow', 'end point', 'time stamp', 'name space', 'data base', 'change log', and 'tool chain' into 'mockups', 'codebase', 'workflow', 'endpoint', 'timestamp', 'namespace', 'database', 'changelog', and 'toolchain'.", @"Fixes 'on reliability first thing on speed' to 'on reliability first, then on speed' while keeping real schedule phrases like 'first thing on Monday' untouched."]},
             @{@"cycle": @(72), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:50", @"title": @"Smarter Custom Words learning for 3-letter acronyms and capitalization edits", @"highlights": @[@"When you edit spaced letters like 'L L M' or 'S Q L' into 'LLM' or 'SQL' after pasting, GeminiFlow now recognizes the 3-word edit and offers to remember it in Custom Words.", @"Ignores simple first-letter capitalization changes on ordinary words ('meeting' to 'Meeting') while still learning real mixed-case brand and tech edits ('graphql' to 'GraphQL')."]},
             @{@"cycle": @(71), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 11:49", @"title": @"Recovers compound tech names and two-word Custom Words across both speech engines", @"highlights": @[@"When Apple's on-device listener recognizes a compound technical name or Custom Word like 'WebSocket', 'SwiftUI', 'PostgreSQL', or 'GeminiFlow' where the cloud transcript split it into two words ('web socket', 'Gemini flow'), GeminiFlow merges it into the proper spelling automatically.", @"Also cross-checks two-word Custom Words ('Agent Studio') against Apple's on-device transcript when the surrounding sentence matches."]},
@@ -2847,6 +2852,9 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, strong) NSURLSessionWebSocketTask *detachedLiveTask;
 @property (nonatomic, strong) NSMutableArray<NSString *> *detachedLiveSegments;
 @property (nonatomic, assign) NSUInteger detachedLivePendingTurns;
+@property (nonatomic, assign) NSUInteger detachedLiveActivityEndEchoes;
+@property (nonatomic, assign) NSUInteger detachedLiveFinalEndIndex;
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *detachedLivePendingActivityEnds;
 @property (nonatomic, assign) BOOL detachedLiveTurnEndCounted;
 @property (nonatomic, assign) BOOL detachedLiveResolved;
 @property (nonatomic, assign) BOOL finished;         // delivered, or ended as no speech
@@ -3389,10 +3397,29 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *GFCleanCustomWordEntries
     return out;
 }
 // The CLEANED entries stored at `path`; empty for a missing, unreadable or malformed file.
+// Cycle 76: Thread-safe byte-identity cache avoids re-running NSJSONSerialization + Unicode NFC cleaning on every speech turn
+// when custom-words.json has not changed on disk.
+static NSArray<NSDictionary<NSString *, NSString *> *> *GFCachedCleanedCustomWordEntriesFromData(NSData *data) {
+    if (!data || data.length == 0) return @[];
+    static NSData *sCachedWordData = nil;
+    static NSArray<NSDictionary<NSString *, NSString *> *> *sCachedWordEntries = nil;
+    static os_unfair_lock sWordLock = OS_UNFAIR_LOCK_INIT;
+    os_unfair_lock_lock(&sWordLock);
+    if (sCachedWordData && [sCachedWordData isEqualToData:data]) {
+        NSArray<NSDictionary<NSString *, NSString *> *> *cached = sCachedWordEntries;
+        os_unfair_lock_unlock(&sWordLock);
+        return cached ?: @[];
+    }
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    NSArray<NSDictionary<NSString *, NSString *> *> *cleaned = GFCleanCustomWordEntries(obj);
+    sCachedWordData = [data copy];
+    sCachedWordEntries = cleaned;
+    os_unfair_lock_unlock(&sWordLock);
+    return cleaned;
+}
 static NSArray<NSDictionary<NSString *, NSString *> *> *GFLoadCustomWordEntriesFromPath(NSString *path) {
     NSData *data = path.length > 0 ? [NSData dataWithContentsOfFile:path] : nil;
-    id obj = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return GFCleanCustomWordEntries(obj);
+    return GFCachedCleanedCustomWordEntriesFromData(data);
 }
 // What Live is told to prefer: every entry's "write" (plain terms AND the targets of pairs), cleaned and de-duplicated.
 static NSArray<NSString *> *GFVocabularyFromCustomWordEntries(NSArray<NSDictionary<NSString *, NSString *> *> *entries) {
@@ -3447,6 +3474,8 @@ static NSDictionary<NSString *, NSString *> *GFParseCustomWordLine(NSString *lin
 //     pairs where one begins the other the longer wins where it fits;
 //   - the text is normalised to Unicode NFC first (only when something is replaced is the string changed at all).
 // Returns the number of replacements made; no pairs or an empty string return 0 at once.
+static NSRegularExpression *GFCompiledRegex(NSString *pattern, NSRegularExpressionOptions opts);
+
 static NSUInteger GFApplyUserReplacements(NSMutableString *str, NSArray<NSDictionary<NSString *, NSString *> *> *pairs) {
     if (str.length == 0 || ![pairs isKindOfClass:[NSArray class]] || pairs.count == 0) return 0;
     NSMutableArray<NSArray<NSString *> *> *entries = [NSMutableArray array]; // [hear with single spaces (NFC), write (NFC)]
@@ -3480,7 +3509,7 @@ static NSUInteger GFApplyUserReplacements(NSMutableString *str, NSArray<NSDictio
     NSString *pattern = [NSString stringWithFormat:@"(?<![\\p{L}\\p{M}\\p{N}_])(?<![\\p{L}\\p{M}\\p{N}][-\\u2010\\u2011])(?:%@)"
                                                    @"(?![\\p{L}\\p{M}\\p{N}_])(?![-\\u2010\\u2011][\\p{L}\\p{N}])",
                          [alternatives componentsJoinedByString:@"|"]];
-    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil];
+    NSRegularExpression *re = GFCompiledRegex(pattern, NSRegularExpressionCaseInsensitive);
     if (!re) return 0; // cannot happen for escaped triggers; if it ever does, leave the text alone rather than guess
     NSString *source = [GFNFCIfNeeded(str) copy];
     NSMutableString *result = [NSMutableString stringWithCapacity:source.length];
@@ -6984,7 +7013,10 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
     prev.detachedLiveSession = self.liveSession;
     prev.detachedLiveTask = self.liveWebSocketTask;
     prev.detachedLiveSegments = [NSMutableArray arrayWithArray:(self.liveSegments ?: @[])];
-    prev.detachedLivePendingTurns = MAX((NSUInteger)1, self.livePendingActivityEnds.count);
+    prev.detachedLivePendingActivityEnds = [NSMutableArray arrayWithArray:(self.livePendingActivityEnds ?: @[])];
+    prev.detachedLivePendingTurns = MAX((NSUInteger)1, prev.detachedLivePendingActivityEnds.count);
+    prev.detachedLiveActivityEndEchoes = self.liveActivityEndEchoes;
+    prev.detachedLiveFinalEndIndex = (self.liveFinalEndIndex > 0) ? self.liveFinalEndIndex : (self.liveActivityEndEchoes + prev.detachedLivePendingTurns);
     prev.detachedLiveTurnEndCounted = self.liveTurnEndCounted;
     prev.detachedLiveResolved = NO;
     [self.detachedLiveDictations addObject:prev];
@@ -7064,15 +7096,19 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
         return;
     }
     NSDictionary *va = json[@"voiceActivity"];
-    if ([va isKindOfClass:[NSDictionary class]] && [va[@"type"] isEqualToString:@"ACTIVITY_END"] && target.detachedLivePendingTurns == 1) {
-        if (self.unitTestMode) {
-            [self checkDetachedEmptyFinalTurnForDictation:target];
-            if (target.detachedLiveResolved) return;
-        } else {
-            __weak typeof(self) weakSelf = self;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLiveEmptyTurnGrace * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [weakSelf checkDetachedEmptyFinalTurnForDictation:target];
-            });
+    if ([va isKindOfClass:[NSDictionary class]] && [va[@"type"] isEqualToString:@"ACTIVITY_END"]) {
+        target.detachedLiveActivityEndEchoes += 1;
+        NSUInteger finalEndIdx = target.detachedLiveFinalEndIndex > 0 ? target.detachedLiveFinalEndIndex : 1;
+        if (GFLiveEchoMeansEmptyFinalTurn(target.detachedLiveActivityEndEchoes, finalEndIdx, target.detachedLivePendingTurns)) {
+            if (self.unitTestMode) {
+                [self checkDetachedEmptyFinalTurnForDictation:target];
+                if (target.detachedLiveResolved) return;
+            } else {
+                __weak typeof(self) weakSelf = self;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLiveEmptyTurnGrace * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [weakSelf checkDetachedEmptyFinalTurnForDictation:target];
+                });
+            }
         }
     }
     NSDictionary *sc = json[@"serverContent"];
@@ -7090,6 +7126,11 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
             target.detachedLiveTurnEndCounted = genDone && !turnFlag;
         }
         if (turnDone) {
+            if (target.detachedLivePendingActivityEnds.count > 0) {
+                NSUInteger endByte = target.detachedLivePendingActivityEnds.firstObject.unsignedIntegerValue;
+                target.liveCoveredBytesAtSupersede = GFSafeAlignedLiveByteOffset(MAX(target.liveCoveredBytesAtSupersede, endByte), target.pcm.length);
+                [target.detachedLivePendingActivityEnds removeObjectAtIndex:0];
+            }
             if (target.detachedLivePendingTurns > 0) target.detachedLivePendingTurns -= 1;
             if (target.detachedLivePendingTurns == 0) {
                 [self resolveDetachedLiveDictation:target success:(target.detachedLiveSegments.count > 0) reason:@"final turn complete"];
@@ -10222,20 +10263,20 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
     if ([str rangeOfString:@"port" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str, @"\\b(port)\\s+(\\d{2})\\s+(\\d{2})\\b", @"$1 $2$3", ci);
     }
-    // Cycle 73: Split software compound nouns & parallel "on <X> first thing on <Y>" homophone repair
+    // Cycle 73 & 75: Split software compound nouns (with lowercase second stem for TitleCase safety) & parallel "on <X> first thing on <Y>" repair
     if ([str rangeOfString:@"mock" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        replaceRegex(str, @"\\b(mock)\\s+(ups)\\b", @"$1$2", ci);
-        replaceRegex(str, @"\\b(new|design|the|a|an|our|my|your|these|those|share|shared|review|updated|initial|final|figma|ui|screen|wireframe|latest)\\s+(mock)\\s+(up)\\b", @"$1 $2$3", ci);
+        replaceRegex(str, @"\\b(mock)\\s+up(s)\\b", @"$1up$2", ci);
+        replaceRegex(str, @"\\b(new|design|the|a|an|our|my|your|these|those|share|shared|review|updated|initial|final|figma|ui|screen|wireframe|latest)\\s+(mock)\\s+up\\b", @"$1 $2up", ci);
     }
-    replaceRegex(str, @"\\b(code)\\s+(bases?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(work)\\s+(flows?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(name)\\s+(spaces?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(time)\\s+(stamps?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(end)\\s+(points?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(data)\\s+(bases?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(change)\\s+(logs?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(sub)\\s+(agents?)\\b", @"$1$2", ci);
-    replaceRegex(str, @"\\b(tool)\\s+(chains?)\\b", @"$1$2", ci);
+    replaceRegex(str, @"\\b(code)\\s+base(s?)\\b", @"$1base$2", ci);
+    replaceRegex(str, @"\\b(work)\\s+flow(s?)\\b", @"$1flow$2", ci);
+    replaceRegex(str, @"\\b(name)\\s+space(s?)\\b", @"$1space$2", ci);
+    replaceRegex(str, @"\\b(time)\\s+stamp(s?)\\b", @"$1stamp$2", ci);
+    replaceRegex(str, @"\\b(end)\\s+point(s?)\\b", @"$1point$2", ci);
+    replaceRegex(str, @"\\b(data)\\s+base(s?)\\b", @"$1base$2", ci);
+    replaceRegex(str, @"\\b(change)\\s+log(s?)\\b", @"$1log$2", ci);
+    replaceRegex(str, @"\\b(sub)\\s+agent(s?)\\b", @"$1agent$2", ci);
+    replaceRegex(str, @"\\b(tool)\\s+chain(s?)\\b", @"$1chain$2", ci);
     if ([str rangeOfString:@"first thing on" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         replaceRegex(str,
                      @"\\b(on\\s+[a-z][a-z0-9'-]*)\\s+first\\s+thing\\s+on\\s+"
@@ -10243,6 +10284,91 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
                      @"january|february|march|april|may|june|july|august|september|october|november|december|"
                      @"tomorrow|yesterday|christmas|easter|thanksgiving|halloween)\\b)([a-z][a-z0-9'-]*)\\b",
                      @"$1 first, then on $2", ci);
+    }
+    // Cycle 75: Transitive "differ <gerund>" -> "defer <gerund>" ("differ" is strictly intransitive; only "defer" takes a gerund object)
+    // and geminate-s reduction in UI container nouns ("the setting screen" -> "the settings screen").
+    if ([str rangeOfString:@"differ" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Dd])iffer(s?)\\s+(?=(?:loading|rendering|initializing|fetching|parsing|executing|starting|running|"
+                     @"building|sending|migrating|upgrading|creating|importing|syncing|processing|writing|reading|checking|"
+                     @"launching|deploying|shipping|installing|updating)\\b)",
+                     @"$1efer$2 ", 0);
+    }
+    if ([str rangeOfString:@"setting" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(the|our|your|my|this|that|app|system|user|account|profile|privacy|notification|audio|display|general|advanced|developer)\\s+"
+                     @"([Ss])etting\\s+(screens?|pages?|menus?|panels?|tabs?|modals?|dialogs?|views?|sheets?|sections?|windows?)\\b",
+                     @"$1 $2ettings $3", ci);
+    }
+    // Cycle 78: UK/Non-Rhotic Accent & Acoustic Truncation Homophone Recovery ("fixed the bag" -> "fixed the bug",
+    // "really Rispo" -> "really responsive", "off the laptop link to sleep" -> "after the laptop wakes from sleep").
+    if ([str rangeOfString:@"bag" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(fix|fixes|fixed|fixing|reproduce|reproduced|triage|triaged|debug|debugging)\\s+(the|a|this|that|our|every)\\s+bag(s?)\\b",
+                     @"$1 $2 bug$3", ci);
+    }
+    if ([str rangeOfString:@"rispo" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"\\b(feels|is|was|seems|really|very|super|more|quite)\\s+rispo\\b", @"$1 responsive", ci);
+    }
+    if ([str rangeOfString:@"sleep" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b(?:off|after)\\s+the\\s+(laptop|macbook|mac|computer|system|device|display)\\s+(?:link\\s+to|links\\s+to|wakes?\\s+to)\\s+sleep\\b",
+                     @"after the $1 wakes from sleep", ci);
+    }
+}
+
+// Cycle 77: Spoken Hyphenated Technical Modifiers & Compound Adjectives (shared with iOS via transplant.py).
+// Formats unambiguous spoken compound modifiers when directly preceding their head noun ("end to end tests" -> "end-to-end tests",
+// "real time streaming" -> "real-time streaming", "read only mode" -> "read-only mode", "command line tool" -> "command-line tool",
+// "out of the box support" -> "out-of-the-box support", "zero downtime deployment" -> "zero-downtime deployment",
+// "on call rotation" -> "on-call rotation", "hands on workshop" -> "hands-on workshop").
+static void GFFormatSpokenHyphenatedCompounds(NSMutableString *str) {
+    if (!str || str.length < 8) return;
+    if ([str rangeOfString:@" to " options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Ee])nd\\s+to\\s+end(?=\\s+(?:test|tests|testing|encryption|latency|pipeline|flow|suite|verification)\\b)",
+                     @"$1nd-to-end", 0);
+        replaceRegex(str,
+                     @"\\b([Bb])ack\\s+to\\s+back(?=\\s+(?:press|presses|meetings|calls|sessions|runs|tests|releases)\\b)",
+                     @"$1ack-to-back", 0);
+        replaceRegex(str,
+                     @"\\b([Pp])eer\\s+to\\s+peer(?=\\s+(?:connection|connections|network|networking|sync|streaming|transfer)\\b)",
+                     @"$1eer-to-peer", 0);
+    }
+    if ([str rangeOfString:@"real" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Rr])eal\\s+time(?=\\s+(?:audio|streaming|transcription|dictation|updates|sync|data|metrics|feedback|collaboration)\\b)",
+                     @"$1eal-time", 0);
+    }
+    if ([str rangeOfString:@"read" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Rr])ead\\s+only(?=\\s+(?:mode|access|view|replica|token|sandbox|file|files|filesystem|memory|database)\\b)",
+                     @"$1ead-only", 0);
+    }
+    if ([str rangeOfString:@"command" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Cc])ommand\\s+line(?=\\s+(?:flag|flags|tool|tools|interface|arg|args|argument|arguments|option|options|utility|script|scripts)\\b)",
+                     @"$1ommand-line", 0);
+    }
+    if ([str rangeOfString:@"zero" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Zz])ero\\s+downtime(?=\\s+(?:deploy|deployment|deployments|migration|migrations|upgrade|upgrades|rollout)\\b)",
+                     @"$1ero-downtime", 0);
+    }
+    if ([str rangeOfString:@"out of the box" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Oo])ut\\s+of\\s+the\\s+box(?=\\s+(?:support|experience|config|configuration|solution|setup|defaults)\\b)",
+                     @"$1ut-of-the-box", 0);
+    }
+    if ([str rangeOfString:@"on call" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Oo])n\\s+call(?=\\s+(?:rotation|rotations|engineer|engineers|shift|shifts|schedule|duty|handoff|pager)\\b)",
+                     @"$1n-call", 0);
+    }
+    if ([str rangeOfString:@"hands on" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str,
+                     @"\\b([Hh])ands\\s+on(?=\\s+(?:workshop|workshops|session|sessions|training|demo|tutorial|experience)\\b)",
+                     @"$1ands-on", 0);
     }
 }
 
@@ -10547,6 +10673,8 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
     GFFormatSpokenDatesAndNumbers(str);
     // 8e. Contextual software homophone repair ("ship the new bill" -> "ship the new build") and version/port formatting
     GFRepairContextualHomophones(str);
+    // 8f. Spoken hyphenated technical modifiers ("end to end tests" -> "end-to-end tests", "real time audio" -> "real-time audio")
+    GFFormatSpokenHyphenatedCompounds(str);
 
     // 9. Clean up multiple spaces and spaces before punctuation
     replaceRegex(str, @"\\s+([,;!?])", @"$1", 0);
@@ -16097,6 +16225,103 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c73Ok) passed++; else failed++;
                 printf("%s: split software compound noun fusion and parallel clause homophone repair (%d%d%d)\n",
                        c73Ok ? "PASS" : "FAIL", h1, h2, h3);
+            }
+            // Cycle 74: Detached Live Finalizer Split-Turn Echo Bookkeeping & Covered-Byte Advancement
+            {
+                AppDelegate *dt74 = [[AppDelegate alloc] init];
+                dt74.unitTestMode = YES;
+                NSMutableArray<NSString *> *out74 = [NSMutableArray array];
+                NSMutableArray<NSNumber *> *rest74 = [NSMutableArray array];
+                dt74.resultSink = ^(NSString *text, GFDictation *d) { [out74 addObject:text ?: @""]; };
+                dt74.restFallbackSink = ^(GFDictation *d) { [rest74 addObject:@(d.serial)]; };
+                NSMutableData *pcm74 = [NSMutableData dataWithLength:48000]; // 1.5s total: 0..1.0s loud speech, 1.0..1.5s silent tail
+                int16_t *s74 = (int16_t *)pcm74.mutableBytes;
+                for (NSUInteger i = 0; i < 16000; i++) s74[i] = 1600;
+                GFDictation *sup2Turn = [[GFDictation alloc] init];
+                sup2Turn.serial = 74;
+                sup2Turn.superseded = YES;
+                sup2Turn.pcm = pcm74;
+                sup2Turn.liveCoveredBytesAtSupersede = 0;
+                sup2Turn.detachedLiveSessionId = 740;
+                sup2Turn.detachedLiveSegments = [NSMutableArray array];
+                sup2Turn.detachedLivePendingActivityEnds = [NSMutableArray arrayWithArray:@[@(32000), @(48000)]];
+                sup2Turn.detachedLivePendingTurns = 2;
+                sup2Turn.detachedLiveActivityEndEchoes = 0;
+                sup2Turn.detachedLiveFinalEndIndex = 2;
+                dt74.detachedLiveDictations = [NSMutableArray arrayWithObject:sup2Turn];
+                // 1) Turn #1 completes with transcript + generationComplete -> advances covered bytes to 32000, 1 pending turn left
+                [dt74 handleDetachedLiveSocketMessage:@{@"serverContent": @{@"inputTranscription": @{@"text": @"First split sentence."},
+                                                                            @"generationComplete": @YES}}
+                                                error:nil session:740 task:nil];
+                BOOL m1 = (!sup2Turn.detachedLiveResolved && sup2Turn.detachedLivePendingTurns == 1 &&
+                           sup2Turn.liveCoveredBytesAtSupersede == 32000);
+                // 2) Turn #1's ACTIVITY_END echo arrives right after Turn #1's generationComplete -> echo 1 of 2, must NOT misfire empty final turn check
+                [dt74 handleDetachedLiveSocketMessage:@{@"voiceActivity": @{@"type": @"ACTIVITY_END"}} error:nil session:740 task:nil];
+                BOOL m2 = (!sup2Turn.detachedLiveResolved && sup2Turn.detachedLiveActivityEndEchoes == 1 && out74.count == 0 && rest74.count == 0);
+                // 3) Turn #2's ACTIVITY_END echo arrives empty (echo 2 of 2) -> tail [32000..48000] is silent, finishes on Live
+                [dt74 handleDetachedLiveSocketMessage:@{@"voiceActivity": @{@"type": @"ACTIVITY_END"}} error:nil session:740 task:nil];
+                BOOL m3 = (sup2Turn.detachedLiveResolved && out74.count == 1 &&
+                           [out74.firstObject isEqualToString:@"First split sentence. "] && rest74.count == 0);
+                BOOL c74Ok = m1 && m2 && m3;
+                if (c74Ok) passed++; else failed++;
+                printf("%s: detached Live finalizer multi-turn echo bookkeeping and covered-byte advancement (%d%d%d)\n",
+                       c74Ok ? "PASS" : "FAIL", m1, m2, m3);
+            }
+            // Cycle 75: Transitive 'defer <gerund>' & Geminate-S 'settings screen' Homophone Repair + TitleCase Compound Guard
+            {
+                BOOL r1 = [[self polishOnDeviceTranscript:@"The plan is to differ loading the setting screen and the analytics library until after the first frame is drawn."]
+                           isEqualToString:@"The plan is to defer loading the settings screen and the analytics library until after the first frame is drawn. "];
+                BOOL r2 = [[self polishOnDeviceTranscript:@"Our results differ from the baseline, so we should differ rendering the user setting menu."]
+                           isEqualToString:@"Our results differ from the baseline, so we should defer rendering the user settings menu. "];
+                BOOL r3 = [[self polishOnDeviceTranscript:@"Review the Code Base and Work Flow before updating the Data Base."]
+                           isEqualToString:@"Review the Codebase and Workflow before updating the Database. "];
+                BOOL c75Ok = r1 && r2 && r3;
+                if (c75Ok) passed++; else failed++;
+                printf("%s: transitive defer-gerund, geminate-s settings UI, and TitleCase compound guard (%d%d%d)\n",
+                       c75Ok ? "PASS" : "FAIL", r1, r2, r3);
+            }
+            // Cycle 76: Custom-Words Byte-Identity Cache & User-Replacement Regex Cache Reuse
+            {
+                NSData *cwData1 = [@"[\"Siobhan\", {\"hear\": \"Owen\", \"write\": \"Eoin\"}]" dataUsingEncoding:NSUTF8StringEncoding];
+                NSData *cwData2 = [@"[\"Zyphra\", {\"hear\": \"Kristofer\", \"write\": \"Kristoffer\"}]" dataUsingEncoding:NSUTF8StringEncoding];
+                NSArray *cwA = GFCachedCleanedCustomWordEntriesFromData(cwData1);
+                NSArray *cwB = GFCachedCleanedCustomWordEntriesFromData(cwData1);
+                BOOL k1 = (cwA.count == 2 && cwA == cwB); // pointer-identical cache hit on unchanged bytes
+                NSArray *cwC = GFCachedCleanedCustomWordEntriesFromData(cwData2);
+                BOOL k2 = (cwC.count == 2 && cwC != cwA && [cwC[0][kGFCustomWordWrite] isEqualToString:@"Zyphra"]);
+                NSMutableString *repStr = [NSMutableString stringWithString:@"Please ask Owen and Kristofer to join."];
+                NSUInteger repCount = GFApplyUserReplacements(repStr, @[cwA[1], cwC[1]]);
+                BOOL k3 = (repCount == 2 && [repStr isEqualToString:@"Please ask Eoin and Kristoffer to join."]);
+                BOOL c76Ok = k1 && k2 && k3;
+                if (c76Ok) passed++; else failed++;
+                printf("%s: custom-words byte-identity cache and user-replacement compiled regex reuse (%d%d%d)\n",
+                       c76Ok ? "PASS" : "FAIL", k1, k2, k3);
+            }
+            // Cycle 77: Spoken Hyphenated Technical Modifiers & Compound Adjectives
+            {
+                BOOL y1 = [[self polishOnDeviceTranscript:@"We ran the end to end tests on the real time audio pipeline in read only mode."]
+                           isEqualToString:@"We ran the end-to-end tests on the real-time audio pipeline in read-only mode. "];
+                BOOL y2 = [[self polishOnDeviceTranscript:@"The command line tool provides out of the box support for zero downtime deployments."]
+                           isEqualToString:@"The command-line tool provides out-of-the-box support for zero-downtime deployments. "];
+                BOOL y3 = [[self polishOnDeviceTranscript:@"Starting next month, the on call rotation includes a hands on workshop and back to back sessions."]
+                           isEqualToString:@"Starting next month, the on-call rotation includes a hands-on workshop and back-to-back sessions. "];
+                BOOL c77Ok = y1 && y2 && y3;
+                if (c77Ok) passed++; else failed++;
+                printf("%s: spoken hyphenated technical modifiers and compound adjectives (%d%d%d)\n",
+                       c77Ok ? "PASS" : "FAIL", y1, y2, y3);
+            }
+            // Cycle 78: UK/Non-Rhotic Accent & Acoustic Truncation Homophone Recovery
+            {
+                BOOL u1 = [[self polishOnDeviceTranscript:@"The latency is much better now and the app feels really Rispo."]
+                           isEqualToString:@"The latency is much better now and the app feels really responsive. "];
+                BOOL u2 = [[self polishOnDeviceTranscript:@"We need to fix the bug where the microphone stops working off the laptop link to sleep."]
+                           isEqualToString:@"We need to fix the bug where the microphone stops working after the laptop wakes from sleep. "];
+                BOOL u3 = [[self polishOnDeviceTranscript:@"I fixed the bag. Can you check it? Please leave the shopping bag in the car."]
+                           isEqualToString:@"I fixed the bug. Can you check it? Please leave the shopping bag in the car. "];
+                BOOL c78Ok = u1 && u2 && u3;
+                if (c78Ok) passed++; else failed++;
+                printf("%s: UK/non-rhotic accent and acoustic truncation homophone recovery (%d%d%d)\n",
+                       c78Ok ? "PASS" : "FAIL", u1, u2, u3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

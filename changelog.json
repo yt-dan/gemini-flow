@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 78,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:19",
+      "title": "Improves British accent and technical phrase recognition on-device",
+      "highlights": [
+        "Repairs common on-device mishearings on British and fast voices such as 'fixed the bag' ('fixed the bug'), 'feels really Rispo' ('feels really responsive'), and 'off the laptop link to sleep' ('after the laptop wakes from sleep').",
+        "Preserves ordinary phrases like 'carry the bag' or 'in the bag' untouched."
+      ]
+    },
+    {
+      "cycle": 77,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:18",
+      "title": "Hyphenates spoken technical modifiers like 'end-to-end' and 'real-time'",
+      "highlights": [
+        "Formats spoken compound modifiers before their nouns, turning 'end to end tests', 'real time audio', 'read only mode', 'command line tool', 'out of the box support', 'zero downtime deployment', 'on call rotation', and 'hands on workshop' into 'end-to-end tests', 'real-time audio', 'read-only mode', 'command-line tool', 'out-of-the-box support', 'zero-downtime deployment', 'on-call rotation', and 'hands-on workshop'.",
+        "Leaves standalone phrases like 'from end to end' or 'in real time' unchanged."
+      ]
+    },
+    {
+      "cycle": 76,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:17",
+      "title": "Faster Custom Words lookup and replacement matching",
+      "highlights": [
+        "Caches your Custom Words list in memory between dictations when the file on disk has not changed, avoiding repeat file parsing on every sentence.",
+        "Reuses compiled matching patterns when applying 'When you hear X, write Y' word replacements."
+      ]
+    },
+    {
+      "cycle": 75,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:15",
+      "title": "Fixes 'defer loading' and 'settings screen' phrasing across speech engines",
+      "highlights": [
+        "Repairs 'differ loading' or 'differ rendering' to 'defer loading' and 'defer rendering' when followed by an action word, while keeping real comparisons like 'differ from the baseline' untouched.",
+        "Restores the dropped plural in 'the setting screen' or 'user setting menu' ('the settings screen', 'user settings menu') and keeps capitalized compound words like 'Code Base' formatted cleanly as 'Codebase'."
+      ]
+    },
+    {
+      "cycle": 74,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:10",
+      "title": "More reliable background finishing for multi-part live dictations",
+      "highlights": [
+        "When a long dictation with multiple speech segments finishes in the background while you start a new press, GeminiFlow now tracks each segment's completion echo and covered audio position individually.",
+        "Prevents an earlier segment's completion signal from ending the final segment early."
+      ]
+    },
+    {
       "cycle": 73,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 11:51",
