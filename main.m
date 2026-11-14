@@ -65,6 +65,11 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(123), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:23", @"title": @"Formats more personal and work email greetings, warm sign-offs, and messaging apps", @"highlights": @[@"Adds paragraph breaks after full-name, family, and role-title email greetings such as 'Hi Sarah Johnson,', 'Dear Hiring Manager,', 'Hi Mom and Dad,', and 'Hey friends,'.", @"Formats warm personal and professional email sign-offs onto their own lines, including 'Warmly,', 'All the best,', 'Take care,', 'Speak soon,', 'See you soon,', 'With gratitude,', 'Lots of love,', and 'Yours truly,', and recognizes WeChat, Line, Messenger, and Viber for casual chat punctuation."]},
+            @{@"cycle": @(122), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:22", @"title": @"Formats spoken clock times and cleans up two-word conversational restarts", @"highlights": @[@"Turns space-separated spoken clock times and ranges like '3 30 p.m.', '10 15 a.m.', 'at 6 30 tonight', and 'from 2 30 to 3 30 p.m.' into '3:30 p.m.', '10:15 a.m.', 'at 6:30 tonight', and '2:30-3:30 p.m.'.", @"Collapses mid-sentence restarts when you pause after a short phrase and start over with a new article or preposition ('I want a, I want the corner table' becomes 'I want the corner table' and 'I talked to the, I talked to my manager' becomes 'I talked to my manager')."]},
+            @{@"cycle": @(121), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:21", @"title": @"Cleans up 'make it', 'on second thought', and 'you know what' self-corrections", @"highlights": @[@"When you revise a number, time, or day mid-sentence with 'make it' ('I will be there in 10 minutes, make it 15' or 'Table for 2, make it 4'), GeminiFlow updates the earlier number in place.", @"When you change your mind mid-sentence with 'on second thought' or 'actually, you know what' ('Let us meet on Tuesday, on second thought, let us do Wednesday'), GeminiFlow keeps only your updated plan."]},
+            @{@"cycle": @(120), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:20", @"title": @"Removes more redundant 'like' fillers and stacked sentence connectors", @"highlights": @[@"Catches filler 'like' in everyday speech after prepositions ('at like 3 p.m.', 'in like 5 minutes', 'with like my friends', 'about like the budget'), before action verbs and contractions ('I like went to the store', 'he like can't make it', 'we're like trying to finish'), and after connectors ('if like', 'when like', 'because like').", @"Keeps genuine uses of 'like' untouched ('I like the new design', 'I would like to schedule a call', 'looks like rain') and simplifies stacked connectors like 'because then so that' into 'so that'."]},
+            @{@"cycle": @(119), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:18", @"title": @"Fixes '1 pax' and '2 pax' dining and group counts and adds question marks to casual questions", @"highlights": @[@"Fixes '1 pax', '2 pax', '4 pax', and 'per pax' when dictated for dining reservations, travel, and events so they no longer transcribe as '1 packs', 'a 1 packs', '2 packs', or 'per packs', while keeping product phrases like '2 packs of gum' intact.", @"Adds a question mark to casual and work questions such as 'Any chance we can move the call to 4 p.m.?', 'Any thoughts on the proposal?', 'Anyone free for lunch today?', 'Want to grab coffee tomorrow?', and 'Mind if we reschedule?'."]},
             @{@"cycle": @(118), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:02", @"title": @"Formats more technical slash pairs like 'pub/sub', 'key/value', 'UI/UX', and 'HTTP/2'", @"highlights": @[@"Turns spoken technical slash pairs like 'pub slash sub', 'key slash value', 'request slash response', 'primary slash replica', 'active slash passive', 'producer slash consumer', 'UI slash UX', 'HTTP slash 2', and 'HTTP slash 3' into clean slash expressions.", @"Expands spoken Git and project folder slash paths to cover 'release/v1.2', 'refactor/audio', 'docs/api', and 'tests/e2e'."]},
             @{@"cycle": @(117), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:01", @"title": @"Hyphenates AI and systems modifiers and restores casing on AI, database, and testing brands", @"highlights": @[@"Hyphenates spoken technical modifiers before their nouns, including 'fine-tuned model', 'pre-trained weights', 'self-hosted runner', 'thread-safe cache', 'type-safe client', 'zero-copy buffers', 'event-driven pipeline', and 'non-blocking io'.", @"Restores proper capitalization on AI, database, and developer tool names including 'Anthropic', 'HuggingFace', 'LangChain', 'LlamaIndex', 'DuckDB', 'ClickHouse', 'DynamoDB', 'RabbitMQ', 'Datadog', 'PostHog', 'Playwright', 'Vitest', and 'Turborepo'."]},
             @{@"cycle": @(116), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:00", @"title": @"Formats spoken Asia-Pacific currencies, inequality symbols, and '10x' multipliers", @"highlights": @[@"Turns spoken currency amounts like '500 Hong Kong dollars', '80 New Zealand dollars', '1,000 New Taiwan dollars', '5,000 Indian rupees', and '10,000 Korean won' into 'HK$500', 'NZ$80', 'NT$1,000', '\u20B95,000', and '\u20A910,000'.", @"Formats spoken math comparisons and multipliers before numbers, turning 'greater than or equal to 95 percent', 'less than or equal to 100 milliseconds', and '10 x speedup' into '\u226595%', '\u2264100 ms', and '10x speedup'."]},
@@ -8259,7 +8264,8 @@ static NSString *GFDualStreamConsensus(NSString *geminiText, NSString *appleText
             @"benchmark": @"benchmark", @"benchmarks": @"benchmarks",
             @"deadlock": @"deadlock", @"deadlocks": @"deadlocks",
             @"hostname": @"hostname", @"username": @"username",
-            @"password": @"password", @"filename": @"filename", @"bytecode": @"bytecode"
+            @"password": @"password", @"filename": @"filename", @"bytecode": @"bytecode",
+            @"pax": @"pax"
         };
     });
 
@@ -9182,7 +9188,7 @@ static NSSet<NSString *> *GFStutterWordSet(NSString *list) {
 static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
     static NSSet<NSString *> *spokenSymbols, *keepPhrases, *chainWords, *idiomChainWords, *idiomNouns, *quantityNouns, *ofFollowers,
                              *tautologyHeads, *determiners, *giveVerbs, *sContractions, *unfinishedEnd, *unfinishedIfContinues,
-                             *helperVerbs, *beforeYou, *abortedStrong, *abortedBare, *abortedPrep;
+                             *helperVerbs, *beforeYou, *abortedStrong, *abortedBare, *abortedPrep, *restartPronouns;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         spokenSymbols = GFStutterWordSet(@"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
@@ -9235,6 +9241,8 @@ static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
         abortedStrong = GFStutterWordSet(@"a an the my your our their its every");
         abortedBare = GFStutterWordSet(@"some any each another");
         abortedPrep = GFStutterWordSet(@"to in on for with from at by of into about");
+        restartPronouns = GFStutterWordSet(@"i we you he she they let's i'm we're you're they're he's she's it's "
+                                           @"i'll we'll you'll they'll i've we've you've they've i'd we'd you'd they'd there's that's");
     });
 
     NSUInteger len = str.length;
@@ -9374,13 +9382,15 @@ static BOOL GFCollapsePhraseRepeatOnce(NSMutableString *str) {
             if (n >= 3 && ([first isEqualToString:@"and"] || [first isEqualToString:@"or"]) && !unfinished) continue;
             cut = NSMakeRange(tok[i + n - 1].end, tok[last].end - tok[i + n - 1].end);
         }
-        // Rule B: P + one or two aborted words + P (Cycle 99: supports 1-word determiner/demonstrative or 2-word preposition+determiner restarts)
-        for (NSUInteger n = kGFStutterMaxPhrase; n >= 3 && cut.location == NSNotFound; n--) {
+        // Rule B: P + one or two aborted words + P (Cycle 99 & 122: supports 1-word determiner/demonstrative or 2-word preposition+determiner restarts,
+        // including 2-word subject-pronoun + verb prefixes like "I want a, I want the corner table" or "I talked to the, I talked to my manager")
+        for (NSUInteger n = kGFStutterMaxPhrase; n >= 2 && cut.location == NSNotFound; n--) {
+            if (n == 2 && ![restartPronouns containsObject:word(i)]) continue;
             if (i + 2 * n + 1 <= T) {
                 NSUInteger x = i + n, again = x + 1;
                 if (tok[x].sep == 1 && tok[again].sep != 0 && sameRun(i, again, n)) {
                     NSString *aborted = word(x);
-                    if (([abortedStrong containsObject:aborted] || (tok[again].sep == 1 && [abortedBare containsObject:aborted])) &&
+                    if (([abortedStrong containsObject:aborted] || (n >= 3 && tok[again].sep == 1 && [abortedBare containsObject:aborted])) &&
                         !sameWordOrSpoken(i, n)) {
                         cut = NSMakeRange(tok[i + n - 1].end, tok[again + n - 1].end - tok[i + n - 1].end);
                         break;
@@ -9622,7 +9632,7 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
     dispatch_once(&onceToken, ^{
         NSRegularExpressionOptions ci = NSRegularExpressionCaseInsensitive;
         fastRe = [NSRegularExpression regularExpressionWithPattern:
-                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+that|oops|whoops|my\\s+bad|rephrase|correct|correction|start\\s+over)\\b"
+                  @"\\b(?:wait|no|actually|sorry|mean|meant|scratch|strike|forget|disregard|cancel|delete|never\\s*mind|rather|make\\s+(?:that|it)|oops|whoops|my\\s+bad|rephrase|correct|correction|start\\s+over|second\\s+thought|you\\s+know\\s+what)\\b"
                                                            options:ci error:nil];
         cueRe = [NSRegularExpression regularExpressionWithPattern:
                  @"(?:[.,?!]\\s*|\\s+)((?:oh\\s*,?\\s*)?(?:"
@@ -9637,10 +9647,12 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
                  @"(?:oops|whoops)(?:\\s*,?\\s*(?:no|wait|sorry|actually|my\\s+bad|i\\s+(?:mean|meant)))?|"
                  @"(?:scratch|strike|disregard)\\s+that|"
                  @"let\\s+me\\s+(?:rephrase(?:\\s+that)?|correct\\s+that|start\\s+over)|"
+                 @"on\\s+second\\s+thought(?=\\s*,)|"
+                 @"actually\\s*,?\\s*you\\s+know\\s+what(?=\\s*,)|"
                  @"never\\s*mind\\s+that|"
                  @"or\\s+rather"
                  @")\\b)\\s*[.,?!]?\\s*"
-                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+that|my\\s+bad|oops|whoops|correction(?=\\s*,))\\b)\\s*[.,?!]?\\s*"
+                 @"|(?:[.,?!]\\s*)((?:oh\\s*,?\\s*)?(?:(?:well\\s*,?\\s*)?i\\s+meant|(?:forget|cancel|delete)\\s+that|never\\s*mind|make\\s+(?:that|it)|my\\s+bad|oops|whoops|correction(?=\\s*,)|on\\s+second\\s+thought|you\\s+know\\s+what(?=\\s*,))\\b)\\s*[.,?!]?\\s*"
                  @"|(?:,\\s*(i\\s+mean|i\\s+meant|sorry|no|wait|actually)\\s*,?\\s+|\\s+(i\\s+mean|i\\s+meant)\\s*,\\s+)"
                                                           options:ci error:nil];
         abbrevSet = GFStutterWordSet(@"mr mrs ms dr prof st sr jr mt vs etc cf approx incl esp fig inc ltd co corp "
@@ -9859,7 +9871,8 @@ static BOOL GFRemoveConversationalBacktrackOnce(NSMutableString *str) {
             BOOL isClauseCue = [cueCore containsString:@"scratch"] || [cueCore containsString:@"strike"] ||
                                [cueCore containsString:@"forget"] || [cueCore containsString:@"disregard"] ||
                                [cueCore containsString:@"cancel"] || [cueCore containsString:@"delete"] ||
-                               [cueCore containsString:@"never"] || isRephrase || isStartOver;
+                               [cueCore containsString:@"never"] || [cueCore containsString:@"second thought"] ||
+                               [cueCore containsString:@"you know what"] || isRephrase || isStartOver;
 
             // If g2 matched "(?:forget|cancel|delete) that" or "never mind", require a trailing comma after the cue
             // so " don't forget that file" after a comma doesn't misfire.
@@ -10131,7 +10144,7 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
                         @"\\b(?:number|item|point|step)\\s+(one|1|two|2|three|3|four|4|five|5|six|6|seven|7|eight|8|nine|9)\\b([.,:;])?)\\s+"
                                                                  options:ci error:nil];
         ordMarkerRe = [NSRegularExpression regularExpressionWithPattern:
-                       @"(?:^|(?<=[.!?:;,])\\s*(?:and\\s+)?)\\b(first(?:\\s+of\\s+all)?|firstly|second(?:\\s+of\\s+all)?|secondly|"
+                       @"(?:^|(?<=[.!?:;,\\n])\\s*(?:and\\s+)?)\\b(first(?:\\s+of\\s+all)?|firstly|second(?:\\s+of\\s+all)?|secondly|"
                        @"third(?:\\s+of\\s+all)?|thirdly|fourth(?:\\s+of\\s+all)?|fourthly|fifth(?:\\s+of\\s+all)?|fifthly)\\s*([,:])\\s+"
                                                                 options:ci error:nil];
         prevWordRe = [NSRegularExpression regularExpressionWithPattern:@"([A-Za-z']+)\\s*[,;:.!?]?\\s*$" options:0 error:nil];
@@ -10157,6 +10170,7 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
     });
 
     if ([fastListRe firstMatchInString:str options:0 range:NSMakeRange(0, str.length)] == nil) return;
+    BOOL hadExplicitNewline = ([str rangeOfString:@"\n"].location != NSNotFound);
 
     // 0. Cycle 114: Spoken Markdown Headings ("Heading 1: Quarterly roadmap." -> "# Quarterly roadmap",
     //    "Heading 2 key milestones. We ship on Friday." -> "## Key milestones\n\nWe ship on Friday.")
@@ -10207,6 +10221,7 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
     NSString *(^cleanPrefixText)(NSString *) = ^NSString *(NSString *rawPrefix) {
         NSString *p = [rawPrefix stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (p.length == 0) return @"";
+        if ([p hasPrefix:@"#"]) return p;
         while (p.length > 0 && ([p hasSuffix:@","] || [p hasSuffix:@";"])) {
             p = [[p substringToIndex:p.length - 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         }
@@ -10271,7 +10286,7 @@ static void GFFormatSpokenLists(NSMutableString *str, BOOL autoCap) {
     }
 
     // Do not rewrite numbered/ordinal lists if the user already dictated explicit "new line" / "new paragraph" breaks
-    if ([str containsString:@"\n"]) return;
+    if (hadExplicitNewline) return;
 
     // 2. Explicit multi-word item/number markers ("First item ... second item ...", "Number one, ... number two, ...")
     {
@@ -10418,7 +10433,10 @@ static GFAppContextCategory GFAppContextCategoryForBundleID(NSString *bundleId) 
         [b isEqualToString:@"ph.telegra.telegraph"] || [b containsString:@"telegram"] || [b containsString:@"telegraph"] ||
         [b isEqualToString:@"net.whatsapp.whatsapp"] || [b containsString:@"whatsapp"] ||
         [b containsString:@"signal-desktop"] || [b containsString:@"whispersystems.signal"] ||
-        [b containsString:@"facebook.archon"] || [b containsString:@"microsoft.teams"] ||
+        [b containsString:@"facebook.archon"] || [b containsString:@"messenger"] ||
+        [b containsString:@"xinwechat"] || [b containsString:@"wechat"] ||
+        [b containsString:@"jp.naver.line"] || [b containsString:@"viber"] || [b containsString:@"kakao"] ||
+        [b containsString:@"microsoft.teams"] ||
         [b isEqualToString:@"com.atebits.tweetie2"] || [b isEqualToString:@"com.burbn.instagram"] ||
         [b isEqualToString:@"com.linear"]) {
         return GFAppContextChat;
@@ -10451,14 +10469,16 @@ static void GFApplyAppContextFormatting(NSMutableString *str, NSString *bundleId
         emailSubjRe = [NSRegularExpression regularExpressionWithPattern:
                        @"^subject(?:[ \\t]+colon|\\s*:)[ \\t]*([a-zA-Z0-9])([^\\n.!?]*?)(?:[ \\t]*[.,;]?[ \\t]*\\n+[ \\t]*|[.!?][ \\t]+)(?=(?:hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))\\b)"
                                                                 options:ci error:nil];
-        // Greeting at start of email or after Subject line: "Hi Sarah, thanks..." / "Hello team, I..." / "Good morning everyone, here..."
+        // Greeting at start of email or after Subject line: "Hi Sarah, thanks..." / "Hello team, I..." / "Good morning everyone, here..." / "Dear Hiring Manager, ..."
         emailGreetRe = [NSRegularExpression regularExpressionWithPattern:
-                        @"^((?:hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))(?:\\s+there|\\s+everyone|\\s+all|\\s+team|\\s+folks|"
-                        @"\\s+(?:dr|mr|mrs|ms|prof)\\.?\\s+[A-Z][A-Za-z'-]+|\\s+[A-Z][A-Za-z'-]+(?:\\s+and\\s+[A-Z][A-Za-z'-]+)?)?),[ \\t]+([a-zA-Z])"
+                        @"^((?:hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))(?:\\s+there|\\s+everyone|\\s+all|\\s+team|\\s+folks|\\s+guys|\\s+friends|\\s+family|"
+                        @"\\s+(?:hiring\\s+manager|selection\\s+committee|recruiting\\s+team|support\\s+team|customer\\s+service)|"
+                        @"\\s+(?:dr|mr|mrs|ms|prof)\\.?\\s+[A-Z][A-Za-z'-]+(?:\\s+[A-Z][A-Za-z'-]+)?|"
+                        @"\\s+[A-Z][A-Za-z'-]+(?:\\s+[A-Z][A-Za-z'-]+)?(?:\\s+and\\s+[A-Z][A-Za-z'-]+(?:\\s+[A-Z][A-Za-z'-]+)?)?)?),[ \\t]+([a-zA-Z])"
                                                                  options:ci | NSRegularExpressionAnchorsMatchLines error:nil];
-        // Sign-off at end of email: "... let me know. Best, Dan." / "... tomorrow! Thanks, Sarah."
+        // Sign-off at end of email: "... let me know. Best, Dan." / "... tomorrow! Warmly, Sarah." / "... soon. All the best, Alex."
         emailSignOffRe = [NSRegularExpression regularExpressionWithPattern:
-                          @"([.!?])[ \\t]+(best(?:\\s+regards|\\s+wishes)?|kind\\s+regards|warm\\s+regards|regards|many\\s+thanks|thank\\s+you|thanks|cheers|sincerely|talk\\s+soon),[ \\t]+([A-Z][A-Za-z'-]*(?:[ \\t]+[A-Z][A-Za-z'-]*)?)\\.?$"
+                          @"([.!?])[ \\t]+(all\\s+the\\s+best|best(?:\\s+regards|\\s+wishes)?|kind\\s+regards|warm\\s+regards|warm\\s+wishes|warmly|regards|many\\s+thanks|thank\\s+you(?:\\s+so\\s+much)?|thanks(?:\\s+again|\\s+so\\s+much)?|with\\s+(?:gratitude|appreciation)|cheers|sincerely|yours\\s+(?:truly|sincerely)|respectfully|take\\s+care|talk\\s+soon|speak\\s+soon|see\\s+you\\s+soon|lots\\s+of\\s+love|with\\s+love|love),[ \\t]+([A-Z][A-Za-z'-]*(?:[ \\t]+[A-Z][A-Za-z'-]*)?)\\.?$"
                                                                    options:ci error:nil];
         chatAbbrevEndRe = [NSRegularExpression regularExpressionWithPattern:
                            @"(?:\\b(?:[a-z]\\.[a-z]\\.|etc\\.|vs\\.|dr\\.|mr\\.|mrs\\.|ms\\.|st\\.|jr\\.|sr\\.|inc\\.|ltd\\.|co\\.|corp\\.))$|[0-9]\\.[0-9]+\\.$"
@@ -10555,7 +10575,11 @@ static void GFFormatSmartEntities(NSMutableString *str) {
     replaceRegex(str, @"\\b(16|21)\\s+by\\s+(9)\\b", @"$1:$2", ci);
     replaceRegex(str, @"\\b(9|4|3|1)\\s+by\\s+(16|3|2|1)\\b(?=\\s+(?:aspect|ratio|displays?|screens?|monitors?|videos?|resolutions?|formats?|canvas|frames?|crops?|widescreen)\\b)", @"$1:$2", ci);
     replaceRegex(str, @"\\b(\\d{2,4})\\s+by\\s+(\\d{2,4})\\b", @"$1x$2", ci);
-    // 7. Spoken time ranges ("from 2 to 3 p.m." -> "2-3 p.m.", "from 2:00 to 3:30 p.m." -> "2:00-3:30 p.m.")
+    // 7. Spoken clock times ("3 30 p.m." -> "3:30 p.m.", "10 15 a.m." -> "10:15 a.m.", "at 6 30 tonight" -> "at 6:30 tonight")
+    //    and spoken time ranges ("from 2 to 3 p.m." -> "2-3 p.m.", "from 2 30 to 3 30 p.m." -> "2:30-3:30 p.m.")
+    replaceRegex(str, @"\\b(1[0-2]|[1-9])\\s+(0[1-9]|[1-5]\\d)\\s+(?=to\\s+(?:1[0-2]|[1-9])(?:[:\\s][0-5]\\d)?\\s+(?:a\\.m\\.|p\\.m\\.|am|pm)(?!\\w))", @"$1:$2 ", ci);
+    replaceRegex(str, @"\\b(1[0-2]|[1-9])\\s+(0[1-9]|[1-5]\\d)\\s+(a\\.m\\.|p\\.m\\.|am|pm)(?!\\w)", @"$1:$2 $3", ci);
+    replaceRegex(str, @"\\b(at|around|by|before|after|until|till)\\s+(1[0-2]|[1-9])\\s+(15|30|45)\\b(?=\\s+(?:tonight|tomorrow|today|yesterday|this\\s+(?:morning|afternoon|evening)|in\\s+the\\s+(?:morning|afternoon|evening)|on\\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\\b|[.,!?]|$)", @"$1 $2:$3", ci);
     replaceRegex(str, @"\\bfrom\\s+(\\d{1,2}(?::\\d{2})?)\\s+to\\s+(\\d{1,2}(?::\\d{2})?)\\s+(a\\.m\\.|p\\.m\\.|am|pm)(?!\\w)", @"$1-$2 $3", ci);
     // 8. Spoken euros and pounds sterling ("50 euros" -> "€50", "20 euros and 50 cents" -> "€20.50", "3.5 million euros" -> "€3.5 million",
     //    "25 pounds and 50 pence" -> "£25.50", "100 million pounds" -> "£100 million", "50 pounds sterling" -> "£50")
@@ -11116,6 +11140,18 @@ static void GFRepairContextualHomophones(NSMutableString *str) {
         }
         replaceRegex(str, @"\\b(200)\\s+(?:ok|okay)\\b", @"$1 OK", ci);
     }
+    // Cycle 119: User-reported hospitality/dining/event "pax" homophone repair ("1 packs" / "a 1 packs" -> "1 pax",
+    // "2 packs" / "a 2 packs" -> "2 pax", "table for 4 packs" -> "table for 4 pax", "per packs" / "$50 per pack" -> "per pax" / "$50 per pax",
+    // while preserving literal product packs like "2 packs of gum" or "6 packs per box").
+    if ([str rangeOfString:@"pack" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))(?:a\\s+)?(\\d+)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))(?:a\\s+)?one\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"1 pax", ci);
+        replaceRegex(str, @"(?<!\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d)\\s)\\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+packs\\b(?!\\s+(?:of|per)\\b)", @"$1 pax", ci);
+        replaceRegex(str, @"(?:(?<=^)|(?<=[\\s,(:]))a\\s+(?:1|one)\\s+pack\\b(?!\\s+(?:of|per)\\b)", @"1 pax", ci);
+        replaceRegex(str, @"\\b(table|tables|booking|bookings|reservation|reservations|party|group|dinner|lunch|breakfast|brunch|room|rooms|ticket|tickets|tour|seat|seats|seating|menu|menus|quote|minimum|max|maximum|total|count|headcount|guest|guests|for)\\s+((?:of\\s+|for\\s+)?)(?:1|one)\\s+pack\\b(?!\\s+(?:of|per)\\b)", @"$1 $21 pax", ci);
+        replaceRegex(str, @"\\bper\\s+packs\\b", @"per pax", ci);
+        replaceRegex(str, @"([\\$\\u20AC\\u00A3\\u00A5]\\d+(?:,\\d{3})*(?:\\.\\d+)?|\\b(?:price|cost|rate|fee|budget|charge|minimum|spend)\\b[^.,;!?]{0,20}?)\\s+per\\s+pack\\b(?!\\s+of\\b)", @"$1 per pax", ci);
+    }
 }
 
 // Cycle 77: Spoken Hyphenated Technical Modifiers & Compound Adjectives (shared with iOS via transplant.py).
@@ -11657,7 +11693,7 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         if (w.length > 0) [words addObject:w];
     }
     if (words.count < 2) return;
-    static NSSet<NSString *> *invAuxSet, *nonImperativeAuxSet, *subjPronSet, *detNounLeadSet, *whWordSet, *contractedWhSet, *howDegreeSet, *discourseSet;
+    static NSSet<NSString *> *invAuxSet, *nonImperativeAuxSet, *subjPronSet, *detNounLeadSet, *whWordSet, *contractedWhSet, *howDegreeSet, *discourseSet, *anyQuestionNounSet, *anyoneQuestionSet;
     static NSRegularExpression *dottedAbbrevEndRe, *tagQuestionRe;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -11685,6 +11721,11 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         howDegreeSet = [NSSet setWithArray:@[@"much", @"many", @"long", @"often", @"soon", @"far", @"fast",
                                              @"late", @"early", @"old", @"big", @"well"]];
         discourseSet = [NSSet setWithArray:@[@"so", @"and", @"but", @"well", @"okay", @"ok", @"hey", @"actually", @"honestly"]];
+        anyQuestionNounSet = [NSSet setWithArray:@[@"chance", @"updates", @"update", @"thoughts", @"news", @"idea", @"ideas",
+                                                   @"luck", @"word", @"progress", @"questions", @"question", @"plans",
+                                                   @"suggestions", @"feedback", @"recommendations"]];
+        anyoneQuestionSet = [NSSet setWithArray:@[@"free", @"available", @"interested", @"going", @"coming", @"around",
+                                                  @"here", @"know", @"have", @"want", @"need", @"else"]];
         dottedAbbrevEndRe = [NSRegularExpression regularExpressionWithPattern:@"(?:(?<![\\w.])[a-z]\\.[a-z]\\.|\\b(?:etc|vs|cf|approx|incl|esp)\\.)$"
                                                                       options:NSRegularExpressionCaseInsensitive error:nil];
         tagQuestionRe = [NSRegularExpression regularExpressionWithPattern:
@@ -11703,6 +11744,14 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         isClearQuestion = YES;
     } else if ([contractedWhSet containsObject:w0]) {
         isClearQuestion = YES;
+    } else if ([w0 isEqualToString:@"any"] && [anyQuestionNounSet containsObject:w1] && startIdx + 2 < words.count) {
+        isClearQuestion = YES;
+    } else if (([w0 isEqualToString:@"anyone"] || [w0 isEqualToString:@"anybody"]) && [anyoneQuestionSet containsObject:w1] && startIdx + 2 < words.count) {
+        isClearQuestion = YES;
+    } else if ((([w0 isEqualToString:@"want"] || [w0 isEqualToString:@"care"]) && [w1 isEqualToString:@"to"] && startIdx + 2 < words.count) ||
+               ([w0 isEqualToString:@"wanna"] && startIdx + 1 < words.count) ||
+               ([w0 isEqualToString:@"mind"] && [w1 isEqualToString:@"if"] && startIdx + 2 < words.count && [subjPronSet containsObject:words[startIdx + 2]])) {
+        isClearQuestion = YES;
     } else if ([whWordSet containsObject:w0]) {
         if ([invAuxSet containsObject:w1]) {
             isClearQuestion = YES;
@@ -11711,7 +11760,7 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
             isClearQuestion = YES;
         } else if ([w0 isEqualToString:@"how"] && [w1 isEqualToString:@"come"] && startIdx + 2 < words.count) {
             isClearQuestion = YES;
-        } else if (([w0 isEqualToString:@"how"] || [w0 isEqualToString:@"what"]) && [w1 isEqualToString:@"about"] && words.count <= 8) {
+        } else if (([w0 isEqualToString:@"how"] || [w0 isEqualToString:@"what"]) && [w1 isEqualToString:@"about"] && words.count <= 14) {
             isClearQuestion = YES;
         } else if ([w0 isEqualToString:@"how"] && [howDegreeSet containsObject:w1] &&
                    startIdx + 2 < words.count && [invAuxSet containsObject:words[startIdx + 2]]) {
@@ -11849,8 +11898,9 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         replaceRegex(str, @",\\s*like,\\s*", @" ", NSRegularExpressionCaseInsensitive);
         replaceRegex(str, @"\\b(am|is|are|was|were|be|been|i'm|it's|that's|we're|they're|you're|he's|she's)\\s+like,\\s*", @"$1 ", NSRegularExpressionCaseInsensitive);
 
-        // 6b. Unconditional filler: "like" before sentence adverbs or intensifiers
+        // 6b. Unconditional filler: "like" before sentence adverbs, intensifiers, negated auxiliaries, or modals
         replaceRegex(str, @"(?:,\\s*)?\\blike[,]?\\s+(?=(maybe|probably|definitely|honestly|basically|literally|actually|seriously|obviously|really|super|totally|completely|absolutely)\\b)", @" ", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"(?<!\\b(?:would|do|does|did|don't|doesn't|didn't|to)\\s)(?<!'d\\s)(?<!\\u2019d\\s)(?:,\\s*)?\\blike[,]?\\s+(?=(just|even|still|already|almost|kinda|sorta|can't|cannot|couldn't|won't|wouldn't|shouldn't|didn't|don't|doesn't|haven't|hasn't|hadn't|isn't|aren't|wasn't|weren't|must|might)\\b)", @" ", NSRegularExpressionCaseInsensitive);
 
         // 6c. Sentence-initial or clause-initial filler (start of string or after . ! ? \n)
         replaceRegex(str, @"(^|[.!?\\n\\uE000\\uE001]\\s*)[,\\s]*\\blike[,]?\\s+(?=(i|i'm|i'll|i've|i'd|we|we're|we'll|we've|you|you're|you'll|they|they're|he|he's|she|she's|it|it's|this|that|that's|there|there's|what|how|why|where|who|if|when|so|just|honestly|basically|literally|actually|maybe|probably|can|could|should|will|do|did|is|are|was|were)\\b)", @"$1", NSRegularExpressionCaseInsensitive);
@@ -11858,27 +11908,45 @@ static void GFUpgradeTerminalQuestionPunctuationIfNeeded(NSMutableString *result
         // 6d. Comma + "like" before a new clause subject or question word ("Wait, like what happened", "Well, like I said")
         replaceRegex(str, @",\\s*like[,]?\\s+(?=(i|i'm|i'll|i've|i'd|we|we're|we'll|we've|you're|you'll|they|they're|he|he's|she|she's|it's|that's|there's|what|how|why|where|who|if|when)\\b)", @", ", NSRegularExpressionCaseInsensitive);
 
-        // 6e. After conjunctions and discourse particles ("and like", "so like", "but like", "or like", "because like")
-        replaceRegex(str, @"\\b(and|so|but|or|because|well|actually|basically|literally)\\s+like,\\s*", @"$1 ", NSRegularExpressionCaseInsensitive);
-        replaceRegex(str, @"\\b(and|so|but|or|because|well|actually|basically|literally)\\s+like\\s+(?=(i|i'm|i'll|i've|i'd|we|we're|we'll|we've|you|you're|they|they're|he|he's|she|she's|it's|it\\s+(?:is|was|will|would|could|should|can|has|had|seems|looks|feels|works|makes|takes)|that's|there|there's|what|how|why|where|who|if|when|just|really|very|totally|honestly|super|maybe|probably|definitely)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+        // 6e. After conjunctions, subordinators, and discourse particles ("and like", "so like", "because like", "if like", "when like")
+        replaceRegex(str, @"\\b(and|so|but|or|because|if|when|while|since|although|though|unless|until|once|whether|then|also|plus|well|actually|basically|literally|honestly|seriously|anyway|meanwhile|besides|instead)\\s+like,\\s*", @"$1 ", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\b(and|so|but|or|because|if|when|while|since|although|though|unless|until|once|whether|then|also|plus|well|actually|basically|literally|honestly|seriously|anyway|meanwhile|besides|instead)\\s+like\\s+(?=(i|i'm|i'll|i've|i'd|we|we're|we'll|we've|you|you're|you'll|they|they're|he|he's|she|she's|it's|it\\s+(?:is|was|will|would|could|should|can|has|had|seems|looks|feels|works|makes|takes)|that's|there|there's|what|how|why|where|who|if|when|just|really|very|totally|honestly|super|maybe|probably|definitely|everyone|everybody|someone|somebody|nobody|anyone|anybody)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\b(so|because|if|when|while|since|although|though|unless|until|once|whether|then|well|actually|basically|literally|honestly|seriously|anyway|meanwhile|besides|instead)\\s+like\\s+(?=(the|a|an|my|your|our|their|his|her|this|that|these|those|some|any|every|no|\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
 
-        // 6f. After "to be" forms before adverbs, qualifiers, or quantifiers ("was like really", "it's like super", "I'm like so")
-        replaceRegex(str, @"\\b(am|is|are|was|were|be|been|i'm|it's|that's|we're|they're|you're|he's|she's)\\s+like[,]?\\s+(?=(really|super|very|so|totally|just|honestly|pretty|quite|always|completely|absolutely|almost|already|about|around)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+        // 6f. After "to be" forms before adverbs, qualifiers, prepositions, progressive -ing verbs, or numbers/quantities
+        replaceRegex(str, @"\\b(am|is|are|was|were|be|been|i'm|it's|that's|there's|we're|they're|you're|he's|she's)\\s+like[,]?\\s+(?=(really|super|very|so|totally|just|honestly|pretty|quite|always|completely|absolutely|almost|already|about|around|still|even|definitely|probably|maybe|kinda|sorta|way|too|in|on|at|for|with|from|by|into|onto|over|under|after|before|between|through|without|within|near|behind|out|up|down|off|away|going|trying|working|looking|waiting|thinking|talking|walking|running|coming|getting|making|doing|saying|asking|telling|calling|texting|sending|checking|watching|reading|writing|sitting|standing|staying|living|moving|starting|stopping|leaving|taking|giving|having|using|playing|buying|paying|eating|drinking|sleeping|driving|flying|meeting|planning|hoping|wondering|feeling|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|thousand|half|a\\s+(?:lot|bunch|couple|few|little|bit|ton|handful)|no\\s+one|nobody|nothing|nowhere|\\d+|[\\$\\u20AC\\u00A3\\u00A5]\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
 
         // 6g. Between modal/auxiliary/infinitive/pronoun markers and action verbs ("should like check", "can you like send", "need to like finish", "what do you like think")
         if ([str rangeOfString:@"like" options:NSCaseInsensitiveSearch].location != NSNotFound) {
             static NSString * const kGFAuxLikePattern =
-                @"\\b(to|should|could|can|will|did|do|does|let's|lets|can\\s+you|could\\s+you|will\\s+you|do\\s+you|did\\s+you)\\s+like[,]?\\s+(?=("
+                @"\\b(to|should|could|can|will|would|did|do|does|let's|lets|can\\s+you|could\\s+you|will\\s+you|would\\s+you|do\\s+you|did\\s+you)\\s+like[,]?\\s+(?=("
                 @"check|send|get|make|finish|grab|see|do|go|say|tell|ask|find|take|give|keep|put|run|set|show|try|use|work|write|talk|call|look|"
                 @"build|create|update|fix|test|review|clean|move|open|close|start|stop|turn|add|remove|change|help|play|read|spend|wait|walk|watch|"
-                @"buy|bring|meet|pay|think|schedule|cancel|confirm|explain|discuss|share|upload|download|install|deploy|ship|launch|figure|focus)\\b)";
+                @"buy|bring|meet|pay|think|schedule|cancel|confirm|explain|discuss|share|upload|download|install|deploy|ship|launch|figure|focus|book|order|pick|choose|leave|stay|eat|drink|drive)\\b)";
             replaceRegex(str, kGFAuxLikePattern, @"$1 ", NSRegularExpressionCaseInsensitive);
         }
 
-        // 6h. Before numbers/quantities after non-comparison verbs/prepositions ("have like ten", "cost like 50", "for like two hours", "in like five minutes")
+        // 6h. After prepositions that cannot take "like" as a real verb ("at like 3 p.m.", "for like two hours", "in like 5 minutes", "with like my friends", "about like the budget", "on like Tuesday")
+        // and after quantity/possession verbs before numbers/quantities ("have like ten", "cost like $50")
         if ([str rangeOfString:@"like" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-            replaceRegex(str, @"\\b(have|has|had|got|take|takes|took|cost|costs|spent|spend|wait|waited|for|in|after|within)\\s+like[,]?\\s+(?=(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|thousand|a\\s+hundred|a\\s+thousand|a\\s+couple|a\\s+few|\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(at|on|in|for|with|from|by|about|into|onto|over|under|after|before|during|until|since|without|within|between|through)\\s+like[,]?\\s+(?!(?:manner|kind|mind)\\b)(?=[a-zA-Z0-9\\$\\u20AC\\u00A3\\u00A5])", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"\\b(have|has|had|got|take|takes|took|cost|costs|spent|spend|wait|waited|need|needs|needed|want|wants|wanted|get|gets|make|makes|made|give|gave)\\s+like[,]?\\s+(?=(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|thousand|half|a\\s+hundred|a\\s+thousand|a\\s+couple|a\\s+few|a\\s+lot|a\\s+bunch|a\\s+little|a\\s+bit|no\\s+idea|\\d+|[\\$\\u20AC\\u00A3\\u00A5]\\d+)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
         }
+
+        // 6i-like. Subject pronoun + "like" + past-tense/finite verb ("I like went to the store", "we like talked about it", "she like told me", "he like wants to go")
+        if ([str rangeOfString:@"like" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            replaceRegex(str, @"\\b(i|you|we|they|he|she|it|who)\\s+like[,]?\\s+(?=(went|wanted|thought|said|told|asked|called|tried|needed|forgot|saw|heard|made|got|took|gave|came|knew|felt|left|bought|brought|sent|spent|found|paid|met|ran|spoke|wrote|drove|flew|ate|slept|woke|started|stopped|finished|checked|looked|talked|walked|worked|waited|stayed|moved|happened|seemed|turned|showed|helped|changed|opened|closed|booked|ordered|cancelled|canceled|decided|realized|noticed|figured|agreed|promised|mentioned|explained)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+            replaceRegex(str, @"(?<!\\b(?:does|did|do|doesn't|didn't|don't|would|could|should|will|can|may|might|must|to)\\s)\\b(he|she|it)\\s+like[,]?\\s+(?=(wants|needs|thinks|knows|says|tells|asks|calls|goes|comes|makes|takes|gets|gives|has|works|looks|seems|feels|means|keeps|tries|starts|stops|helps|lives|stays)\\b)", @"$1 ", NSRegularExpressionCaseInsensitive);
+        }
+    }
+
+    // 6j. Redundant stacked causal/resultative/contrastive connectors ("Because then so that the output..." -> "So that the output...", "so therefore" -> "so", "but however" -> "but")
+    if ([str rangeOfString:@"so" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [str rangeOfString:@"however" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        replaceRegex(str, @"(^|[.!?\\n\\uE000\\uE001]\\s*)Because\\s+(?:then\\s+)?so\\s+that\\b", @"$1So that", 0);
+        replaceRegex(str, @"\\bbecause\\s+(?:then\\s+)?so\\s+that\\b", @"so that", NSRegularExpressionCaseInsensitive);
+        replaceRegex(str, @"\\b([Ss])o\\s+therefore\\b", @"$1o", 0);
+        replaceRegex(str, @"\\b([Bb])ut\\s+however\\b\\s*,?", @"$1ut", 0);
     }
 
     // 6i. Spoken technical filenames ("main dot m" -> "main.m"), slash compounds ("CI slash CD" -> "CI/CD"), and CLI flags
@@ -18160,6 +18228,79 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c118Ok) passed++; else failed++;
                 printf("%s: expanded technical slash compounds (pub/sub, key/value, UI/UX, HTTP/2) and Git/repo slash paths (%d%d%d)\n",
                        c118Ok ? "PASS" : "FAIL", sl1, sl2, sl3);
+            }
+            // Cycle 119: User-reported "1 pax" / "2 pax" / "per pax" repair & conversational/knowledge-work question detection
+            {
+                BOOL px1 = [[self polishOnDeviceTranscript:@"Booking for a 1 packs today and a table for 2 packs tomorrow at $50 per pack."]
+                            isEqualToString:@"Booking for 1 pax today and a table for 2 pax tomorrow at $50 per pax. "];
+                BOOL px2 = [[self polishOnDeviceTranscript:@"We have 4 packs coming for dinner, plus I bought 2 packs of gum."]
+                            isEqualToString:@"We have 4 pax coming for dinner, plus I bought 2 packs of gum. "];
+                BOOL px3 = [[self polishOnDeviceTranscript:@"Any chance we can move the meeting to 4 p.m."]
+                            isEqualToString:@"Any chance we can move the meeting to 4 p.m.? "] &&
+                           [[self polishOnDeviceTranscript:@"Anyone free for lunch today."]
+                            isEqualToString:@"Anyone free for lunch today? "] &&
+                           [[self polishOnDeviceTranscript:@"Want to grab coffee tomorrow morning."]
+                            isEqualToString:@"Want to grab coffee tomorrow morning? "];
+                BOOL c119Ok = px1 && px2 && px3;
+                if (c119Ok) passed++; else failed++;
+                printf("%s: '1 pax'/'2 pax' homophone repair and conversational question detection (%d%d%d)\n",
+                       c119Ok ? "PASS" : "FAIL", px1, px2, px3);
+            }
+            // Cycle 120: Expanded context-aware filler "like" cleanup & redundant stacked connector simplification
+            {
+                BOOL lk1 = [[self polishOnDeviceTranscript:@"Let's meet at like 3 p.m. with like Sarah and talk about like the budget."]
+                            isEqualToString:@"Let's meet at 3 p.m. with Sarah and talk about the budget. "];
+                BOOL lk2 = [[self polishOnDeviceTranscript:@"I like went to the store because like the fridge was empty and he like can't make it tonight."]
+                            isEqualToString:@"I went to the store because the fridge was empty and he can't make it tonight. "];
+                BOOL lk3 = [[self polishOnDeviceTranscript:@"We're like trying to finish this. Because then so that the output will be a lot better. I like the new design."]
+                            isEqualToString:@"We're trying to finish this. So that the output will be a lot better. I like the new design. "];
+                BOOL c120Ok = lk1 && lk2 && lk3;
+                if (c120Ok) passed++; else failed++;
+                printf("%s: expanded redundant 'like' filler cleanup and stacked connector simplification (%d%d%d)\n",
+                       c120Ok ? "PASS" : "FAIL", lk1, lk2, lk3);
+            }
+            // Cycle 121: Personal & knowledge-work conversational self-corrections ("make it", "on second thought", "actually, you know what")
+            {
+                BOOL mc1 = [[self polishOnDeviceTranscript:@"I'll be there in 10 minutes, make it 15."]
+                            isEqualToString:@"I'll be there in 15 minutes. "];
+                BOOL mc2 = [[self polishOnDeviceTranscript:@"Let's meet on Tuesday, on second thought, let's do Wednesday."]
+                            isEqualToString:@"Let's do Wednesday. "];
+                BOOL mc3 = [[self polishOnDeviceTranscript:@"Let's grab coffee tomorrow, actually, you know what, let's do lunch."]
+                            isEqualToString:@"Let's do lunch. "];
+                BOOL c121Ok = mc1 && mc2 && mc3;
+                if (c121Ok) passed++; else failed++;
+                printf("%s: conversational self-corrections for 'make it', 'on second thought', and 'you know what' (%d%d%d)\n",
+                       c121Ok ? "PASS" : "FAIL", mc1, mc2, mc3);
+            }
+            // Cycle 122: Everyday spoken clock times ("3 30 p.m." -> "3:30 p.m.") & 2-word subject-pronoun aborted restarts
+            {
+                BOOL ct1 = [[self polishOnDeviceTranscript:@"Can we meet at 3 30 p.m. or from 2 30 to 3 30 p.m."]
+                            isEqualToString:@"Can we meet at 3:30 p.m. or 2:30-3:30 p.m.? "];
+                BOOL ct2 = [[self polishOnDeviceTranscript:@"I want a, I want the corner table and I talked to the, I talked to my manager at 6 30 tonight."]
+                            isEqualToString:@"I want the corner table and I talked to my manager at 6:30 tonight. "];
+                BOOL ct3 = [[self polishOnDeviceTranscript:@"Heading 1: Agenda. First, introductions. Second, budget."]
+                            isEqualToString:@"# Agenda\n1. Introductions\n2. Budget. "];
+                BOOL c122Ok = ct1 && ct2 && ct3;
+                if (c122Ok) passed++; else failed++;
+                printf("%s: spoken clock times ('3:30 p.m.'), 2-word aborted restarts, and heading+list formatting (%d%d%d)\n",
+                       c122Ok ? "PASS" : "FAIL", ct1, ct2, ct3);
+            }
+            // Cycle 123: Personal & knowledge-work email greetings, warm sign-offs, and messaging app bundle IDs
+            {
+                NSString *savedBundle = self.targetAppBundleID;
+                self.targetAppBundleID = @"com.apple.mail";
+                BOOL em1 = [[self polishOnDeviceTranscript:@"Hi Sarah Johnson, thanks for sending the proposal. Warmly, Dan."]
+                            isEqualToString:@"Hi Sarah Johnson,\n\nThanks for sending the proposal.\n\nWarmly,\nDan "];
+                BOOL em2 = [[self polishOnDeviceTranscript:@"Dear Hiring Manager, I would love to chat this week. All the best, Alex Rivera."]
+                            isEqualToString:@"Dear Hiring Manager,\n\nI would love to chat this week.\n\nAll the best,\nAlex Rivera "];
+                self.targetAppBundleID = @"com.tencent.xinWeChat";
+                BOOL em3 = [[self polishOnDeviceTranscript:@"See you at dinner tonight."]
+                            isEqualToString:@"See you at dinner tonight "];
+                self.targetAppBundleID = savedBundle;
+                BOOL c123Ok = em1 && em2 && em3;
+                if (c123Ok) passed++; else failed++;
+                printf("%s: personal and knowledge-work email greetings, warm sign-offs, and WeChat/Line chat context (%d%d%d)\n",
+                       c123Ok ? "PASS" : "FAIL", em1, em2, em3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

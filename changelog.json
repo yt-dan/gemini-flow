@@ -3,6 +3,56 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 123,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:23",
+      "title": "Formats more personal and work email greetings, warm sign-offs, and messaging apps",
+      "highlights": [
+        "Adds paragraph breaks after full-name, family, and role-title email greetings such as 'Hi Sarah Johnson,', 'Dear Hiring Manager,', 'Hi Mom and Dad,', and 'Hey friends,'.",
+        "Formats warm personal and professional email sign-offs onto their own lines, including 'Warmly,', 'All the best,', 'Take care,', 'Speak soon,', 'See you soon,', 'With gratitude,', 'Lots of love,', and 'Yours truly,', and recognizes WeChat, Line, Messenger, and Viber for casual chat punctuation."
+      ]
+    },
+    {
+      "cycle": 122,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:22",
+      "title": "Formats spoken clock times and cleans up two-word conversational restarts",
+      "highlights": [
+        "Turns space-separated spoken clock times and ranges like '3 30 p.m.', '10 15 a.m.', 'at 6 30 tonight', and 'from 2 30 to 3 30 p.m.' into '3:30 p.m.', '10:15 a.m.', 'at 6:30 tonight', and '2:30-3:30 p.m.'.",
+        "Collapses mid-sentence restarts when you pause after a short phrase and start over with a new article or preposition ('I want a, I want the corner table' becomes 'I want the corner table' and 'I talked to the, I talked to my manager' becomes 'I talked to my manager')."
+      ]
+    },
+    {
+      "cycle": 121,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:21",
+      "title": "Cleans up 'make it', 'on second thought', and 'you know what' self-corrections",
+      "highlights": [
+        "When you revise a number, time, or day mid-sentence with 'make it' ('I will be there in 10 minutes, make it 15' or 'Table for 2, make it 4'), GeminiFlow updates the earlier number in place.",
+        "When you change your mind mid-sentence with 'on second thought' or 'actually, you know what' ('Let us meet on Tuesday, on second thought, let us do Wednesday'), GeminiFlow keeps only your updated plan."
+      ]
+    },
+    {
+      "cycle": 120,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:20",
+      "title": "Removes more redundant 'like' fillers and stacked sentence connectors",
+      "highlights": [
+        "Catches filler 'like' in everyday speech after prepositions ('at like 3 p.m.', 'in like 5 minutes', 'with like my friends', 'about like the budget'), before action verbs and contractions ('I like went to the store', 'he like can't make it', 'we're like trying to finish'), and after connectors ('if like', 'when like', 'because like').",
+        "Keeps genuine uses of 'like' untouched ('I like the new design', 'I would like to schedule a call', 'looks like rain') and simplifies stacked connectors like 'because then so that' into 'so that'."
+      ]
+    },
+    {
+      "cycle": 119,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:18",
+      "title": "Fixes '1 pax' and '2 pax' dining and group counts and adds question marks to casual questions",
+      "highlights": [
+        "Fixes '1 pax', '2 pax', '4 pax', and 'per pax' when dictated for dining reservations, travel, and events so they no longer transcribe as '1 packs', 'a 1 packs', '2 packs', or 'per packs', while keeping product phrases like '2 packs of gum' intact.",
+        "Adds a question mark to casual and work questions such as 'Any chance we can move the call to 4 p.m.?', 'Any thoughts on the proposal?', 'Anyone free for lunch today?', 'Want to grab coffee tomorrow?', and 'Mind if we reschedule?'."
+      ]
+    },
+    {
       "cycle": 118,
       "scope": "engine",
       "timestamp": "14 Nov \u00b7 15:02",
