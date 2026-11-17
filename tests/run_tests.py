@@ -1,0 +1,2962 @@
+#!/usr/bin/env python3
+"""GeminiFlow automated test suite (used by the autonomous improvement loop).
+
+Runs offline and unattended against a candidate binary BEFORE it is installed:
+  T1 unit       - built-in `--test` text-polish suite must pass
+  T2 analyzer   - clang static analyzer warning count must not exceed baseline
+  T3 e2e        - TTS-generated speech (several voices/rates/lengths) through the real
+                  on-device pipeline via `--e2e-file`; checks word recall, filler removal,
+                  trailing-space paste contract, and release->result latency
+  T4 silence    - silent audio must yield <NO SPEECH> cleanly (no crash/hang)
+  T5 fallback   - Gemini mode with no network must still return the dictation
+                  (the "never lose a dictation" guarantee)
+  T13 wav-fallback privacy - the on-device WAV fallback (forced by a test-only hook that ignores streaming on-device
+                  results) must still deliver the dictation, and no dictated audio may be left behind: its private temp
+                  file is deleted (speech and no-speech runs), nothing new is written to /tmp, and a stale legacy
+                  /tmp/geminiflow_last.wav is removed at launch (backlog 8)
+  T15 bounded-wait - the REST safety net is slow (test-only hook: a canned HTTP 200 after 5 s, no network): the on-device text
+                  must be delivered early, ~3 s after release, and the REST text reported as the final result after it. A fast
+                  REST (1 s) must not trigger the early delivery, nor may a no-speech press (user-approved 2026-11-10)
+  T16 mic-unavailable - the microphone can't be used (test-only hook --e2e-mic-fail): a start failure (after one automatic
+                  engine rebuild) or a denied mic permission must end the press within 1 s as <MIC UNAVAILABLE> with the right notice,
+                  without opening Live or calling REST; a mic that starts but sends no audio must end the same way after the watchdog
+                  + one rebuild (3.0-4.5 s, never earlier), with no REST call; a mic that fails only once must still deliver the
+                  dictation after the rebuild (backlog 7)
+  T17 wav-watchdog - the WAV fallback's recognizer never ends (test-only hook --e2e-wav-hang): "final" = it transcribes but
+                  never sends its final result, "all" = it never calls back. The dictation must end at the app's watchdog limit
+                  (5 s + 0.5 s per audio second; never earlier, at most 1 s later), with the partial text (recall >= the on-device
+                  floor) or <NO SPEECH>, and no temp WAV left behind. A normal WAV fallback (T13) must never hit the watchdog (backlog 9)
+  T20 hedge-keep - a meaningful "kind of" / "sort of" ("What kind of car...", "I sort of like...") spoken through the real
+                  on-device pipeline must survive the polish (rules.json extraFillers used to strip them everywhere; backlog 0i)
+  T21 last-sentence - the final "?" / "." is judged on the LAST sentence only (backlog 0j): "What kind of car do you drive? I sort
+                  of like the blue one" through the real on-device pipeline must end with ".", and "I fixed the bug. Can you check it"
+                  must end with "?". Judged only when the recognizer itself puts a sentence break inside the text (it decides that)
+  --online mode (needs network; run ONLY via run_online_tests.sh, which is pre-approved):
+  T6 live       - Gemini Live streaming path must succeed WITHOUT falling back; recall, fillers, latency
+  T7 rest       - Gemini REST path (default fallback model) must succeed directly; recall, latency
+  T8 user       - per Live case, what the user gets by any path: recall >= 0.85 and release->text <= 3 s
+  T9 rest503    - test-only injected fast HTTP 503 on the first REST attempt: the retry must still deliver via REST
+                  (recall >= 0.85, release->text within the T8 limit, no on-device fallback)
+  T9 rest503-slow - the same, but the injected 503 arrives after 6 s (the real 2026-11-06 "high demand" 503 took 5.97 s): the
+                  slow-503 retry (backlog 0f) must still deliver via REST; overhead <= delay + 1.5 s, total <= the app's own
+                  slow-retry deadline (REST budget for the clip + 4 s)
+  T10 nospeech  - Live presses with no speech (0.4 s tap, 1.7 s hold of room noise) must end within the T8 limit,
+                  as <NO SPEECH> with nothing pasted and no REST call (backlog 0e, user-approved 2026-11-06)
+  T27 live-room-noise (online, backlog 0u, user-reported + user-approved 2026-11-12) - silent presses in an ordinary quiet room
+                  (synthesised noise, frame RMS ~80-200 with ~240-RMS clicks, like the real 2026-11-12 16:01 log: max RMS 133-239,
+                  1.82 s above the old RMS-60 level): a 0.4 s tap and a 2.3 s hold must end as <NO SPEECH> within the T8 limit,
+                  nothing pasted, no REST call (REST invented "00:00 ..." sentences for these)
+  T11 live-empty guard - real speech (quiet, short words) while Live is forced to return nothing (test-only hook): the
+                  no-speech check must NOT fire; the dictation must still come back via REST with full recall
+  T12 second-press - a second press starts while the first dictation is still finishing (test-only hook): during its Live
+                  final turn (release), while its REST call is in flight (rest), or before its REST call fails (restfail).
+                  BOTH dictations must be delivered: the first via REST on its own recording (or its saved on-device text
+                  when REST fails), the second on Live within the T8 limit (backlog 6: never lose the previous dictation)
+  T18 live-reconnect - the Live socket is force-closed mid-press (test-only hook --e2e-live-drop-at, like the real 2026-11-10
+                  close code 1011 19 s into a hands-free press): the app must reconnect while still recording, resend from the last
+                  covered byte and deliver ON LIVE (no REST), recall >= 0.85, no phrase duplicated at the seam, within the T8 limit
+  T15 bounded-wait (online) - Live returns nothing (test-only hook) and the real REST call is held 4 s (test-only hook): the
+                  on-device text must come early (~3 s after release, recall >= the on-device floor), then the REST text as the
+                  final result with full recall, in that order (user-approved 2026-11-10)
+  T22 live-release-between-turns - >= 9 s of speech, then 2.2 s of silence before release (backlog 26): the split turn is
+                 answered while "Fn" is still held, so the release must finish ON LIVE at once ("released between turns"), not at
+                 the old 0.45 s grace timer: recall >= 0.85, no fallback, release->text <= 350 ms (includes the 120 ms cushion)
+  T29 live-silent-tail (online, backlog 0z) - the T22 sentence, 2.2 s of quiet room noise, and a key click in the last 80 ms (as
+                 on 18 real presses 2026-11-12/13: a click or breath after the last split opened one more activity, the server
+                 closed that final turn empty and the whole recording was re-run through REST). The Live text of the answered
+                 turns must be delivered as it is: ON LIVE, no fallback, no REST call, recall >= 0.99, release->text <= 3 s.
+                 The gate detail reports the app's "Live tail check" line(s) (numbers only).
+  T29 click-tail fixture (offline) - that clip is what the online case needs: >= 9 s of speech, and a tail whose only audio
+                 above the app's 150-RMS voice-scan floor is the click (1-4 frames of 20 ms, loudest frame RMS 350-1200).
+  T31 busy-marker (offline, user-approved 2026-11-13) - only the REAL app publishes "dictation in progress"
+                 (~/Library/Application Support/GeminiFlow/busy, holding its pid) for the restart script. An --e2e-file run must
+                 never write it: polled every 20 ms during a short run, the marker never holds the test process's pid (the real
+                 app may be dictating meanwhile, so the file itself may exist).
+  T14 live-server-turn-end - the Live server ends the open turn on its own while Fn is still held (test-only hook: a raw
+                  activityEnd with no client bookkeeping, its echo hidden), in the pause between two sentences. The speech
+                  after it must still be transcribed ON LIVE (no REST fallback), full recall, within the T8 limit (backlog 0c)
+  T25 live-rotation - planned Live session rotation (backlog 0p) forced early (test-only hook --e2e-live-rotate-age 10, e2e only;
+                  the app rotates at 8.5 min of session age): four ~6 s sentences with 1.8 s pauses (~32 s, deterministic split
+                  points); at the first split point (no activity open, no turn pending) after 10 s the app opens a fresh session
+                  and continues from there. Must deliver ON LIVE (no REST, no fallback), recall >= 0.95, no phrase duplicated,
+                  >= 1 rotation logged, 0 reconnects used, within the T8 limit
+  T26 live-lifetime-close - the server's ~10-min session-lifetime close (2026-11-11: close code 1008 at ~590 s) simulated every 8 s
+                  of session age (test-only hook --e2e-live-lifetime 8): >= 3 closes, more than the 2 per-press reconnects. Each
+                  must be handled as a planned rotation (not counted): ON LIVE, recall >= 0.99 (0.95 until backlog 0r fixed the
+                  slow-split seam), no duplicated phrase, 0 reconnects used, within the T8 limit (backlog 0p)
+  T23 long-dictation (online, OPT-IN; backlog 0m, user-approved 2026-11-11) - runs ONLY when the flag file
+                  .autoimprove/tests/RUN_LONG exists (gitignored; run_online_tests.sh is protected and passes no extra args). It is
+                  appended AFTER all the regular online gates, which run unchanged. Two hands-free sessions (~5 and ~10 min, one TTS
+                  clip per sentence, 0.6-1.2 s pauses, a 2 s pause every third paragraph) must finish ON LIVE (no REST, no
+                  fallback) with recall >= 0.95, no phrase duplicated at a split/reconnect seam and release->text <= 3 s; reconnects,
+                  Live session age at release, split activities and the app's peak RSS are reported. Adds ~16 min (+ a few min
+                  of one-time TTS). The coordinator runs it at most once a day: touch RUN_LONG, run_online_tests.sh --installed, rm RUN_LONG.
+  Offline T23 long-mode selection - the long cases are selected only with the flag (pure check, no TTS, no network).
+  T28 live-setup-probe (online, OPT-IN; backlog 0y-probe) - runs ONLY when the flag file .autoimprove/tests/RUN_PROBE exists
+                  (gitignored; same opt-in pattern as RUN_LONG), AFTER all the regular online gates, which run unchanged. A PROBE,
+                  not a quality gate: it asks the real Live server what setup.inputAudioTranscription does, through the e2e-only
+                  hooks --e2e-live-setup-extra <json> (deep-merged into `setup`), --e2e-vocabulary and --e2e-live-vocab-reject.
+                  Round 1 (2026-11-13): the field is accepted at setup level only; customVocabulary and mode SMART work.
+                  Round 2 (informational rows, each compared with its control run of the same clip):
+                  - SMART A/B over EVERY T6 Live clip: recall, latency, raw text, and flags for fillers left, a meaningful
+                    "like" removed, words dropped where the app joins two Live segments, line breaks, list markers, digits and
+                    symbols introduced, the last character; mean recall and median latency of control vs SMART.
+                  - SMART on repetition, emphasis and self-correction, the documentation's own two examples, spoken commands
+                    ("new line", "comma", "period"), an amount / date / time, and a self-correction that straddles the app's
+                    activity split; for every SMART row, what the app's own polish then does to the server's text.
+                  - Vocabulary safety: 50 unspoken names on every T6 clip (should change nothing), a name that sounds like a
+                    spoken word, a list without "build", 100 terms, a 64-character term, a term with a space and one with an
+                    apostrophe, vocabulary + languageCodes, SMART + vocabulary, 500 / 1001 raw terms and a 200-character term
+                    (server limits), and the app's rejection safety net against the real server (simulated close 1007).
+                  - How often and how early interim text (serverContent.interimInputTranscription) arrives. Numbers only.
+                  A run passes when a text was delivered (exit 0, not empty, recall >= 0.60; clips where a rewrite is the point
+                  have no recall floor); everything else is REPORTED in the run's line and in the summary printed at the end.
+                  The coordinator: touch RUN_PROBE, run_online_tests.sh --bin /tmp/gf-cand.app/..., rm RUN_PROBE.
+  T30 live-vocabulary (online, regular suite) - custom vocabulary (the user's custom-words.json + rules.json
+                  "customVocabulary" -> Live setup.inputAudioTranscription.customVocabulary; the server's behaviour was measured by
+                  the T28 probe on 2026-11-13). With the test-only list "Siobhan|Zyphra" (--e2e-vocabulary; e2e runs never read
+                  the user's own lists): the name
+                  and product clips must come back ON LIVE with those spellings, recall >= 0.85, within the T8 limit; the fillers
+                  clip (no listed word in it) must come back on Live with a recall not below its T6 run in the same suite run.
+                  The log may only hold the NUMBER of terms, never a term.
+  T30 live-vocabulary/offline-reject (offline) - the server "rejects" the setup that carries the vocabulary (test-only hook
+                  --e2e-live-vocab-reject: close 1007 "Invalid JSON payload" before setupComplete): the app must reconnect once
+                  WITHOUT the list (not the key-in-URL auth retry), log the rejection with counts and codes only, and still
+                  deliver the dictation.
+  T32 custom-words replacement pairs ("when you hear Owen, write Eoin"; the user's custom-words.json; test-only pairs come from
+                  --e2e-replacements, the user's file is never read in e2e mode):
+                  - online (regular suite), T32 live-replacement/owen: the clip "Please ask Owen to review the document" with the
+                    pair Owen=Eoin must come back ON LIVE with "Eoin" and without "Owen", recall >= 0.85, within the T8 limit; the
+                    pair's target is sent to Live as vocabulary (1 term); the log holds counts only.
+                  - offline, T32 replacement/offline-ondevice: the fillers clip through the real on-device pipeline with the pairs
+                    "Friday=Freitag|the review=the retro": both replaced as whole words / phrases in the final text.
+                  - offline, T32 replacement/offline-rest: the REST path with a canned answer (test-only) "Please ask Owen and
+                    the Owens family to review Owen's document." and the pair Owen=Eoin: exactly "Please ask Eoin and the Owens
+                    family to review Eoin's document."
+                  - offline, T32 replacement gate self-test: the online gate run with canned results passes for the expected
+                    outcome and fails for each outcome it guards against.
+  T30 live-vocabulary/offline-isolated (offline) - test isolation: an e2e press WITHOUT --e2e-vocabulary sends no vocabulary
+                  and logs "0 terms" (the user's custom-words.json and rules.json list are never read in e2e mode).
+  Offline T28 probe-mode selection - the probe cases are selected only with the flag, RUN_PROBE is gitignored, every probed clip
+                  has a control run, and the runner's parser reads the app's own probe log lines (--dump-live-probe-lines: accepted,
+                  closed before/after setupComplete with close code + reason + HTTP status, error frame). No TTS, no network.
+  Offline T28 live-setup-probe/offline - one e2e run with the hook and no network (REST answers a canned text, test-only): the
+                  hook's setup fields are logged, the outcome is reported as not accepted, and the dictation is still delivered.
+  T27 rest-plausibility (offline, backlog 0u) - a silent press in an ordinary quiet room (synthesised noise, frame RMS ~80-200 with
+                  ~240-RMS clicks, 2.3 s hold) on the REST engine, whose REST answer is a canned 60+ char sentence (test-only hook,
+                  no network): on-device hears nothing, so the REST output can't fit the audio and the press must end as <NO SPEECH>
+                  (the REST plausibility net logs "rejected"), never paste invented text
+  T24 dup-phrase check self-test (offline, backlog 0o) - duplicated_phrases (used by T18/T23) reports a 4-word phrase only when it
+                  occurs >= 2 times in the result AND more often than in the expected text: a real seam repeat is caught; recognizer
+                  variants, dropped words at a sentence join and phrases repeated in the expected text the same number of times are not.
+  --long-dry-run (offline, no network) - builds the two long clips and prints their durations, the case selection with the flag
+                  absent/present and the harness timeouts; exit 0 when both clips are within ~5/~10 min.
+  --probe-dry-run (offline, no network) - builds the T28 probe clips and prints the probe plan (cases, clips, the exact flag
+                  each run gets) and the case selection with the flag absent/present.
+
+Usage: run_tests.py --bin /path/to/GeminiFlow [--update-baseline] [--quick] [--online] [--long-dry-run] [--probe-dry-run]
+Exit 0 = all gates pass, 1 = failure, 5 = inconclusive (machine overloaded; treat as "try later", never as pass). Report JSON is written to .autoimprove/logs/.
+"""
+import argparse, glob, hashlib, json, os, re, statistics, subprocess, sys, time, wave
+
+# HERE = this file's folder; ROOT = the nearest parent folder that contains main.m. Works from a git worktree
+# (e.g. ~/GeminiFlow-build, .autoimprove/tests/) and from the shared repo layout (tests/).
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = HERE
+while not os.path.exists(os.path.join(ROOT, "main.m")) and os.path.dirname(ROOT) != ROOT:
+    ROOT = os.path.dirname(ROOT)
+CACHE = os.path.join(HERE, "audio_cache")
+BASELINE = os.path.join(HERE, "baseline.json")
+LOGS = os.path.join(ROOT, ".autoimprove", "logs") if os.path.isdir(os.path.join(ROOT, ".autoimprove")) else os.path.join(HERE, "logs")
+
+FILLERS = ["um", "uh", "you know", "i mean"]
+
+# (id, voice or None, rate or None, spoken text, expected polished text)
+CORPUS = [
+    ("fillers", None, None,
+     "Um, so like I was thinking we should ship the new build on Friday, you know, after the review.",
+     "So I was thinking we should ship the new build on Friday after the review."),
+    ("short", None, None, "Hello.", "Hello."),
+    ("question", None, None,
+     "Can you send me the link to the design doc before the meeting?",
+     "Can you send me the link to the design doc before the meeting?"),
+    ("keep_like", None, None,
+     "I like the new design and I would like to schedule a call with the team tomorrow.",
+     "I like the new design and I would like to schedule a call with the team tomorrow."),
+    ("long", None, None,
+     "The quarterly planning session went well. We agreed to focus on reliability first, then on speed. "
+     "The design team will share new mockups next week, and engineering will review the backlog on Monday. "
+     "Please make sure every open bug has an owner before the end of the sprint, and flag anything that is blocked.",
+     "The quarterly planning session went well. We agreed to focus on reliability first, then on speed. "
+     "The design team will share new mockups next week, and engineering will review the backlog on Monday. "
+     "Please make sure every open bug has an owner before the end of the sprint, and flag anything that is blocked."),
+    ("uk_voice", "Daniel", None,
+     "Uh, the latency is much better now, and the app feels really responsive.",
+     "The latency is much better now, and the app feels really responsive."),
+    ("fast_rate", "Eddy (English (US))", 230,
+     "Please remind me to call Sarah this afternoon about the contract.",
+     "Please remind me to call Sarah this afternoon about the contract."),
+    ("uk_female", "Flo (English (UK))", None,
+     "We need to fix the bug where the microphone stops working after the laptop wakes from sleep.",
+     "We need to fix the bug where the microphone stops working after the laptop wakes from sleep."),
+]
+QUICK_IDS = {"fillers", "short", "uk_voice"}
+
+MIN_CASE_RECALL = 0.80
+MAX_RECALL_DROP = 0.05
+OFFLINE_RECALL_FLOOR = 0.60
+LATENCY_FLOOR_MS = 1500
+
+
+def words(s):
+    return [w for w in re.split(r"[^a-z0-9']+", s.lower()) if w]
+
+
+def recall(expected, actual):
+    pool = words(actual)
+    exp = words(expected)
+    hit = 0
+    for w in exp:
+        if w in pool:
+            hit += 1
+            pool.remove(w)
+    return hit / len(exp) if exp else 1.0
+
+
+def wav_complete(path):
+    """True if `path` is a complete RIFF/WAVE file: the RIFF size matches the file size and a data chunk (after fmt) ends inside
+    the file. A `say` that is killed mid-write leaves its placeholder header (RIFF size 4088, data size 0) on a long file, which a
+    later run would silently reuse (backlog 0l, seen 2026-11-11 13:19). Cheap: reads only the chunk headers."""
+    import struct
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            head = f.read(12)
+            if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+                return False
+            if struct.unpack("<I", head[4:8])[0] + 8 != size:
+                return False
+            off, have_fmt = 12, False
+            while off + 8 <= size:
+                f.seek(off)
+                cid, clen = struct.unpack("<4sI", f.read(8))
+                if cid == b"fmt ":
+                    have_fmt = True
+                elif cid == b"data":
+                    return have_fmt and clen > 0 and off + 8 + clen <= size
+                off += 8 + clen + (clen & 1)
+    except (OSError, struct.error):
+        return False
+    return False
+
+
+def _cached_wav(path):
+    """True if a usable cached WAV exists at `path`; an incomplete one is deleted so the caller regenerates it."""
+    if not os.path.exists(path):
+        return False
+    if wav_complete(path):
+        return True
+    print(f"  (audio cache: {os.path.basename(path)} is incomplete; regenerating it)", flush=True)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return False
+
+
+def _tmp_beside(path):
+    """Temp file next to `path` (same directory, so os.replace is atomic). Keeps the .wav suffix: `say` picks the file type from it."""
+    return f"{path[:-4]}.partial-{os.getpid()}.wav"
+
+
+def tts(case_id, voice, rate, text):
+    os.makedirs(CACHE, exist_ok=True)
+    key = hashlib.sha1(f"{voice}|{rate}|{text}".encode()).hexdigest()[:12]
+    path = os.path.join(CACHE, f"{case_id}-{key}.wav")
+    if not _cached_wav(path):
+        # `say` writes to a temp file that is renamed into the cache only when complete (a hung/killed `say` used to leave a
+        # truncated WAV in the cache for later runs). One retry with a longer timeout; the temp file is always removed.
+        args = ["--data-format=LEI16@16000"] + (["-v", voice] if voice else []) + (["-r", str(rate)] if rate else [])
+        last_err = None
+        for limit in (60, 180):
+            tmp = _tmp_beside(path)
+            try:
+                subprocess.run(["/usr/bin/say", "-o", tmp] + args + [text], check=True, timeout=limit)
+                if not wav_complete(tmp):
+                    raise RuntimeError(f"say wrote an incomplete WAV for {case_id}")
+                os.replace(tmp, path)
+                last_err = None
+                break
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, RuntimeError) as e:
+                last_err = e
+                print(f"  (TTS for {case_id} failed: {type(e).__name__}; " + ("retrying with a longer timeout)" if limit == 60 else "giving up)"),
+                      flush=True)
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+        if last_err is not None:
+            raise last_err
+    return path
+
+
+def silence_wav():
+    os.makedirs(CACHE, exist_ok=True)
+    path = os.path.join(CACHE, "silence-2s.wav")
+    if not _cached_wav(path):
+        import array
+        _write_pcm(path, array.array("h", [0] * 32000))
+    return path
+
+
+def _run_with_rusage(cmd, timeout):
+    """Like subprocess.run(capture_output=True, text=True, timeout=...) but also returns the child's peak RSS (ru_maxrss from wait4;
+    bytes on macOS). On timeout the child is killed and code is "timeout". Output = stdout + stderr, as in run_e2e."""
+    import threading
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+    bufs = {"out": [], "err": []}
+
+    def pump(stream, key):
+        for chunk in iter(lambda: stream.read(65536), ""):
+            bufs[key].append(chunk)
+    threads = [threading.Thread(target=pump, args=(p.stdout, "out"), daemon=True),
+               threading.Thread(target=pump, args=(p.stderr, "err"), daemon=True)]
+    for t in threads:
+        t.start()
+    deadline = time.time() + timeout
+    while True:
+        pid, status, ru = os.wait4(p.pid, os.WNOHANG)
+        if pid == p.pid:
+            code = os.waitstatus_to_exitcode(status)
+            break
+        if time.time() > deadline:
+            p.kill()
+            _, status, ru = os.wait4(p.pid, 0)
+            code = "timeout"
+            break
+        time.sleep(0.25)
+    p.returncode = code if isinstance(code, int) else -9  # reaped here; keep Popen from waiting on it again
+    for t in threads:
+        t.join(10)
+    for f in (p.stdout, p.stderr):
+        try:
+            f.close()
+        except Exception:
+            pass
+    return "".join(bufs["out"]) + "".join(bufs["err"]), code, ru.ru_maxrss
+
+
+def run_e2e(binary, wav, model=None, timeout=90, extra=None, rusage=False):
+    cmd = [binary, "--e2e-file", wav] + ([model] if model else []) + (list(extra) if extra else [])
+    t0 = time.time()
+    peak_rss = None
+    std = None  # stdout alone (the plain subprocess.run path)
+    if rusage:  # long-dictation mode only (backlog 0m): the regular cases keep the plain subprocess.run path below
+        out, code, peak_rss = _run_with_rusage(cmd, timeout)
+    else:
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out, code = p.stdout + p.stderr, p.returncode
+            std = p.stdout
+        except subprocess.TimeoutExpired as e:
+            out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+            code = "timeout"
+    stats = re.findall(r"Press stats: ([\d.]+) s of audio; Live session age at release (n/a|[\d.]+ s); reconnects (\d+); "
+                       r"Live activities (\d+)", out)
+    # The result line is on stdout; the app's log (stderr, appended after it in `out`) can hold double quotes (a server close
+    # reason quotes field names), which this greedy match would run into. So read the result from stdout alone when it is at hand.
+    m = re.search(r'E2E RESULT: "(.*)"', out if std is None else std, re.S)
+    lat = re.search(r"release->result latency: (\d+) ms", out)
+    early = re.search(r'E2E EARLY DELIVERY: "(.*?)"\nE2E early delivery latency: (\d+) ms', out, re.S)
+    res = {
+        "early": early.group(1) if early else None,
+        "early_latency_ms": int(early.group(2)) if early else None,
+        "early_first": bool(early) and bool(m) and early.start() < m.start(),
+        "early_not_used": "Early paste: not used" in out,
+        "exit": code,
+        "result": m.group(1) if m else None,
+        "latency_ms": int(lat.group(1)) if lat else None,
+        "wall_s": round(time.time() - t0, 1),
+        "fell_back": bool(re.search(r"Live: failed|falling back|Falling back|Gemini \S+ failed", out)),
+        "live_ok": bool(re.search(r"Live: done in", out)),
+        "rest_ok": bool(re.search(r"Gemini \S+ ok in", out)),
+        "retried_call_s": _retried_call_seconds(out),
+        "injected_503": "E2E: injecting HTTP 503" in out,
+        "rest_retried": bool(re.search(r"Gemini: transient HTTP \d+ after [\d.]+s; retrying", out)),
+        "ondevice_fallback": "Falling back to on-device" in out,
+        "rest_called": bool(re.search(r"falling back to REST|using REST\.|Gemini \S+ (ok in|failed after)|Gemini: transient HTTP", out)),
+        "nospeech_check": "No-speech check:" in out,
+        "nospeech_skip": bool(re.search(r"Live: no speech in [\d.]+s after release", out)),
+        "rest_net_rejected": bool(re.search(r"REST plausibility \(dictation #\d+\): .*-> rejected", out)),
+        "fired": "E2E: simulating a server-initiated turn end" in out,
+        "reopened": bool(re.search(r"Live: activityStart #2 at", out)),
+        "dropped": "E2E: force-closing the Live socket" in out,
+        "reconnected": bool(re.search(r"Live: reconnected \(#\d+\)", out)),
+        "between_turns": bool(re.search(r"Live: done in [\d.]+s after release \(released between turns", out)),
+        # backlog 0z: the numbers-only tail decision line(s): (where, numbers, verdict)
+        "tail_checks": re.findall(r"Live tail check \((.*?)\): (.*?) -> (.*)", out),
+        "mic_unavailable_ms": (lambda m: int(m.group(1)) if m else None)(re.search(r"E2E MIC UNAVAILABLE after (\d+) ms", out)),
+        "mic_notice": (lambda m: m.group(1) if m else None)(re.search(r'E2E MIC UNAVAILABLE after \d+ ms \(.*?, notice "(.*?)"\)', out)),
+        "mic_rebuilt": "rebuilding the audio engine once" in out,
+        "mic_restarted": "Mic: started after the rebuild" in out,
+        "live_connect": "Live: connecting" in out,
+        "wav_watchdog": (lambda m: (float(m.group(1)), float(m.group(2)), float(m.group(3)), int(m.group(4)))
+                         if m else None)(re.search(r"WAV fallback: no final result after ([\d.]+)s \(limit ([\d.]+)s for ([\d.]+)s audio, "
+                                                   r"\d+ partial results\); ending with (\d+) chars", out)),
+        "wav_paths": re.findall(r"WAV fallback: recognizing [\d.]+s of audio from a private temp file: (\S+\.wav)", out),
+        # backlog 0m: numbers-only per-press stats line (last press), split activities and reconnects, peak RSS (rusage runs only)
+        "press_audio_s": float(stats[-1][0]) if stats else None,
+        "live_session_age_s": (float(stats[-1][1][:-2]) if stats[-1][1] != "n/a" else None) if stats else None,
+        "live_activities": int(stats[-1][3]) if stats else None,
+        "split_count": len(re.findall(r"Live: split activity #\d+", out)),
+        "reconnect_count": len(re.findall(r"Live: reconnected \(#\d+\)", out)),
+        # backlog 0p: planned session rotations (never counted against the reconnect budget)
+        "press_reconnects": int(stats[-1][2]) if stats else None,
+        "press_rotations": (lambda m: int(m[-1]) if m else 0)(re.findall(r"Press stats: .*?; planned rotations (\d+)", out)),
+        "rotation_count": len(re.findall(r"Live: planned session rotation #\d+", out)),
+        "planned_close_count": len(re.findall(r"Live: session closed at session age [\d.]+s while recording .*?; planned rotation #\d+", out)),
+        "rotated_ready_count": len(re.findall(r"Live: rotated session ready \(rotation #\d+", out)),
+        "lifetime_closes": len(re.findall(r"E2E: simulating the Live session-lifetime close #\d+", out)),
+        "reconnect_scheduled": len(re.findall(r"Live: connection lost at [\d.]+s sent while recording", out)),
+        "peak_rss_mb": round(peak_rss / 1048576.0, 1) if peak_rss else None,
+        "tail": "\n".join(out.strip().splitlines()[-8:]),
+        # custom vocabulary: the number of terms each Live session's setup carried, the rejection safety net, auth retries
+        "vocab_terms": [int(n) for n in re.findall(r"Live: setup carries a custom vocabulary of (\d+) terms", out)],
+        "vocab_e2e_terms": [int(n) for n in re.findall(r"E2E: custom vocabulary: (\d+) terms from --e2e-vocabulary", out)],
+        "vocab_rejected": "Live: the server rejected the setup with the custom vocabulary" in out,
+        "vocab_reject_simulated": "E2E: simulating the server's rejection of the custom vocabulary" in out,
+        "auth_retry": "Live: header auth rejected before setupComplete" in out,
+        "live_connects": len(re.findall(r"Live: connecting \(", out)),
+        "vocab_leak": _vocab_terms_in_log(out, extra),
+        # custom words pairs: per polished text, (pairs in force, replacements applied); counts only
+        "user_replacements": [(int(a), int(b)) for a, b in
+                              re.findall(r"Custom words: (\d+) pair\(s\), (\d+) replacement\(s\) applied to this text", out)],
+    }
+    if PROBE_LOG_MARK in out:  # backlog 0y-probe: only runs with --e2e-live-setup-extra log these lines; other runs are unchanged
+        res["probe"] = parse_probe(out)
+    return res
+
+
+PROBE_LOG_MARK = "E2E: Live setup probe:"
+VOCAB_FLAG = "--e2e-vocabulary"
+
+
+REPLACEMENTS_FLAG = "--e2e-replacements"
+
+
+def _vocab_terms_in_log(out, extra):
+    """Custom words of the run (the --e2e-vocabulary terms and both sides of the --e2e-replacements pairs) that appear in the
+    app's LOG lines (NSLog lines; the E2E RESULT / E2E LIVE RAW lines on stdout are the test clip's text and may contain them).
+    Must be empty: only counts may be logged."""
+    extra = list(extra or [])
+    terms = []
+    for flag in (VOCAB_FLAG, REPLACEMENTS_FLAG):
+        if flag in extra and extra.index(flag) + 1 < len(extra):
+            for piece in extra[extra.index(flag) + 1].split("|"):
+                terms += [t.strip() for t in (piece.split("=", 1) if flag == REPLACEMENTS_FLAG else [piece]) if t.strip()]
+    if not terms:
+        return []
+    log = "\n".join(l for l in out.splitlines() if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+ \S+\[\d+:\d+\] ", l)).lower()
+    return [t for t in terms if re.search(r"(?<![a-z0-9])" + re.escape(t.lower()) + r"(?![a-z0-9])", log)]
+
+
+def parse_probe(out):
+    """Fields of the app's 'E2E: Live setup probe' log lines and its 'E2E LIVE RAW' line (e2e runs with --e2e-live-setup-extra
+    only; backlog 0y-probe). The line shapes are GFLiveProbe*Line in main.m; T28 probe-mode selection checks this parser against
+    the binary's own sample lines (--dump-live-probe-lines)."""
+    sent = [{"session": int(m[0]), "fields": [f for f in m[2].split(", ") if f], "bytes": int(m[3]), "key_via": m[4]}
+            for m in re.findall(r"E2E: Live setup probe: session (\d+) sends the setup with (\d+) extra field\(s\) \[(.*?)\] "
+                                r"\((\d+) bytes, key via (header|URL)\)", out)]
+    done = [{"session": int(m[0]), "key_via": m[1], "ms": int(m[2])}
+            for m in re.findall(r"E2E: Live setup probe: setupComplete=1 \(session (\d+), key via (header|URL), (-?\d+) ms after "
+                                r"the setup was sent\)", out)]
+    closes = [{"when": m[0], "session": int(m[2]), "key_via": m[3], "http": int(m[4]), "close_code": int(m[5]), "error": m[6],
+               "error_code": int(m[7]), "reason": m[8]}
+              for m in re.findall(r"E2E: Live setup probe: socket closed (before|after) setupComplete \(setupComplete=(\d), "
+                                  r"session (\d+), key via (header|URL), HTTP (-?\d+), close code (-?\d+), error (\S+) (-?\d+)\) "
+                                  r"close reason \"(.*)\"", out)]
+    errors = [{"setup_complete": m[0] == "1", "code": int(m[1]), "status": m[2], "message": m[3]}
+              for m in re.findall(r"E2E: Live setup probe: server error frame \(setupComplete=(\d), code (-?\d+), status (\S+)\) "
+                                  r"message \"(.*)\"", out)]
+    fields = sorted({f for line in re.findall(r"E2E: Live setup probe: server message fields seen: \[(.*?)\]", out)
+                     for f in line.split(", ") if f})
+    raw = re.search(r'^E2E LIVE RAW: "(.*)"$', out, re.M)
+    # the per-turn texts exactly as the server sent them (a JSON array on stdout; line breaks and quotes survive)
+    segs = re.search(r"^E2E LIVE RAW SEGMENTS: (\[.*\])$", out, re.M)
+    try:
+        segments = json.loads(segs.group(1)) if segs else None
+    except ValueError:
+        segments = None
+    if not isinstance(segments, list) or not all(isinstance(x, str) for x in segments):
+        segments = None
+    # interim / final transcript messages per Live session, and how long after that session's first audio the first one came
+    interim = [{"count": int(m[0]), "first_ms": int(m[1]), "finals": int(m[2]), "first_final_ms": int(m[3])}
+               for m in re.findall(r"E2E: Live setup probe: interim transcripts: (\d+) messages, first (-?\d+) ms after the first audio was "
+                                   r"sent; final transcripts: (\d+) messages, first (-?\d+) ms after the first audio was sent", out)]
+    return {"sent": sent, "accepted": bool(done), "setup_complete": done, "closes": closes, "error_frames": errors,
+            "server_fields": fields, "raw": raw.group(1) if raw else None, "segments": segments, "interim": interim}
+
+
+def run_e2e_two(binary, wav_a, wav_b, phase, model, timeout=150, extra=None):
+    """Two presses (--e2e-second-press): press #2 starts while press #1 is still finishing. Per-press results and latencies."""
+    cmd = [binary, "--e2e-file", wav_a, model, "--e2e-second-press", wav_b, phase] + (list(extra) if extra else [])
+    t0 = time.time()
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out, code = p.stdout + p.stderr, p.returncode
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        code = "timeout"
+    res = {int(m.group(1)): m.group(2) for m in re.finditer(r'^E2E RESULT #(\d+): "(.*)"$', out, re.M)}
+    lat = {int(m.group(1)): (int(m.group(2)), m.group(3) == "1")
+           for m in re.finditer(r"^E2E #(\d+) release->result latency: (\d+) ms \(superseded=(\d)\)", out, re.M)}
+    return {
+        "exit": code, "results": res, "latencies": lat, "wall_s": round(time.time() - t0, 1),
+        "both": "E2E BOTH DELIVERED" in out,
+        "second_started": "E2E second press starts" in out,
+        "live_ok": bool(re.search(r"Live: done in", out)),
+        "rest_ok": bool(re.search(r"Gemini \S+ ok in", out)),
+        "ondevice_fallback": "Falling back to on-device" in out,
+        "snapshot_ondevice": "on-device fallback from its snapshot" in out,
+        "tail": "\n".join(out.strip().splitlines()[-12:]),
+    }
+
+
+def _retried_call_seconds(out):
+    """Server time of the RETRIED REST call: log timestamp of the success line minus the 'retrying ... in 0.5s' line, minus the
+    0.5 s backoff. None if either line is missing."""
+    ts = lambda line: (lambda m: (int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))) if m else None)(
+        re.search(r"\d{4}-\d\d-\d\d (\d\d):(\d\d):(\d\d\.\d+)", line))
+    t_retry = t_ok = None
+    for line in out.splitlines():
+        if "retrying" in line and "transient HTTP" in line:
+            t_retry = ts(line)
+        elif re.search(r"Gemini \S+ ok in", line):
+            t_ok = ts(line)
+    if t_retry is None or t_ok is None:
+        return None
+    return max(0.0, t_ok - t_retry - 0.5)
+
+
+def analyzer_count():
+    srcs = [os.path.join(ROOT, "main.m")] + sorted(glob.glob(os.path.join(ROOT, "src", "*.m")))
+    n = 0
+    for s in srcs:
+        p = subprocess.run(["/usr/bin/clang", "--analyze", "-fobjc-arc", s, "-o", "/dev/null"],
+                           capture_output=True, text=True, timeout=600)
+        n += len(re.findall(r"warning:", p.stderr))
+    return n
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bin", required=True)
+    ap.add_argument("--update-baseline", action="store_true",
+                    help="ratchet baseline to current results where they improved (or initialise it)")
+    ap.add_argument("--quick", action="store_true", help="subset of e2e cases, no analyzer")
+    ap.add_argument("--online", action="store_true", help="run ONLY the online Gemini tests (T6/T7)")
+    ap.add_argument("--long-dry-run", action="store_true",
+                    help="offline: build the long-dictation clips and print the long-mode case selection (no network)")
+    ap.add_argument("--probe-dry-run", action="store_true",
+                    help="offline: build the T28 Live setup probe clips and print the probe plan (no network)")
+    a = ap.parse_args()
+    if a.long_dry_run:
+        return long_dry_run()
+    if a.probe_dry_run:
+        return probe_dry_run()
+    # Keep the Mac from idle/maintenance-sleeping mid-run (2026-11-06 14:26: the Mac slept 16 min during a T9 retry, which read as a
+    # 960 s "hang"). caffeinate exits with this process; failure to start it is harmless.
+    try:
+        subprocess.Popen(["/usr/bin/caffeinate", "-i", "-w", str(os.getpid())],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    if "/Contents/MacOS/" not in os.path.realpath(a.bin):
+        print("ERROR: --bin must be inside a .app bundle (use .autoimprove/build_candidate.sh). "
+              "A bare binary can't read the app's preferences/API key and silently tests on-device only.")
+        return 2
+    if not wait_for_sane_load():
+        return 5
+    if a.online:
+        return online_main(a)
+
+    base = json.load(open(BASELINE)) if os.path.exists(BASELINE) else {}
+    report = {"bin": a.bin, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "tests": [], "gates": []}
+    fails = []
+
+    def gate(name, ok, detail):
+        report["gates"].append({"gate": name, "ok": bool(ok), "detail": detail})
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+        if not ok:
+            fails.append(name)
+
+    # T1 unit
+    p = subprocess.run([a.bin, "--test"], capture_output=True, text=True, timeout=60)
+    summ = re.search(r"Summary: (\d+) passed, (\d+) failed", p.stdout)
+    gate("T1 unit (--test)", p.returncode == 0, summ.group(0) if summ else p.stdout[-300:])
+
+    # T19 API key never in a URL (backlog 15): every Gemini request the binary builds (REST generateContent, the pre-warm HEAD,
+    # the API-key check, the Live upgrade with header auth) carries the key in the x-goog-api-key header and has no key= in its
+    # URL (checked with a dummy key via --dump-gemini-requests), and the binary holds no key-in-URL format string
+    # (grep of its bytes; the Live key-in-URL auth fallback builds its query item with NSURLComponents, not a format string).
+    p = subprocess.run([a.bin, "--dump-gemini-requests"], capture_output=True, text=True, timeout=30)
+    dk = re.search(r"DUMMY KEY: (\S+)", p.stdout)
+    reqs = re.findall(r"REQUEST (\S+) url=(\S+) header=(\S+)", p.stdout)
+    bad = [n for n, u, h in reqs if h != "set" or re.search(r"key(=|%3D)", u, re.I) or (dk and dk.group(1) in u)]
+    blob = open(a.bin, "rb").read()
+    lits = [l.decode() for l in (b"key=%@", b"generateContent?key", b"pageSize=1&key", b"BidiGenerateContent?key") if l in blob]
+    names = sorted(n for n, _, _ in reqs)
+    want = sorted(["rest-generateContent", "rest-prewarm", "api-key-check", "live-header-auth"])
+    gate("T19 api-key-not-in-urls", p.returncode == 0 and dk is not None and names == want and not bad and not lits,
+         f"requests={names} bad={bad} key-in-URL literals in binary={lits}")
+
+    # T23 long-mode selection (backlog 0m): the 5/10 min online cases are added ONLY while RUN_LONG exists (and RUN_LONG is
+    # gitignored); without it the online case list is unchanged. Pure check: no TTS, no network.
+    try:
+        ignored = os.path.relpath(os.path.join(HERE, "RUN_LONG"), ROOT) in open(os.path.join(ROOT, ".gitignore")).read().split()
+    except OSError:
+        ignored = False
+    off, on = online_long_ids(False), online_long_ids(True)
+    t_ok = all(long_e2e_timeout_s(s) >= s + 8 + 0.25 * s + 4 + 5 + 0.5 * s + 60 for s in (300.0, 600.0))
+    gate("T23 long-mode selection", off == [] and on == ["handsfree_5min", "handsfree_10min"] and ignored and t_ok,
+         f"without flag={off} with flag={on} RUN_LONG gitignored={ignored} timeouts ok={t_ok} (flag present now: {long_mode_enabled()})")
+
+    # T28 probe-mode selection (backlog 0y-probe): the Live setup probe cases are added ONLY while RUN_PROBE exists (gitignored);
+    # without it the online case list is unchanged. Also checks the probe plan (every probed clip has a control run, every extra
+    # is a JSON object) and the runner's parser against the binary's own sample log lines. No TTS, no network.
+    probe_bad = probe_selftest(a.bin, blob)
+    gate("T28 probe-mode selection", not probe_bad,
+         f"without flag={online_probe_ids(False)} with flag={len(online_probe_ids(True))} runs in {len(PROBE_CASES)} cases "
+         f"(flag present now: {probe_mode_enabled()})" + (f"; problems: {probe_bad}" if probe_bad else "; parser reads the app's probe lines"))
+
+    # T30 vocabulary gates self-test: the three online T30 gates, run here with canned results (no app, no TTS, no network), pass
+    # for the expected outcome and fail for each outcome they guard against (default spelling, rejection, fallback, a term in the log...).
+    vocab_bad = vocabulary_gates_selftest()
+    gate("T30 vocabulary gates self-test", not vocab_bad, "9 canned outcomes ok" if not vocab_bad else f"problems: {vocab_bad}")
+    # T32 replacement gate self-test: the online T32 gate with canned results (no app, no TTS, no network).
+    repl_bad = replacement_gate_selftest()
+    gate("T32 replacement gate self-test", not repl_bad, "10 canned outcomes ok" if not repl_bad else f"problems: {repl_bad}")
+
+    # T24 duplicate-phrase check self-test (backlog 0o): the T18/T23 "no phrase duplicated at a seam" check must catch a real seam
+    # repeat (also one more repeat of a phrase the expected text already repeats) and must NOT report recognizer variants, dropped words at a
+    # sentence join, or a phrase repeated in the expected text the same number of times. Pure Python: no TTS, no network.
+    dup_bad = dup_check_selftest()
+    gate("T24 dup-phrase check self-test", not dup_bad,
+         f"{len(DUP_SELFTEST_CASES) - len(dup_bad)}/{len(DUP_SELFTEST_CASES)} cases ok" + (f"; failed: {dup_bad}" if dup_bad else ""))
+
+    # T29 click-tail fixture (backlog 0z): the clip of the online T29 case has the shape that case needs. Pure Python on the
+    # (cached) TTS clip: no network.
+    for cid, text in ONLINE_SILENT_TAIL:
+        fx_ok, fx_detail = click_tail_fixture(silent_tail_wav(text))
+        gate(f"T29 click-tail fixture/{cid}", fx_ok, fx_detail)
+
+    # T31 busy-marker: a test process (--e2e-file) never publishes the real app's "dictation in progress" marker.
+    _, bm_voice, bm_rate, bm_text, _ = next(c for c in CORPUS if c[0] == "short")
+    bm_ok, bm_detail = busy_marker_e2e_check(a.bin, tts("short", bm_voice, bm_rate, bm_text))
+    gate("T31 busy-marker not written by e2e", bm_ok, bm_detail)
+
+    report["loadavg_start"] = os.getloadavg()[0]
+    if report["loadavg_start"] > 2 * os.cpu_count():
+        print(f"WARNING: high load average {report['loadavg_start']:.0f}; e2e recall/latency may be degraded")
+
+    # T3 e2e on-device corpus
+    recalls, lats = [], []
+    for cid, voice, rate, text, expected in CORPUS:
+        if a.quick and cid not in QUICK_IDS:
+            continue
+        r = run_e2e(a.bin, tts(cid, voice, rate, text))
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lower = " " + " ".join(words(res)) + " "
+        leaked = [f for f in FILLERS if f" {f} " in lower]
+        if rc < MIN_CASE_RECALL and r["exit"] == 0:  # retry once: recognizer is noisy under CPU load
+            r2 = run_e2e(a.bin, tts(cid, voice, rate, text))
+            rc2 = recall(expected, r2["result"] or "")
+            if rc2 > rc:
+                r, res, rc = r2, (r2["result"] or ""), rc2
+                lower = " " + " ".join(words(res)) + " "
+                leaked = [f for f in FILLERS if f" {f} " in lower]
+        ok = (r["exit"] == 0 and r["result"] is not None and not leaked and res.endswith(" "))
+        if rc < MIN_CASE_RECALL:
+            report.setdefault("quality_warnings", []).append(f"{cid}: recall {rc:.2f} < {MIN_CASE_RECALL}")
+        r.update({"id": cid, "recall": round(rc, 3), "leaked_fillers": leaked, "expected": expected})
+        report["tests"].append(r)
+        if r["latency_ms"] is not None:
+            lats.append(r["latency_ms"])
+        recalls.append(rc)
+        gate(f"T3 e2e/{cid}", ok,
+             ("" if rc >= MIN_CASE_RECALL else "[LOW RECALL] ") + f"recall={rc:.2f} lat={r['latency_ms']}ms exit={r['exit']} leaked={leaked} -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    mean_recall = statistics.mean(recalls) if recalls else 0
+    med_lat = statistics.median(lats) if lats else None
+    report.update({"mean_recall": round(mean_recall, 4), "median_latency_ms": med_lat})
+    if not a.quick:
+        # On-device is a fallback-only engine and its recall swings ~0.2 with CPU load, so it is gated on a
+        # fixed floor rather than a ratcheting baseline (Live quality is ratcheted in the online suite).
+        gate("T3 on-device mean recall floor", mean_recall >= OFFLINE_RECALL_FLOOR,
+             f"{mean_recall:.3f} (floor {OFFLINE_RECALL_FLOOR}; best seen {base.get('mean_recall', 0):.3f})")
+        bl = base.get("median_latency_ms", med_lat)
+        if med_lat is not None and bl is not None:
+            limit = max(LATENCY_FLOOR_MS, 2 * bl)
+            gate("T3 median latency", med_lat <= limit, f"{med_lat}ms (baseline {bl}ms, limit {limit}ms)")
+
+    # T20 meaningful "kind of" / "sort of" are kept (backlog 0i): before, the blind extraFillers regex turned this into
+    # "What car do you drive? I like the blue one." The phrases are checked word-for-word; recognizer noise gets one retry.
+    hedge_text = "What kind of car do you drive? I sort of like the blue one."
+    hedge_want = ["what kind of car", "sort of like"]
+    for _ in range(2):
+        r = run_e2e(a.bin, tts("hedge_keep", None, None, hedge_text))
+        res = r["result"] or ""
+        joined = " " + " ".join(words(res)) + " "
+        missing = [p for p in hedge_want if f" {p} " not in joined]
+        if r["exit"] == 0 and not missing:
+            break
+    gate("T20 hedge-keep", r["exit"] == 0 and not missing and res.endswith(" "),
+         f"missing={missing} exit={r['exit']} -> {res!r}" + ("" if not missing else f"\n      tail: {r['tail']}"))
+
+    # T21 the terminal punctuation is judged on the last sentence only (backlog 0j): before, the first word of the whole text
+    # decided it, so T20's text came back as "... I sort of like the blue one? ". Judged only when the recognizer itself
+    # put a sentence break inside the text (otherwise it's one sentence and the old rule applies); one retry for recognizer noise.
+    t21_bad, t21_seen = [], []
+    for cid, text, want in (("hedge_keep", hedge_text, "."), ("last_sentence_q", "I fixed the bug. Can you check it?", "?")):
+        for _ in range(2):
+            r = run_e2e(a.bin, tts(cid, None, None, text))
+            res = (r["result"] or "")
+            body = res.strip()
+            judged = r["exit"] == 0 and re.search(r"[.!?]\s+\S", body[:-1]) is not None
+            ok = r["exit"] == 0 and res.endswith(" ") and (not judged or body.endswith(want))
+            if ok:
+                break
+        t21_seen.append(f"{cid}: {res!r}" + ("" if judged else " (no sentence break recognized; not judged)"))
+        if not ok:
+            t21_bad.append(f"{cid} want {want!r} exit={r['exit']}")
+    gate("T21 last-sentence", not t21_bad, f"bad={t21_bad} " + "; ".join(t21_seen))
+
+    # T4 silence
+    r = run_e2e(a.bin, silence_wav(), timeout=60)
+    gate("T4 silence", r["exit"] == 0 and (r["result"] or "").strip() in ("<NO SPEECH>", ""),
+         f"exit={r['exit']} result={r['result']!r}")
+
+    # T13 WAV fallback privacy (backlog 8): dictated audio never stays on disk; the fallback still delivers
+    legacy = "/tmp/geminiflow_last.wav"
+    t13_watchdog = []
+    for cid, wav_path, want_speech in (("speech", tts(*CORPUS[0][:4]), True), ("nospeech", silence_wav(), False)):
+        try:  # a stale world-readable file left by older builds must be swept at launch
+            with open(legacy, "wb") as f:
+                f.write(b"RIFF-stale-test")
+            os.utime(legacy, (time.time() - 3600, time.time() - 3600))
+        except OSError:
+            pass
+        t0 = time.time()
+        r = run_e2e(a.bin, wav_path, timeout=90, extra=["--e2e-wav-fallback"])
+        if want_speech and r["exit"] == 0 and recall(CORPUS[0][4], r["result"] or "") < MIN_CASE_RECALL:
+            r = run_e2e(a.bin, wav_path, timeout=90, extra=["--e2e-wav-fallback"])  # retry once (load-sensitive)
+        paths = r["wav_paths"]
+        t13_watchdog.append((cid, r["wav_watchdog"]))
+        tmp_dirs = {os.path.dirname(p) for p in paths}
+        left = [p for p in paths if os.path.exists(p)]
+        new_in_tmp = [p for d in tmp_dirs | {"/tmp"} for p in glob.glob(os.path.join(d, "geminiflow*.wav"))
+                      if os.path.exists(p) and os.path.getmtime(p) >= t0 - 1]
+        private_dir = bool(paths) and all(not os.path.realpath(d).startswith(("/tmp", "/private/tmp")) for d in tmp_dirs)
+        res = r["result"] or ""
+        if want_speech:
+            rc = recall(CORPUS[0][4], res)
+            delivered, detail = rc >= MIN_CASE_RECALL, f"recall={rc:.2f}"
+        else:
+            delivered, detail = res.strip() == "<NO SPEECH>", "no speech"
+        ok = (r["exit"] == 0 and len(paths) == 1 and private_dir and not left and not new_in_tmp
+              and not os.path.exists(legacy) and delivered)
+        gate(f"T13 wav-fallback-privacy/{cid}", ok,
+             f"{detail} exit={r['exit']} temp_files={len(paths)} private_dir={private_dir} left={left} new_in_tmp={new_in_tmp} "
+             f"legacy_removed={not os.path.exists(legacy)} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T17 WAV fallback watchdog (backlog 9): a WAV recognizer that never ends no longer leaves the dictation in "Thinking".
+    hit = [c for c, w in t13_watchdog if w]
+    gate("T17 wav-watchdog/normal-not-fired", len(t13_watchdog) == 2 and not hit, f"watchdog fired in T13 runs: {hit}")
+    cid, voice, rate, text, expected = CORPUS[0]
+    wav = tts(cid, voice, rate, text)
+    audio_s = wav_seconds(wav)
+    for kind in ("final", "all"):
+        t0 = time.time()
+        for _ in range(2):  # retry once: the on-device recall is load-sensitive
+            r = run_e2e(a.bin, wav, timeout=60, extra=["--e2e-wav-hang", kind])
+            res = r["result"] or ""
+            rc = recall(expected, res)
+            if kind == "all" or rc >= MIN_CASE_RECALL:
+                break
+        w = r["wav_watchdog"]
+        paths = r["wav_paths"]
+        left = [p for p in paths if os.path.exists(p)]
+        new_tmp = [p for d in {os.path.dirname(p) for p in paths} for p in glob.glob(os.path.join(d, "geminiflow-*.wav"))
+                   if os.path.exists(p) and os.path.getmtime(p) >= t0 - 1]
+        limit = 5.0 + 0.5 * (w[2] if w else audio_s)
+        timing_ok = bool(w) and abs(w[1] - limit) < 0.06 and limit - 0.05 <= w[0] <= limit + 1.0
+        if kind == "final":
+            delivered = rc >= MIN_CASE_RECALL and res.endswith(" ") and w is not None and w[3] > 0
+            detail = f"recall={rc:.2f}"
+        else:
+            delivered = res == "<NO SPEECH>" and w is not None and w[3] == 0
+            detail = "no speech"
+        lat_ok = r["latency_ms"] is not None and r["latency_ms"] <= (limit + 3.0) * 1000
+        ok = r["exit"] == 0 and timing_ok and delivered and lat_ok and len(paths) == 1 and not left and not new_tmp
+        gate(f"T17 wav-watchdog/{kind}", ok,
+             f"{detail} watchdog={w} (want limit {limit:.2f}s, fired within +1 s) lat={r['latency_ms']}ms temp_files={len(paths)} "
+             f"left={left} new_tmp={new_tmp} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T5 offline fallback through the Gemini path
+    if not a.quick:
+        cid, voice, rate, text, expected = CORPUS[0]
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model="gemini-3.5-transcribe-live", timeout=120)
+        rc = recall(expected, r["result"] or "")
+        gate("T5 gemini->fallback never loses dictation",
+             r["exit"] == 0 and rc >= MIN_CASE_RECALL,
+             f"recall={rc:.2f} lat={r['latency_ms']}ms exit={r['exit']} -> {r['result']!r}")
+        report["fallback_latency_ms"] = r["latency_ms"]
+
+        # T28 offline (backlog 0y-probe): the e2e-only setup hook with no network. The app must log which setup fields it added,
+        # the probe outcome must read "not accepted" (no setupComplete), and the dictation must still be delivered (REST answers
+        # a canned text after 1 s, test-only, so this does not depend on on-device recall). With a network (never in the sandbox)
+        # the server's real answer is accepted too: the gate only needs a readable outcome and a delivered dictation.
+        px = {"inputAudioTranscription": {"languageCodes": ["en-US"]}}
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model=LIVE_MODEL, timeout=120,
+                    extra=probe_extra_args(px) + ["--e2e-rest-fake-ok", "1"])
+        pr = r.get("probe") or parse_probe("")
+        res = r["result"] or ""
+        delivered = "canned gemini transcript" in res.lower() or recall(expected, res) >= OFFLINE_RECALL_FLOOR
+        sent_ok = bool(pr["sent"]) and pr["sent"][0]["fields"] == ["setup.inputAudioTranscription.languageCodes"]
+        gate("T28 live-setup-probe/offline", r["exit"] == 0 and sent_ok and delivered and res.endswith(" "),
+             f"setup fields logged={pr['sent'][0]['fields'] if pr['sent'] else None} {probe_outcome(pr)} via={probe_via(r)} "
+             f"lat={r['latency_ms']}ms exit={r['exit']} -> {res!r}" + ("" if sent_ok and delivered else f"\n      tail: {r['tail']}"))
+
+        # T30 offline (test isolation): that run had no --e2e-vocabulary, so it must have sent NO vocabulary and said so ("0 terms"):
+        # in e2e mode the user's custom-words.json and rules.json list are never read, whatever they hold.
+        iso_ok = bool(r["vocab_e2e_terms"]) and all(n == 0 for n in r["vocab_e2e_terms"]) and r["vocab_terms"] == []
+        gate("T30 live-vocabulary/offline-isolated", r["exit"] == 0 and iso_ok,
+             f"terms from --e2e-vocabulary per connect={r['vocab_e2e_terms']} (want all 0) setups that carried a vocabulary={r['vocab_terms']} (want none)")
+
+        # T30 offline (custom vocabulary safety net): the first Live session carries the test list (2 terms) and is "rejected"
+        # like an unknown setup field (test-only hook: close 1007 before setupComplete). The app must reconnect once without the
+        # list, must NOT take the key-in-URL auth retry, must log only counts and codes (no term), and the dictation must still
+        # be delivered (REST answers a canned text, test-only; with a network the second session delivers on Live).
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model=LIVE_MODEL, timeout=120,
+                    extra=[VOCAB_FLAG, ONLINE_VOCAB, "--e2e-live-vocab-reject", "--e2e-rest-fake-ok", "1"])
+        res = r["result"] or ""
+        delivered = "canned gemini transcript" in res.lower() or recall(expected, res) >= OFFLINE_RECALL_FLOOR
+        ok = (r["exit"] == 0 and r["vocab_terms"] == [2] and r["vocab_e2e_terms"] == [2, 0] and r["vocab_reject_simulated"]
+              and r["vocab_rejected"] and r["live_connects"] == 2 and not r["auth_retry"] and not r["vocab_leak"] and delivered
+              and res.endswith(" "))
+        gate("T30 live-vocabulary/offline-reject", ok,
+             f"terms sent per session={r['vocab_terms']} rejected={r['vocab_rejected']} connects={r['live_connects']} (want 2) "
+             f"auth_retry={r['auth_retry']} terms in log={r['vocab_leak']} via={probe_via(r)} lat={r['latency_ms']}ms exit={r['exit']} "
+             f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+        # T32 offline (custom-words pairs): the same clip through the real ON-DEVICE pipeline with two test pairs, a word and a
+        # phrase. The final text must hold the replacements and none of the heard forms; the log holds counts only.
+        want_in, want_out = ["freitag", "retro"], ["friday", "review"]
+        for _ in range(2):  # retry once: the on-device recognizer is load-sensitive (it must hear "Friday" and "the review")
+            r = run_e2e(a.bin, tts(cid, voice, rate, text), timeout=90, extra=[REPLACEMENTS_FLAG, "Friday=Freitag|the review=the retro"])
+            res = r["result"] or ""
+            ws = words(res)
+            if r["exit"] == 0 and all(w in ws for w in want_in):
+                break
+        ok = (r["exit"] == 0 and all(w in ws for w in want_in) and not any(w in ws for w in want_out)
+              and bool(r["user_replacements"]) and all(pairs == 2 for pairs, _ in r["user_replacements"])
+              and max(n for _, n in r["user_replacements"]) == 2 and not r["vocab_leak"] and res.endswith(" "))
+        gate("T32 replacement/offline-ondevice", ok,
+             f"replaced forms in the text={[w for w in want_in if w in ws]} heard forms left={[w for w in want_out if w in ws]} "
+             f"(pairs, replacements made) per polished text={r['user_replacements']} words in log={r['vocab_leak']} exit={r['exit']} "
+             f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+        # ... and through the REST path: REST answers a canned text (test-only, no network) that holds the heard word, its
+        # possessive and a longer word that only starts with it. Exact final text: whole words only.
+        r = run_e2e(a.bin, tts(cid, voice, rate, text), model="gemini-3.5-flash-lite", timeout=60,
+                    extra=["--e2e-rest-fake-ok", "1", "--e2e-rest-fake-text", "Please ask Owen and the Owens family to review Owen's document.",
+                           REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS])
+        res = r["result"] or ""
+        ok = (r["exit"] == 0 and res == "Please ask Eoin and the Owens family to review Eoin's document. "
+              and (1, 2) in r["user_replacements"] and not r["vocab_leak"])
+        gate("T32 replacement/offline-rest", ok,
+             f"(pairs, replacements made) per polished text={r['user_replacements']} words in log={r['vocab_leak']} exit={r['exit']} -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T15 bounded wait (user-approved 2026-11-10): a slow REST answer (test-only canned HTTP 200, no network) must not hold the
+    # dictation: the on-device text comes ~3 s after release, then the REST text as the final result. A fast REST, or a press
+    # with no speech, must not get an early delivery.
+    BW_EARLY_MIN_MS, BW_EARLY_MAX_MS = 2700, 3700
+    cid, voice, rate, text, expected = CORPUS[0]
+    wav = tts(cid, voice, rate, text)
+    for _ in range(2):  # retry once: the on-device recall is load-sensitive
+        r = run_e2e(a.bin, wav, model="gemini-3.5-flash-lite", timeout=60, extra=["--e2e-rest-fake-ok", "5"])
+        erc = recall(expected, r["early"] or "")
+        if erc >= MIN_CASE_RECALL:
+            break
+    res = r["result"] or ""
+    el = r["early_latency_ms"]
+    ok = (r["exit"] == 0 and el is not None and BW_EARLY_MIN_MS <= el <= BW_EARLY_MAX_MS and erc >= MIN_CASE_RECALL
+          and r["early_first"] and "canned gemini transcript" in res.lower() and res.endswith(" ")
+          and (r["latency_ms"] or 0) >= 4500)
+    gate("T15 bounded-wait/slow-rest", ok,
+         f"early at {el}ms (want {BW_EARLY_MIN_MS}-{BW_EARLY_MAX_MS}) recall={erc:.2f} early_first={r['early_first']} "
+         f"final lat={r['latency_ms']}ms -> early {r['early']!r} / final {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+    r = run_e2e(a.bin, wav, model="gemini-3.5-flash-lite", timeout=60, extra=["--e2e-rest-fake-ok", "1"])
+    res = r["result"] or ""
+    ok = r["exit"] == 0 and r["early"] is None and "canned gemini transcript" in res.lower()
+    gate("T15 bounded-wait/fast-rest", ok, f"early={r['early']!r} final lat={r['latency_ms']}ms -> {res!r}"
+         + ("" if ok else f"\n      tail: {r['tail']}"))
+    r = run_e2e(a.bin, silence_wav(), model="gemini-3.5-flash-lite", timeout=60, extra=["--e2e-rest-fake-ok", "5"])
+    ok = r["exit"] == 0 and r["early"] is None and r["early_not_used"]
+    gate("T15 bounded-wait/no-speech", ok, f"early={r['early']!r} not_used_logged={r['early_not_used']} -> {r['result']!r}"
+         + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T27 REST plausibility (backlog 0u): a silent quiet-room press on the REST engine, REST answering a canned sentence or echoing the
+    # REST prompt (test-only, no network). Must be rejected -> <NO SPEECH>.
+    for sub, extra in (("room-noise", ["--e2e-rest-fake-ok", "1"]),
+                       ("prompt-echo", ["--e2e-rest-fake-ok", "1", "--e2e-rest-fake-text", "Transcribe and clean up this audio dictation."])):
+        r = run_e2e(a.bin, room_noise_wav("room_hold", 2.30), model="gemini-3.5-flash-lite", timeout=60, extra=extra)
+        res = (r["result"] or "")
+        ok = r["exit"] == 0 and res.strip() == "<NO SPEECH>" and r["rest_net_rejected"] and r["early"] is None
+        gate(f"T27 rest-plausibility/{sub}", ok, f"net_rejected={r['rest_net_rejected']} early={r['early']!r} -> {res[:60]!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T16 mic unavailable (backlog 7): a press whose microphone can't be used ends at once with a clear marker/notice; it never
+    # opens Live (start failure / denied permission are known before Live starts) and never calls REST. A mic that sends nothing
+    # is caught by the no-buffer watchdog (2.0 s + one rebuild + 1.5 s), never earlier. A one-off start failure is fixed by the rebuild.
+    cid, voice, rate, text, expected = CORPUS[0]
+    wav = tts(cid, voice, rate, text)
+    for kind, notice, rebuild, lo_ms, hi_ms, live_ok in (("start", "Mic unavailable", True, 0, 1000, False),
+                                                         ("denied", "Mic access needed", False, 0, 1000, False),
+                                                         ("nobuffers", "Mic unavailable", True, 3000, 4500, True)):
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=30, extra=["--e2e-mic-fail", kind])
+        ms = r["mic_unavailable_ms"]
+        ok = (r["exit"] == 0 and r["result"] == "<MIC UNAVAILABLE>" and ms is not None and lo_ms <= ms <= hi_ms
+              and r["mic_notice"] == notice and r["mic_rebuilt"] == rebuild and not r["rest_called"] and not r["live_ok"]
+              and (live_ok or not r["live_connect"]) and r["wall_s"] <= 15)
+        gate(f"T16 mic-unavailable/{kind}", ok,
+             f"marker after {ms}ms (want {lo_ms}-{hi_ms}) notice={r['mic_notice']!r} rebuilt={r['mic_rebuilt']} "
+             f"live_connect={r['live_connect']} rest_called={r['rest_called']} wall={r['wall_s']}s -> {r['result']!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+    for _ in range(2):  # retry once: the on-device recall is load-sensitive
+        r = run_e2e(a.bin, wav, timeout=60, extra=["--e2e-mic-fail", "start-once"])
+        rc = recall(expected, r["result"] or "")
+        if rc >= MIN_CASE_RECALL:
+            break
+    res = r["result"] or ""
+    ok = (r["exit"] == 0 and r["mic_rebuilt"] and r["mic_restarted"] and r["mic_unavailable_ms"] is None
+          and rc >= MIN_CASE_RECALL and res.endswith(" "))
+    gate("T16 mic-unavailable/start-once", ok, f"rebuilt={r['mic_rebuilt']} restarted={r['mic_restarted']} recall={rc:.2f} "
+         f"lat={r['latency_ms']}ms -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T2 analyzer (last: CPU heavy)
+    if not a.quick:
+        n = analyzer_count()
+        report["analyzer_warnings"] = n
+        limit = base.get("analyzer_warnings", n)
+        gate("T2 static analyzer", n <= limit, f"{n} warnings (baseline {limit})")
+
+    for w in report.get("quality_warnings", []):
+        print(f"QUALITY WARNING: {w}")
+    os.makedirs(LOGS, exist_ok=True)
+    rpath = os.path.join(LOGS, f"test-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    json.dump(report, open(rpath, "w"), indent=2)
+    print(f"\n{len(report['gates']) - len(fails)}/{len(report['gates'])} gates passed. "
+          f"mean_recall={mean_recall:.3f} median_latency={med_lat}ms. Report: {rpath}")
+
+    if a.update_baseline and not fails and not a.quick:
+        nb = dict(base)
+        nb["analyzer_warnings"] = min(base.get("analyzer_warnings", 10**9), report["analyzer_warnings"])
+        nb["mean_recall"] = max(base.get("mean_recall", 0), mean_recall)
+        if med_lat is not None:
+            nb["median_latency_ms"] = min(base.get("median_latency_ms", 10**9), med_lat)
+        nb["updated"] = report["time"]
+        json.dump(nb, open(BASELINE, "w"), indent=2)
+        print(f"Baseline updated: {nb}")
+
+    if fails:
+        print("FAILED gates: " + ", ".join(fails))
+        return 1
+    return 0
+
+
+def _read_pcm(path):
+    import array
+    with wave.open(path, "rb") as w:
+        a = array.array("h"); a.frombytes(w.readframes(w.getnframes()))
+        return a
+
+
+def _write_pcm(path, a):
+    """Write 16 kHz mono int16 PCM as a WAV, atomically (temp file + rename) so an interrupted run never leaves a partial cache file."""
+    tmp = _tmp_beside(path)
+    try:
+        with wave.open(tmp, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes(a.tobytes())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def wav_seconds(path):
+    with wave.open(path, "rb") as w:
+        return w.getnframes() / float(w.getframerate())
+
+
+def derived_wav(kind, src_id, texts):
+    """Harder Live cases built from TTS audio: noise, pauses, quiet speech."""
+    import array, random
+    os.makedirs(CACHE, exist_ok=True)
+    key = hashlib.sha1(f"{kind}|{'|'.join(texts)}".encode()).hexdigest()[:12]
+    path = os.path.join(CACHE, f"{kind}-{key}.wav")
+    if _cached_wav(path):
+        return path
+    if kind == "long_session":     # backlog 0m: ~5/10 min hands-free session built sentence by sentence
+        _write_pcm(path, _long_session_pcm(src_id, texts))
+        return path
+    clips = [_read_pcm(tts(f"{src_id}{i}", None, None, t)) for i, t in enumerate(texts)]
+    if kind == "noisy":            # white noise at roughly 10 dB SNR
+        a = clips[0]; rms = (sum(x * x for x in a) / len(a)) ** 0.5; rnd = random.Random(7)
+        out = array.array("h", (max(-32768, min(32767, int(x + rnd.gauss(0, rms / 3.16)))) for x in a))
+    elif kind == "quiet":          # -18 dB
+        out = array.array("h", (int(x * 0.125) for x in clips[0]))
+    elif kind == "pause":          # 1.8 s of silence between sentences
+        out = array.array("h"); gap = array.array("h", [0] * int(16000 * 1.8))
+        for i, c in enumerate(clips):
+            if i: out.extend(gap)
+            out.extend(c)
+    elif kind == "marathon":       # multi-minute hands-free session: paragraphs with natural ~0.8 s pauses
+        out = array.array("h"); gap = array.array("h", [0] * int(16000 * 0.8))
+        for i, c in enumerate(clips):
+            if i: out.extend(gap)
+            out.extend(c)
+    elif kind == "quiet_long":     # soft speaker in a long session: ~1 s pauses (triggers Live splitting), speech RMS ~220
+        joined = array.array("h"); gap = array.array("h", [0] * int(16000 * 1.0))
+        for i, c in enumerate(clips):
+            if i: joined.extend(gap)
+            joined.extend(c)
+        voiced = [x for x in joined if abs(x) > 300] or [1]
+        rms = (sum(x * x for x in voiced) / len(voiced)) ** 0.5
+        k = 220.0 / rms
+        out = array.array("h", (int(x * k) for x in joined))
+    elif kind == "trailing_silence":  # one long sentence, then 2.2 s of silence before the release (pause, then let go of Fn)
+        out = array.array("h", clips[0]); out.extend(array.array("h", [0] * int(16000 * 2.2)))
+    elif kind == "click_tail":     # backlog 0z: the same, with quiet room noise (sigma 40) and a key click in the last 80 ms
+        import math
+        rnd = random.Random(26); n = int(16000 * 2.2)
+        tail = [rnd.gauss(0, 40.0) for _ in range(n)]
+        for k in range(1280):      # decaying burst (8 ms time constant): its loudest 20 ms frame is ~RMS 800 when frame-aligned
+            tail[n - 1280 + k] += 2540.0 * math.exp(-k / 128.0) * math.sin(k * 0.9)
+        out = array.array("h", clips[0]); out.extend(array.array("h", (int(max(-32768, min(32767, x))) for x in tail)))
+    else:
+        raise ValueError(kind)
+    _write_pcm(path, out)
+    return path
+
+
+def _sentences(paragraph):
+    return [x for x in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if x]
+
+
+def _trim_silence(a, level=200, margin_s=0.06):
+    """TTS clip without its leading/trailing silence (keeps margin_s of it), so the pauses between sentences are what we set."""
+    import array
+    loud = [i for i, x in enumerate(a) if abs(x) > level]
+    if not loud:
+        return array.array("h", a)
+    m = int(16000 * margin_s)
+    return array.array("h", a[max(0, loud[0] - m):min(len(a), loud[-1] + m)])
+
+
+def _long_session_pcm(src_id, paragraphs):
+    """Backlog 0m: a long hands-free session from TTS paragraphs, one TTS clip per sentence (cached through tts(), shared across
+    the clips by text): natural 0.6-1.2 s pauses between sentences and paragraphs, and a 2 s pause before every third paragraph
+    (thinking pauses). Deterministic (seeded), so the cached clip is stable."""
+    import array, random
+    rnd = random.Random(sum(len(t) for t in paragraphs))
+    out = array.array("h")
+    for p_i, para in enumerate(paragraphs):
+        for s_i, sent in enumerate(_sentences(para)):
+            clip = _trim_silence(_read_pcm(tts(src_id, None, None, sent)))
+            if len(out):
+                gap = 2.0 if (s_i == 0 and p_i % 3 == 0) else rnd.uniform(0.6, 1.2)
+                out.extend(array.array("h", [0] * int(16000 * gap)))
+            out.extend(clip)
+    return out
+
+
+def short_wav(case_id, text, rate=None, voice=None):
+    """Very short dictation (single word / short phrase): TTS with the trailing silence trimmed to 40 ms, like a quick Fn tap
+    that is released right after the word (2026-11-06 09:27: a 0.4 s real clip waited out the 2.5 s Live cap, then REST)."""
+    import array
+    os.makedirs(CACHE, exist_ok=True)
+    key = hashlib.sha1(f"short|{voice}|{rate}|{text}".encode()).hexdigest()[:12]
+    path = os.path.join(CACHE, f"{case_id}-{key}.wav")
+    if _cached_wav(path):
+        return path
+    a = _read_pcm(tts(f"{case_id}_src", voice, rate, text))
+    voiced = [i for i, x in enumerate(a) if abs(x) > 500] or [len(a) - 1]
+    end = min(len(a), voiced[-1] + int(16000 * 0.04))
+    _write_pcm(path, array.array("h", a[:end]))
+    return path
+
+
+def nospeech_wav(case_id, seconds, sigma=40.0):
+    """Press with no speech (accidental tap / Fn+key shortcut): low room-noise level, no voice."""
+    import array, random
+    os.makedirs(CACHE, exist_ok=True)
+    path = os.path.join(CACHE, f"{case_id}-{seconds:.2f}-{sigma:.0f}.wav")
+    if not _cached_wav(path):
+        rnd = random.Random(11)
+        _write_pcm(path, array.array("h", (int(max(-32768, min(32767, rnd.gauss(0, sigma)))) for _ in range(int(16000 * seconds)))))
+    return path
+
+
+def room_noise_wav(case_id, seconds):
+    """Backlog 0u: a silent press in an ordinary quiet room (real 2026-11-12 16:01: max frame RMS 133-239, 1.82 s of a 2.3 s hold
+    above the old RMS-60 level). Gaussian noise whose 20 ms frame level wanders between RMS ~80 and ~200, plus a few 20 ms
+    ~240-RMS clicks. Deterministic (seeded), so the cached clip is stable."""
+    import array, math, random
+    os.makedirs(CACHE, exist_ok=True)
+    path = os.path.join(CACHE, f"{case_id}-{seconds:.2f}-room.wav")
+    if _cached_wav(path):
+        return path
+    rnd = random.Random(23)
+    n = int(16000 * seconds)
+    a = array.array("h")
+    for i in range(n):
+        lvl = 80 + 120 * (0.5 + 0.5 * math.sin((i // 320) / 7.0))
+        a.append(int(max(-32768, min(32767, rnd.gauss(0, lvl)))))
+    for t in [x * 0.8 + 0.1 for x in range(int(seconds / 0.8) + 1)]:  # a click every 0.8 s
+        s0 = int(t * 16000)
+        for i in range(s0, min(n, s0 + 320)):
+            a[i] = int(max(-32768, min(32767, rnd.gauss(0, 240))))
+    _write_pcm(path, a)
+    return path
+
+
+_FILLERS_TEXT = CORPUS[0][3]
+_FILLERS_EXP = CORPUS[0][4]
+_HF_TEXT = (CORPUS[4][3] + " " +
+            "After that, we will run a short retrospective to look at what slowed us down. "
+            "I want everyone to bring one concrete suggestion, ideally something we can try in the very next sprint. "
+            "Finally, remember that the offsite is moving to the second week of the month, so update your calendars.")
+# ~2.1 min (124 s) hands-free session (one long Fn double-tap): tests release->text latency and server limits on long activities.
+_MARATHON_PARAS = [
+    "Good morning everyone, here is the weekly update for the mobile team. The new onboarding flow shipped to all users "
+    "on Tuesday, and the early feedback has been very positive. Sign up completion went up noticeably, and support tickets "
+    "about account creation dropped. Thanks to everyone who stayed late to get the release over the line.",
+    "On the reliability side, we finally tracked down the crash that happened when the app resumed from the background. "
+    "It turned out to be a race between the network layer and the cache cleanup task. The fix is small, but we added a "
+    "regression test and a new alert so we will notice right away if it ever comes back.",
+    "Next, a few words about performance. Cold start time is still slower than we would like, especially on older phones. "
+    "The plan is to defer loading the settings screen and the analytics library until after the first frame is drawn. "
+    "We expect this to save a noticeable amount of time, and we will measure it carefully before and after the change.",
+    "For the design review on Thursday, please bring your questions about the new navigation bar. The designers have "
+    "prepared two alternatives, one with a floating button and one with a simple tab layout. We would like to pick one by "
+    "the end of the week, so that engineering can start building it in the following sprint.",
+    "There are also some changes to the on call rotation. Starting next month, each shift will last one week instead of "
+    "two, and the handoff will happen on Monday afternoon. If you have a conflict with your assigned week, please swap "
+    "with a teammate and update the shared calendar as soon as possible.",
+    "One more thing before we wrap up. The documentation site has moved to a new address, and the old links will redirect "
+    "for a few more weeks. If you find a broken page or an outdated example, please open a ticket so we can fix it "
+    "quickly. Good documentation saves everyone time, so every small correction really helps.",
+    "Finally, a reminder that the team offsite is coming up soon. We will spend the first morning on planning and the "
+    "afternoon on a hands on workshop about accessibility. Please fill out the travel form by Friday and let the "
+    "organizers know about any dietary restrictions. That is everything for today, thank you all for listening.",
+]
+_QUIET_LONG = [CORPUS[4][3].split(" Please make sure")[0],
+               "Please make sure every open bug has an owner before the end of the sprint.",
+               "Flag anything that is blocked, and send me a short summary tonight.",
+               "Thanks everyone, that is all for today."]
+# (id, audio builder, expected)
+ONLINE_EXTRA = [
+    ("noisy", lambda: derived_wav("noisy", "noisy_src", [_FILLERS_TEXT]), _FILLERS_EXP),
+    ("quiet", lambda: derived_wav("quiet", "quiet_src", [CORPUS[2][3]]), CORPUS[2][4]),
+    ("pause", lambda: derived_wav("pause", "pause_src", ["We should ship the update on Friday.",
+                                                         "Then we can start planning the next sprint."]),
+     "We should ship the update on Friday. Then we can start planning the next sprint."),
+    ("handsfree_long", lambda: tts("handsfree_long", None, None, _HF_TEXT), _HF_TEXT),
+    ("handsfree_marathon", lambda: derived_wav("marathon", "marathon_src", _MARATHON_PARAS), " ".join(_MARATHON_PARAS)),
+    # Soft speaker + pauses after 10 s: guards against Live splitting treating quiet speech as silence and never sending it.
+    ("quiet_long", lambda: derived_wav("quiet_long", "quiet_long_src", _QUIET_LONG), " ".join(_QUIET_LONG)),
+    # Very short clips (0.4-1 s, released right after the last word): must finish on Live, not wait out the 2.5 s cap.
+    ("short_yes", lambda: short_wav("short_yes", "Yes."), "Yes."),
+    ("short_thanks", lambda: short_wav("short_thanks", "Thanks.", rate=230), "Thanks."),
+    ("short_phrase", lambda: short_wav("short_phrase", "Call me back."), "Call me back."),
+]
+
+# Backlog 0m (user-approved 2026-11-11): daily long-dictation test, OPT-IN via the RUN_LONG flag file (see the docstring).
+# Paragraph text avoids digits-vs-words ambiguity, contractions, fillers, "like", "kind of"/"sort of", spoken commands and
+# repeated adjacent words, so recall measures Live (not the polish rules).
+_LONG_A = [
+    "Let me start with a quick summary of the customer interviews from last week. We spoke with a dozen people who use the "
+    "product every day, mostly small business owners and freelancers. Almost all of them said the app saves them time, but many "
+    "found the export screen confusing. Several people asked for a simpler way to share reports with their accountant.",
+    "The most common complaint was about notifications. People feel that the app sends too many reminders, and some of them "
+    "turned notifications off completely. That means they also miss the important alerts, such as failed payments. We should "
+    "group the minor reminders into a daily digest and keep instant alerts only for things that need action.",
+    "Another theme was search. Users often remember a client name or an amount, but not the date of an invoice. Right now search "
+    "only looks at titles, so they scroll through long lists instead. Extending search to notes and amounts looks cheap, and it "
+    "would make a real difference for heavy users.",
+    "On the marketing side, the spring campaign is ready to launch. The landing page has been translated, the videos are edited, "
+    "and the email sequence is scheduled. We still need final approval from legal on the pricing table, which should arrive by "
+    "Wednesday. After that, the campaign can go live the same afternoon.",
+    "I also want to mention hiring. We have open positions on the platform team and in customer support. Please share the job "
+    "posts with anyone you think would be a good fit. Referrals have worked very well for us in the past, and the people who "
+    "joined that way tend to stay longer.",
+    "Before the next meeting, please read the short proposal about the new billing system. It explains why the current setup is "
+    "hard to maintain and how a gradual migration would work. Leave your comments directly in the document, so the authors can "
+    "answer them in a single place. We will make a decision together at the end of the month.",
+    "One last point from the interviews. A few customers mentioned that the mobile app logs them out too often, especially when "
+    "they switch between devices during the day. The security team agreed to review the session rules, as long as sensitive "
+    "actions still ask for a password. We will share their recommendation in the next update.",
+]
+_LONG_B = [
+    "Hi everyone, thanks for joining the product review today. I would like to walk through the main results from this quarter, "
+    "then talk about the roadmap, and finish with a few open questions. Please hold your questions until the end of each "
+    "section, and feel free to add notes in the shared document while I speak.",
+    "Overall, the quarter went better than expected. Active users grew steadily every month, and retention improved after we "
+    "redesigned the welcome screens. Revenue is slightly ahead of the plan, mostly because more teams upgraded to the business "
+    "tier. Churn is still higher than we want among very small teams, and we will come back to that later.",
+    "The mobile apps had a strong quarter as well. Crash rates dropped after the memory fixes, and the average rating in both app "
+    "stores went up. The offline mode we released in February is now used by a large share of field workers, which is exactly "
+    "the audience we built it for.",
+    "Now let us turn to the roadmap. The top priority for the next quarter is collaboration. Customers keep asking to edit "
+    "documents together in real time, with comments and simple approvals. This is a big project, so we plan to ship it in "
+    "stages, starting with shared comments and presence indicators.",
+    "The second priority is performance on large accounts. Some of our biggest customers have an enormous number of records, and "
+    "loading their dashboards can take far too long. The data team has a plan to precompute the most common reports overnight "
+    "and to cache them close to the user.",
+    "The third area is accessibility. An external audit found several problems with keyboard navigation and screen reader "
+    "labels. None of them are hard to fix, but together they make the product frustrating for some people. We have reserved "
+    "time in every sprint to work through the list until it is done.",
+    "Let me also share a few lessons from the last launch. We underestimated how much time the documentation would need, and "
+    "support was flooded with questions during the first week. Next time, the help articles should be written alongside the "
+    "feature, and support should get a preview at least a week before release.",
+    "There is another risk I want to flag. Our main cloud contract renews in the summer, and the price will probably go up. The "
+    "infrastructure team is comparing offers from other providers and looking at ways to reduce our storage costs. They will "
+    "present their findings at the planning meeting next month.",
+    "Let me say a few words about the support team. Response times improved this quarter, even though the number of tickets "
+    "grew. Much of that came from the new help center, which answers the most frequent questions before people contact us. The "
+    "team would like to add short videos to the most popular articles next.",
+    "Our partner program is also growing. More agencies now resell the product to their own clients, and they ask for better "
+    "tools to manage many accounts at once. A simple partner dashboard is on the list for the second half of the year, and we "
+    "will invite a few agencies to test early designs.",
+    "Now for the open questions. Should we keep investing in the desktop app, or focus entirely on the web version? Desktop "
+    "usage is small but very loyal, and those users pay for the premium plan more often. I do not have a strong opinion yet, so "
+    "I would love to hear what you think.",
+    "Before we close, a short note about the office move. The new building is closer to the train station and has much better "
+    "meeting rooms. Movers will pack the shared equipment on Friday evening, so please take your personal items home before "
+    "then. Desks will be assigned by team, and the floor plan will be posted on the intranet.",
+    "A last reminder about security training. Everyone must complete the online course before the end of the quarter, and it "
+    "takes less than an hour. The course covers phishing, password managers, and how to report a lost laptop. Managers will "
+    "receive a list of people who have not finished it yet, so please do not leave it until the last day.",
+    "Finally, a big thank you to everyone who helped with the customer conference. The feedback was excellent, and many "
+    "attendees told us it was the most useful event they went to this year. The recordings will be published on the website "
+    "soon, and the slides are already in the shared folder. That is all from me, thank you for your time.",
+]
+# ~5 min: interview summary around the weekly update; ~10 min: product review around both (no paragraph twice in one clip).
+_LONG_5MIN = _LONG_A[:3] + _MARATHON_PARAS + _LONG_A[3:]
+_LONG_10MIN = _LONG_B[:6] + _LONG_A + _MARATHON_PARAS + _LONG_B[6:]
+# (id, audio builder, expected)
+ONLINE_LONG = [
+    ("handsfree_5min", lambda: derived_wav("long_session", "long_s", _LONG_5MIN), " ".join(_LONG_5MIN)),
+    ("handsfree_10min", lambda: derived_wav("long_session", "long_s", _LONG_10MIN), " ".join(_LONG_10MIN)),
+]
+RUN_LONG_FLAG = os.path.join(HERE, "RUN_LONG")
+LONG_MIN_RECALL = 0.95
+LONG_CLIP_RANGES_S = {"handsfree_5min": (270, 330), "handsfree_10min": (540, 660)}
+
+
+def long_mode_enabled():
+    """Long-dictation mode is on ONLY while the flag file exists (the protected launcher passes no extra args)."""
+    return os.path.exists(RUN_LONG_FLAG)
+
+
+def online_long_ids(flag_present):
+    """The T23 long-dictation cases the online run adds: none without the flag, so the regular run is unchanged."""
+    return [c[0] for c in ONLINE_LONG] if flag_present else []
+
+
+def long_e2e_timeout_s(audio_s):
+    """Harness timeout for a long case: the app's own e2e watchdog (GFE2EWatchdogSeconds in main.m: real-time feed + REST budget +
+    slow-retry grace + WAV fallback watchdog + 30 s) + 60 s, so the app's watchdog always reports first."""
+    rest = 8.0 + 0.25 * audio_s
+    app = max(120.0, audio_s + 60.0 + (rest - 8.0), audio_s + rest + 4.0 + (5.0 + 0.5 * audio_s) + 30.0)
+    return int(app + 60)
+
+
+def long_dry_run():
+    """Offline check of the long mode (no network, no app run): case selection, clip build and duration, harness timeouts."""
+    ok = online_long_ids(False) == [] and online_long_ids(True) == ["handsfree_5min", "handsfree_10min"]
+    print(f"RUN_LONG flag ({RUN_LONG_FLAG}) present now: {long_mode_enabled()}")
+    print(f"long cases without the flag: {online_long_ids(False)}; with the flag: {online_long_ids(True)}")
+    total = 0.0
+    for cid, build, expected in ONLINE_LONG:
+        t0 = time.time()
+        wav = build()
+        secs = wav_seconds(wav)
+        total += secs
+        lo, hi = LONG_CLIP_RANGES_S[cid]
+        good = lo <= secs <= hi and wav_complete(wav)
+        ok = ok and good
+        n_sent = sum(len(_sentences(p)) for p in (_LONG_5MIN if cid == "handsfree_5min" else _LONG_10MIN))
+        print(f"[{'OK' if good else 'BAD'}] {cid}: {secs:.1f}s audio (want {lo}-{hi}s), {n_sent} sentences, {len(words(expected))} words, "
+              f"harness timeout {long_e2e_timeout_s(secs)}s, built/cached in {time.time() - t0:.1f}s -> {os.path.basename(wav)}")
+    print(f"long mode adds ~{total / 60:.1f} min of real-time audio to the online run (plus ~5-10 s per case)")
+    return 0 if ok else 1
+
+
+LIVE_MODEL = "gemini-3.5-transcribe-live"
+REST_MODEL = "gemini-3.5-flash-lite"
+ONLINE_LIVE_IDS = ["fillers", "question", "keep_like", "long", "uk_voice", "fast_rate", "uk_female",
+                   "noisy", "quiet", "pause", "handsfree_long", "handsfree_marathon", "quiet_long",
+                   "short", "short_yes", "short_thanks", "short_phrase"]
+# handsfree_marathon on REST: the never-lose-dictation safety net must handle a multi-minute recording when Live fails
+# (cycle 4: 124 s of audio timed out on REST -> on-device partials, recall 0.32). Same T7 gates incl. recall >= 0.85.
+ONLINE_REST_IDS = ["fillers", "question", "handsfree_marathon"]
+# T9: REST retry on a fast transient 503 (cycle 5 saw HTTP 503 "high demand" in 1.7 s and the user got on-device text).
+ONLINE_REST_RETRY_IDS = ["fillers", "question"]
+# T9 slow (backlog 0f): (case, injected 503 delay in s). "question" is the same 2.6 s audio as the real 2026-11-06 clip (quiet).
+ONLINE_REST_SLOW_RETRY = [("question", 6.0)]
+ONLINE_MIN_RECALL = 0.85
+USER_MAX_LATENCY_MS = 3000
+REST_MEDIAN_LIMIT_MS = 4500  # user-approved 2026-11-10
+# T10: Live presses with NO speech (2026-11-05/06: 0.4 s and 1.7 s presses with on-device "No speech detected" got no Live transcript,
+# waited out the 2.5 s cap, then REST: ~4.1 s). Whatever the outcome text, the user must get it within the T8 limit.
+ONLINE_LIVE_NOSPEECH = [("nospeech_tap", 0.40), ("nospeech_hold", 1.70)]
+# T27 (backlog 0u, user-reported 2026-11-12): silent presses in an ordinary quiet room (louder noise than T10's sigma 40).
+ONLINE_LIVE_ROOM_NOISE = [("room_tap", 0.40), ("room_hold", 2.30)]
+# T11: the no-speech check must never eat real speech. Live is forced to return nothing (--e2e-live-drop-output, e2e only), so
+# its final turn closes empty exactly like a no-speech press; quiet speech and very short words must still reach REST.
+ONLINE_LIVE_EMPTY_GUARD_IDS = ["quiet", "short", "short_thanks"]
+# T12 (backlog 6): press #2 ("question") starts while press #1 ("fillers") is still finishing. (phase, extra flags for press #1)
+ONLINE_SECOND_PRESS = [("release", []), ("rest", ["--e2e-live-drop-output"]), ("restfail", ["--e2e-live-drop-output"])]
+# T14 (backlog 0c): cases whose audio has a >= 1.5 s pause; the simulated server turn end fires this long into the first pause.
+ONLINE_SERVER_TURN_END_IDS = ["pause"]
+# T15 bounded wait (user-approved 2026-11-10): Live returns nothing (test-only) and the real REST call is held this long (test-only)
+ONLINE_BOUNDED_WAIT = [("question", 4.0)]
+SERVER_TURN_END_INTO_PAUSE_S = 0.25
+# T18 (backlog 0h): (case, seconds of audio sent when the Live socket is force-closed). handsfree_long is 32.5 s; 14 s is mid-press,
+# after the first split turn (>= 8 s) has been covered, so the reconnect must keep that text and resend only the rest.
+ONLINE_LIVE_DROP = [("handsfree_long", 14.0)]
+# T22 (backlog 26): (id, text). One ~13 s sentence (no pause >= 0.6 s inside, so the only split is at its end), then 2.2 s of silence.
+_RELEASE_SILENCE_TEXT = ("We should ship the update on Friday, after the last round of testing is finished and the release notes "
+                         "are reviewed by the whole team, and then we can start planning the next sprint together on Monday morning.")
+ONLINE_RELEASE_BETWEEN_TURNS = [("release_silence", _RELEASE_SILENCE_TEXT)]
+RELEASE_BETWEEN_TURNS_MAX_MS = 350
+# T29 (backlog 0z): (id, text). The T22 sentence (same cached TTS clip), 2.2 s of quiet room noise, a key click in the last 80 ms.
+ONLINE_SILENT_TAIL = [("click_tail", _RELEASE_SILENCE_TEXT)]
+SILENT_TAIL_MIN_RECALL = 0.99
+SILENT_TAIL_S = 2.2
+
+
+def silent_tail_wav(text):
+    return derived_wav("click_tail", "release_silence_src", [text])
+
+
+BUSY_MARKER = os.path.expanduser("~/Library/Application Support/GeminiFlow/busy")
+
+
+def busy_marker_e2e_check(binary, wav, timeout=60):
+    """T31: run a short --e2e-file dictation and poll the real busy-marker path. Returns (ok, detail). The marker may exist (the
+    real app may be mid-dictation); it must never hold THIS test process's pid."""
+    import tempfile
+    seen = polls = 0
+    with tempfile.TemporaryFile(mode="w+") as log:
+        p = subprocess.Popen([binary, "--e2e-file", wav], stdout=log, stderr=subprocess.STDOUT)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            polls += 1
+            try:
+                with open(BUSY_MARKER) as f:
+                    if f.read().strip() == str(p.pid):
+                        seen += 1
+            except OSError:
+                pass
+            time.sleep(0.02)
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+        log.seek(0)
+        finished = "E2E RESULT" in log.read()
+    return (finished and seen == 0 and polls >= 5,
+            f"e2e run finished={finished} exit={p.returncode}; polled {polls} times, marker with the test process's pid seen {seen} times")
+
+
+def click_tail_fixture(path):
+    """T29 offline: numbers of the click-tail clip on the app's 20 ms frame grid (frames start at sample 0). Returns (ok, detail).
+    The tail is measured from 0.3 s after the speech clip's end (TTS clips can end on a breath of noise); the app itself measures
+    from the split point, >= 0.6 s after the last voiced frame."""
+    a = _read_pcm(path)
+    total_s = len(a) / 16000.0
+    frames = [(sum(x * x for x in a[f * 320:(f + 1) * 320]) / 320.0) ** 0.5 for f in range(len(a) // 320)]
+    first = int((total_s - SILENT_TAIL_S + 0.3) * 50)
+    tail = frames[first:]
+    above_floor = [i for i, r in enumerate(tail) if r > 150.0]
+    above_evidence = sum(1 for r in tail if r > 250.0)
+    peak = max(tail) if tail else 0.0
+    speech_s = total_s - SILENT_TAIL_S
+    late = bool(above_floor) and above_floor[0] >= len(tail) - 6   # the click sits in the last 120 ms
+    ok = speech_s >= 9.0 and 1 <= len(above_floor) <= 4 and above_evidence <= 4 and 350.0 <= peak <= 1200.0 and late
+    return ok, (f"speech {speech_s:.1f}s + tail {SILENT_TAIL_S}s: {len(above_floor)} frame(s) above RMS 150 "
+                f"({above_evidence} above 250), loudest {peak:.0f}, click in the last 120 ms={late}")
+# T25 (backlog 0p): (id, audio builder, expected, rotation age in s; e2e-only override of the app's 8.5 min). Not handsfree_long:
+# its only pause >= 0.6 s is 0.64 s long, so whether it splits at all depends on the 128 ms send phase (~50/50). Four sentences
+# with 1.8 s pauses split for sure (activity >= 8 s by the 2nd or 3rd pause), and the split turn is answered inside the pause.
+_ROTATE_SENTENCES = [
+    "Good morning everyone, this is the weekly status update for the platform team and the people who depend on it.",
+    "The new billing service went live on Tuesday, and so far the error rate has stayed well below our target.",
+    "Next week we will focus on the search migration, which needs careful testing before we switch any traffic over.",
+    "Please add your questions to the shared document by Thursday so that we can answer them in the next meeting.",
+]
+ONLINE_LIVE_ROTATE = [("rotate_pauses", lambda: derived_wav("pause", "rotate_src", _ROTATE_SENTENCES), " ".join(_ROTATE_SENTENCES), 10.0)]
+# T26 (backlog 0p): (case, simulated session lifetime in s). At 8 s, handsfree_long sees ~3 lifetime closes (> kLiveMaxReconnects = 2).
+ONLINE_LIVE_LIFETIME = [("handsfree_long", 8.0)]
+ROTATION_MIN_RECALL = 0.95
+# T26 only (backlog 0r): a seam after a long resend + slow split turn lost 4 words (recall 0.96 on 2026-11-12 11:25); fixed, so
+# T26 must now deliver every word (stricter than T25's ROTATION_MIN_RECALL).
+LIFETIME_MIN_RECALL = 0.99
+
+
+def duplicated_phrases(expected, actual, n=4):
+    """n-word phrases repeated in actual (text repeated at a reconnect/split seam): a phrase counts only when it occurs at least
+    twice in actual AND more often than in expected. A phrase seen once can't be a repeat: recognizer variants ("road map" for
+    roadmap, "team of sight" for offsite, "updated" for outdated) and dropped words at a sentence join make 4-grams that are absent
+    from expected but occur once (2026-11-11 long run: 6 and 18 such false positives, all count 1). Backlog 0o."""
+    def grams(ws):
+        c = {}
+        for i in range(len(ws) - n + 1):
+            g = " ".join(ws[i:i + n]); c[g] = c.get(g, 0) + 1
+        return c
+    e, a = grams(words(expected)), grams(words(actual))
+    return sorted(g for g, k in a.items() if k >= 2 and k > e.get(g, 0))
+
+
+# T24 (backlog 0o): offline self-test of duplicated_phrases (pure Python). (name, expected, actual, phrases that MUST be reported
+# (None = the result must be empty)). The variants are the recognizer outputs seen in the 2026-11-11 long run.
+_DUP_SEAM_EXPECTED = ("The quarterly planning session went well. The design team will share new mockups next week, and engineering "
+                      "will start on the backend changes right after.")
+DUP_SELFTEST_CASES = [
+    ("seam-repeat", _DUP_SEAM_EXPECTED,
+     "The quarterly planning session went well. The design team will share the design team will share new mockups next week, "
+     "and engineering will start on the backend changes right after.",
+     ["design team will share", "the design team will"]),
+    ("seam-repeat-of-repeated-phrase", "We will ship it soon. Then we will ship it again next month.",
+     "We will ship it soon. Then we will ship it we will ship it again next month.", ["we will ship it"]),
+    ("variant-road-map", "Now let us turn to the roadmap. The top priority for the next quarter is collaboration.",
+     "Now let us turn to the road map. The top priority for the next quarter is collaboration.", None),
+    ("variant-team-of-sight", "Finally, a reminder that the team offsite is coming up soon. We will spend the first morning on planning.",
+     "Finally, a reminder that the team of sight is coming up soon. We will spend the first morning on planning.", None),
+    ("variant-updated", "If you find a broken page or an outdated example, please open a ticket so we can fix it quickly.",
+     "If you find a broken page or an updated example, please open a ticket so we can fix it quickly.", None),
+    ("variant-articles", "Next time, the help articles should be written alongside the feature.",
+     "Next time, the help article should be written alongside the feature.", None),
+    ("join-dropped-words", "People who joined that way tend to stay longer. Before the next meeting, please read the short proposal.",
+     "People who joined that way tend to stay longer. Please read the short proposal.", None),
+    ("join-dropped-we", "They also miss the important alerts, such as failed payments. We should group the minor reminders.",
+     "They also miss the important alerts such as failed payments. Should group the minor reminders.", None),
+    ("expected-repeat-same-count", "At the end of the day we ship. At the end of the day we also test.",
+     "At the end of the day we ship. At the end of the day we also test.", None),
+    ("identical", _DUP_SEAM_EXPECTED, _DUP_SEAM_EXPECTED, None),
+]
+
+
+def dup_check_selftest():
+    """Run DUP_SELFTEST_CASES; returns a list of 'name: got [...]' strings for the cases that failed (empty = all pass)."""
+    bad = []
+    for name, expected, actual, must in DUP_SELFTEST_CASES:
+        got = duplicated_phrases(expected, actual)
+        ok = (got == []) if must is None else (bool(got) and all(m in got for m in must))
+        if not ok:
+            bad.append(f"{name}: got {got}")
+    return bad
+
+
+def first_pause_start(path, min_gap=1.5, level=150):
+    """Seconds at which the first silent stretch (20 ms frames with RMS <= level) of at least min_gap s after speech begins."""
+    a = _read_pcm(path); frame = 320; run = 0; spoke = False
+    for f in range(len(a) // frame):
+        seg = a[f * frame:(f + 1) * frame]
+        loud = (sum(x * x for x in seg) / frame) ** 0.5 > level
+        if loud:
+            spoke = True; run = 0
+        elif spoke:
+            run += 1
+            if run * 0.02 >= min_gap:
+                return (f + 1 - run) * 0.02
+    return None
+
+
+# T30 custom vocabulary: the test-only list of the online gates (--e2e-vocabulary; the user's rules.json is never touched).
+ONLINE_VOCAB = "Siobhan|Zyphra"
+ONLINE_VOCAB_SPELLING = [("name", "Siobhan"), ("product", "Zyphra")]  # (T28 probe clip, spelling that must come back)
+# T32: the test-only pair of the online gate (--e2e-replacements; the user's custom-words.json is never read in e2e mode).
+ONLINE_REPLACEMENTS = "Owen=Eoin"
+ONLINE_REPLACEMENT_EXPECTED = "Please ask Eoin to review the document."
+
+# T28 (backlog 0y-probe, OPT-IN via the RUN_PROBE flag file; see the docstring). A probe of the REAL Live server, not a quality
+# gate. Round 1 (2026-11-13) answered whether the `setup` message accepts inputAudioTranscription (yes, at setup level only;
+# customVocabulary and mode SMART work). Round 2 measures what is still unknown before SMART could become the default and before a
+# long user vocabulary is trusted: SMART on every T6 clip and on deliberate repetition, a big names-only vocabulary on every T6
+# clip, sound-alike names, the limits (100 / 500 terms, long terms), and the rejection safety net against the real server.
+# The e2e-only hooks: --e2e-live-setup-extra <json> (deep-merged into `setup`), --e2e-vocabulary "a|b" (the app's own vocabulary
+# path), --e2e-live-vocab-reject (simulated rejection).
+RUN_PROBE_FLAG = os.path.join(HERE, "RUN_PROBE")
+PROBE_FLAG = "--e2e-live-setup-extra"
+PROBE_MIN_RECALL = 0.60  # "the dictation was delivered": by any path (Live, REST or on-device)
+# Terms for customVocabulary. The clips are chosen so that the default output is a different, plausible spelling (round 1:
+# "Shavon", "Christopher", "Zyfra", and "bill" for the spoken "build").
+PROBE_VOCAB = ["Siobhan", "Kristoffer", "Zyphra", "build"]
+_PROBE_REPEAT_EXP = "I am so happy with my new app."
+# clip id -> (audio builder, expected text for the delivery check, wanted spelling: None, a word, or a tuple of phrases)
+PROBE_CLIPS = {
+    "name": (lambda: tts("probe_name", None, None, "Please send the report to Siobhan before lunch."),
+             "Please send the report to Siobhan before lunch.", "Siobhan"),
+    "name_spelling": (lambda: tts("probe_name_spelling", None, None, "Please ask Christopher to review the document."),
+                      "Please ask Christopher to review the document.", "Kristoffer"),
+    "product": (lambda: tts("probe_product", None, None, "We are moving the dashboard to Zyphra next month."),
+                "We are moving the dashboard to Zyphra next month.", "Zyphra"),
+    "build": (lambda: tts("probe_build", None, None, "I have a build tomorrow."), "I have a build tomorrow.", "build"),
+    "bill": (lambda: tts("probe_bill", None, None, "I have a bill tomorrow."), "I have a bill tomorrow.", "build"),
+    "fillers": (lambda: tts(*CORPUS[0][:4]), CORPUS[0][4], None),
+    "keep_like": (lambda: tts(*CORPUS[3][:4]), CORPUS[3][4], None),
+    "repeat": (lambda: tts("probe_repeat", None, None, "I am so happy with my with my new app."), _PROBE_REPEAT_EXP, None),
+    # custom-words pair (T32): the clip says "Owen"; the pair Owen=Eoin must give "Eoin"
+    "owen": (lambda: tts("probe_owen", None, None, "Please ask Owen to review the document."),
+             "Please ask Owen to review the document.", ("Eoin",)),
+    # a name with a space and one with an apostrophe (the clip says the usual spellings "Mary Ann O'Neal")
+    "mary_anne": (lambda: tts("probe_mary_anne", None, None, "Please invite Mary Ann O'Neal to the review."),
+                  "Please invite Mary Ann O'Neal to the review.", ("Mary Anne", "O'Neil")),
+}
+# Every clip of the regular T6 Live gates (same audio, same expected text), under its T6 id.
+PROBE_T6_IDS = list(ONLINE_LIVE_IDS)
+for _cid in PROBE_T6_IDS:
+    if _cid in PROBE_CLIPS:
+        continue
+    _c = {c[0]: c for c in CORPUS}.get(_cid)
+    if _c is not None:
+        PROBE_CLIPS[_cid] = ((lambda c=_c: tts(*c[:4])), _c[4], None)
+    else:
+        _x = {c[0]: c for c in ONLINE_EXTRA}[_cid]
+        PROBE_CLIPS[_cid] = (_x[1], _x[2], None)
+# Deliberate repetition, emphasis, self-correction and spoken digits: does SMART delete emphasis or numbers?
+PROBE_EMPHASIS = {
+    "know_know": "I know, I know, it is late.",
+    "no_no_no": "No, no, no.",
+    "self_correct": "Meet at two, wait no, three p.m.",
+    "thanks_thanks": "Thank you, thank you so much.",
+    "phone_digits": "Call five five five one two one two.",
+}
+# SMART is documented (Google Cloud "Gemini 3.5 Transcribe", read 2026-11-13) as Experimental, with inline self-correction and
+# AUTOMATIC STRUCTURED FORMATTING (paragraphs, numbered lists, bullets, dates, currencies, numbers), per utterance. The first two
+# clips are the documentation's own examples; the others are what this app would meet: spoken commands the app's polish handles
+# itself ("new line"), spoken punctuation, an amount / date / time, and a self-correction that STRADDLES the app's own activity
+# split (>= 0.6 s pause after >= 8 s of speech: the thought then spans two activities, i.e. two utterances for the server).
+PROBE_EMPHASIS.update({
+    "doc_selfcorrect": "Um, so for the meeting, I think we should, uh, invite Alice and, wait no, Bob and Carol.",
+    "doc_list": "First item review budget second item finalize timeline third item send recap.",
+    "cmd_newline": "First point new line second point.",
+    "cmd_punct": "Hello comma this is a test period",
+    "amount_date": "Send twenty five dollars on March third at four thirty p m.",
+})
+_PROBE_STRADDLE = ["For the offsite next month I think we should book the large meeting room on the third floor for the whole afternoon, "
+                   "and we should definitely invite Alice from the design team,",
+                   "wait no, invite Bob and Carol instead."]
+for _k, _t in PROBE_EMPHASIS.items():
+    PROBE_CLIPS[_k] = ((lambda k=_k, t=_t: tts("probe_" + k, None, None, t)), _t, None)
+PROBE_CLIPS["straddle"] = (lambda: derived_wav("pause", "probe_straddle", _PROBE_STRADDLE), " ".join(_PROBE_STRADDLE), None)
+PROBE_SMART_EXTRA_IDS = ["repeat"] + list(PROBE_EMPHASIS) + ["straddle"]
+# Delivery check per clip: recall >= PROBE_MIN_RECALL, except where a rewrite by the server is the thing being looked at.
+PROBE_CLIP_MIN_RECALL = {k: 0.0 for k in list(PROBE_EMPHASIS) + ["straddle"]}
+# ~50 realistic names and terms, none of them spoken in a T6 clip (probe_selftest checks that): unusual spellings, common first
+# names that sound like ordinary words, and tool names.
+PROBE_NAMES_50 = [
+    "Saoirse", "Aoife", "Niamh", "Caoimhe", "Xiomara", "Joaquin", "Thandiwe", "Oluwaseun", "Nguyen", "Anneliese",
+    "Matthias", "Katarzyna", "Priyanka", "Venkatesh", "Hiroshi", "Tadeusz", "Ximena", "Dmitri", "Svetlana", "Ngozi",
+    "Yusuf", "Leilani", "Kristoffer", "Siobhan", "Zyphra",
+    "Sue", "Hugh", "Reed", "Dawn", "Rose", "Miles", "Penny", "Rich", "Bea", "Marc", "Wade", "Glen", "Cliff", "Lane", "Kay",
+    "Jean", "Lou", "Dee", "Gene", "Earl",
+    "Kubernetes", "Grafana", "Terraform", "Figma", "Okta",
+]
+_PROBE_MORE_50 = [
+    "Abernathy", "Balakrishnan", "Castellanos", "Dragomir", "Eriksson", "Fitzgerald", "Gunawardena", "Hashimoto", "Ivanovic",
+    "Jankowski", "Kowalczyk", "Lindqvist", "Mukherjee", "Nakamura", "Okonkwo", "Papadopoulos", "Quispe", "Rasmussen",
+    "Szczepanski", "Takahashi", "Udoka", "Vasquez", "Wojciechowski", "Xu", "Yamamoto", "Zielinski", "Achterberg",
+    "Bhattacharya", "Czerwinski", "Dimitrov", "Esposito", "Fernandes", "Grzegorz", "Haddad", "Ishikawa", "Jovanovic",
+    "Kuznetsov", "Lombardi", "Mbeki", "Novak", "Oyelaran", "Petrov", "Qureshi", "Rodrigues", "Stoyanov", "Tanaka", "Uzun",
+    "Villanueva", "Wickramasinghe", "Yilmaz",
+]
+# 100 terms = the app's limit (kVocabularyMaxTerms); the name the clip needs comes LAST, so a hit shows all 100 were used.
+PROBE_VOCAB_100 = [t for t in PROBE_NAMES_50 if t != "Siobhan"] + _PROBE_MORE_50 + ["Siobhan"]
+# 64 characters = the app's per-term limit (kVocabularyMaxTermLength)
+PROBE_TERM_64 = "Wickramasinghe Papadopoulos Wojciechowski Bhattacharya Attorneys"
+# Beyond the app's limits, sent raw through the setup extra (the app's cleaning would cut them): what does the server do?
+# (the documentation says "up to 1000 terms", best results "with up to 100": 500 should pass, 1001 shows how a bad VALUE is refused)
+PROBE_VOCAB_500 = PROBE_VOCAB_100[:-1] + [f"Vocab{i:03d}term" for i in range(400)] + ["Siobhan"]
+PROBE_VOCAB_1001 = PROBE_VOCAB_100[:-1] + [f"Vocab{i:03d}term" for i in range(901)] + ["Siobhan"]
+PROBE_TERM_200 = " ".join(_PROBE_MORE_50)[:200].strip()
+_IAT = "inputAudioTranscription"
+_SMART = {_IAT: {"mode": "SMART"}}
+# (case id, extra `setup` object, clip ids, what the case asks). "control" = {} and no vocabulary = today's setup message with the
+# probe's logging; it runs every clip another case uses, so each output has a control to compare with.
+PROBE_CASES = [
+    ("control", {}, ["name", "name_spelling", "product", "build", "bill", "mary_anne", "owen"] + PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
+     "today's setup message, no vocabulary (baseline)"),
+    ("iat_empty", {_IAT: {}}, ["build"], "is setup.inputAudioTranscription itself accepted (empty object)?"),
+    ("language_codes", {_IAT: {"languageCodes": ["en-US"]}}, ["build"], "languageCodes only"),
+    ("custom_vocabulary", {_IAT: {"customVocabulary": PROBE_VOCAB}}, ["name", "name_spelling", "product", "build", "bill"],
+     "customVocabulary: does the wanted spelling appear?"),
+    ("mode_smart", _SMART, PROBE_T6_IDS + PROBE_SMART_EXTRA_IDS,
+     "mode SMART on every T6 clip, and on repetition, emphasis, self-correction, lists, spoken commands, amounts and dates"),
+    ("mode_verbatim", {_IAT: {"mode": "VERBATIM"}}, ["fillers"], "mode VERBATIM: same as the default?"),
+    # Other placements / names of the same object (round 1: all three are rejected with close 1007)
+    ("alt_generation_config", {"generationConfig": {_IAT: {"customVocabulary": PROBE_VOCAB}}}, ["name"],
+     "the same object inside generationConfig"),
+    ("alt_realtime_input_config", {"realtimeInputConfig": {_IAT: {"customVocabulary": PROBE_VOCAB}}}, ["name"],
+     "the same object inside realtimeInputConfig"),
+    ("alt_input_transcription", {"inputTranscription": {"customVocabulary": PROBE_VOCAB}}, ["name"],
+     "setup.inputTranscription (the name the server's answers use)"),
+    ("alt_speech_config_language", {"generationConfig": {"speechConfig": {"languageCode": "en-US"}}}, ["build"],
+     "a language hint as generationConfig.speechConfig.languageCode"),
+    # Round 2: vocabulary safety. These go through the app's own vocabulary path (--e2e-vocabulary), not the setup extra.
+    ("vocab_names50", {}, PROBE_T6_IDS,
+     "50 names/terms, none spoken, on every T6 clip: the outputs should be the SAME as the control"),
+    ("vocab_name_bill", {}, ["build", "bill", "fillers"], "a NAME that sounds like a spoken word: 'Bill' vs a spoken build / bill"),
+    ("vocab_no_build", {}, ["bill", "build"], "a list WITHOUT 'build': the output should stay as in the control ('bill')"),
+    ("vocab_100", {}, ["name"], "100 terms (the app's limit), the wanted name last: accepted? latency? still effective?"),
+    ("vocab_shapes", {}, ["mary_anne"], "a 64-character term, a term with a space ('Mary Anne'), a term with an apostrophe (O'Neil)"),
+    ("smart_vocab", _SMART, ["name"], "mode SMART and a vocabulary together"),
+    ("vocab_reject_sim", {}, ["name"],
+     "the rejection safety net against the real server: the first session is 'rejected' (simulated close 1007), the app must "
+     "reconnect without the list and still deliver ON LIVE (control spelling expected)"),
+    ("vocab_language", {_IAT: {"customVocabulary": PROBE_VOCAB, "languageCodes": ["en-US"]}},
+     ["name", "name_spelling", "product", "build", "bill"],
+     "vocabulary + languageCodes en-US (the documentation: vocabulary is followed 'more reliably' with a language): compare with custom_vocabulary"),
+    ("replacement_pair", {}, ["owen"],
+     "custom-words pair Owen=Eoin (the app's replacement pass; the target also goes to Live as vocabulary): the control row shows "
+     "what Live writes for this clip WITHOUT the pair, the raw text here what Live writes with 'Eoin' in the vocabulary"),
+    ("replacement_term_only", {}, ["owen"], "only the plain term 'Eoin' in the vocabulary, no pair: does Live write Eoin for a spoken Owen by itself?"),
+    ("raw_500_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_500}}, ["name"],
+     "server limit: 500 terms sent raw in the setup extra (the app itself never sends more than 100)"),
+    ("raw_1001_terms", {_IAT: {"customVocabulary": PROBE_VOCAB_1001}}, ["name"],
+     "server limit: 1001 terms (documented maximum 1000): HOW does the server refuse a bad value (close code / reason)?"),
+    ("raw_long_term", {_IAT: {"customVocabulary": [PROBE_TERM_200, "Siobhan"]}}, ["name"],
+     "server limit: one 200-character term sent raw in the setup extra (the app itself drops terms over 64)"),
+]
+# Per case: the vocabulary given to the app (--e2e-vocabulary) and extra e2e flags. Cases not listed run with NO vocabulary
+# (e2e runs never read the user's own custom-words.json / rules.json list, so nothing private can get into a probe run).
+PROBE_CASE_OPTS = {
+    "vocab_names50": {"vocab": PROBE_NAMES_50},
+    "vocab_name_bill": {"vocab": ["Bill", "Siobhan"]},
+    "vocab_no_build": {"vocab": ["Siobhan", "Kristoffer", "Zyphra"]},
+    "vocab_100": {"vocab": PROBE_VOCAB_100},
+    "vocab_shapes": {"vocab": [PROBE_TERM_64, "Mary Anne", "O'Neil"]},
+    "smart_vocab": {"vocab": ["Siobhan", "Kristoffer", "Zyphra"]},
+    "vocab_reject_sim": {"vocab": ["Siobhan", "Zyphra"], "flags": ["--e2e-live-vocab-reject"]},
+    "replacement_pair": {"flags": [REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS]},
+    "replacement_term_only": {"vocab": ["Eoin"]},
+}
+
+
+def probe_mode_enabled():
+    """Probe mode is on ONLY while the flag file exists (the protected launcher passes no extra args)."""
+    return os.path.exists(RUN_PROBE_FLAG)
+
+
+def online_probe_ids(flag_present):
+    """The T28 probe runs the online suite adds: none without the flag, so the regular run is unchanged."""
+    return [f"{case}/{clip}" for case, _, clips, _ in PROBE_CASES for clip in clips] if flag_present else []
+
+
+def probe_extra_args(extra):
+    """The hook flag and the extra `setup` object as compact JSON."""
+    return [PROBE_FLAG, json.dumps(extra, separators=(",", ":"))]
+
+
+def probe_run_args(case, extra):
+    """The e2e arguments of one probe run: the setup extra, the case's vocabulary (when it has one) and its flags."""
+    opts = PROBE_CASE_OPTS.get(case, {})
+    vocab = opts.get("vocab", [])
+    return probe_extra_args(extra) + ([VOCAB_FLAG, "|".join(vocab)] if vocab else []) + list(opts.get("flags", []))
+
+
+def probe_via(r):
+    """Which path delivered the text of an e2e run: live, rest or ondevice (none = nothing delivered)."""
+    if r["rest_ok"]:
+        return "rest"
+    if r["ondevice_fallback"]:
+        return "ondevice"
+    if r["live_ok"]:
+        return "live"
+    return "ondevice" if r["result"] else "none"
+
+
+def probe_outcome(pr):
+    """The probe outcome of one run for its result line: accepted (setupComplete yes/no) and, when the socket was closed, the
+    close code / close reason / HTTP status of each close, plus any error frame the server sent."""
+    parts = [f"accepted={'yes' if pr['accepted'] else 'no'}"]
+    if pr["setup_complete"]:
+        parts.append(f"setupComplete after {pr['setup_complete'][0]['ms']}ms")
+    for c in pr["closes"]:
+        parts.append(f"closed {c['when']} setupComplete: close={c['close_code']} http={c['http']} error={c['error']}/{c['error_code']} "
+                     f"key-via={c['key_via']} reason={c['reason']!r}")
+    for e in pr["error_frames"]:
+        parts.append(f"ERROR FRAME code={e['code']} status={e['status']} message={e['message']!r}")
+    if not pr["accepted"] and not pr["closes"] and not pr["error_frames"]:
+        parts.append("no setupComplete and no close seen (no answer from the server, or no network)")
+    return " | ".join(parts)
+
+
+def probe_close_cell(pr):
+    """Short 'close' cell for the summary table: code/HTTP of the closes before setupComplete (xN), '-' when there were none."""
+    before = [c for c in pr["closes"] if c["when"] == "before"]
+    after = [c for c in pr["closes"] if c["when"] == "after"]
+    cell = ""
+    if before:
+        cell = f"{before[0]['close_code']}/http{before[0]['http']}" + (f" x{len(before)}" if len(before) > 1 else "")
+    if after:
+        cell += ("+" if cell else "") + f"after:{after[0]['close_code']}" + (f" x{len(after)}" if len(after) > 1 else "")
+    if pr["error_frames"]:
+        cell += ("+" if cell else "") + "errframe"
+    return cell or "-"
+
+
+def probe_wanted_hit(wanted, text):
+    """None when the clip has no wanted spelling; else True when every wanted word / phrase is in the text (whole words)."""
+    if wanted is None:
+        return None
+    joined = " " + " ".join(words(text or "")) + " "
+    return all((" " + " ".join(words(p)) + " ") in joined for p in ([wanted] if isinstance(wanted, str) else wanted))
+
+
+def probe_shown(w):
+    """The text of a probe row that is compared and shown: Live's raw text when Live delivered, else the final text."""
+    return w["raw"] if w["via"] == "live" and w["raw"] is not None else w["result"]
+
+
+def _clip(s, n=110):
+    """repr of a text, cut to n characters with the full length noted (the report JSON keeps the whole text)."""
+    if s is None:
+        return "None"
+    return repr(s) if len(s) <= n else repr(s[:n]) + f"... ({len(s)} chars)"
+
+
+def _missing_words(expected, text):
+    """Expected words that are not in the text (each text word is used once, like recall)."""
+    pool, miss = words(text or ""), []
+    for w in words(expected):
+        if w in pool:
+            pool.remove(w)
+        else:
+            miss.append(w)
+    return miss
+
+
+def seam_drops(expected, segments):
+    """Expected words that are missing (or replaced) right where two Live segments were joined (the app joins the per-turn
+    texts with a space). The expected words are aligned with the joined output; a gap that touches a join is a seam drop.
+    Returns [{"expected": [...], "got": [...]}]; [] for a single segment."""
+    import difflib, itertools
+    seg_words = [words(s) for s in (segments or [])]
+    if len(seg_words) < 2:
+        return []
+    out_words = [w for sw in seg_words for w in sw]
+    joins = set(itertools.accumulate(len(sw) for sw in seg_words[:-1]))  # index in out_words where the next segment starts
+    exp = words(expected)
+    drops = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, exp, out_words, autojunk=False).get_opcodes():
+        if tag in ("delete", "replace") and any(j1 <= b <= j2 for b in joins):
+            drops.append({"expected": exp[i1:i2], "got": out_words[j1:j2]})
+    return drops
+
+
+def probe_text_flags(expected, text, segments):
+    """Informational facts about one output text (never a gate): fillers left, how many "like" against the expected text, expected
+    words missing, words lost at segment joins, line breaks, digits, unusual symbols, and the last character."""
+    text = text or ""
+    ws, exp = words(text), words(expected)
+    lower = " " + " ".join(ws) + " "
+    plain = set(" .,?!'-\n\t") | {"\u2019"}
+    return {
+        "fillers": [f for f in FILLERS if f" {f} " in lower],
+        "like": ws.count("like"), "like_expected": exp.count("like"),
+        "missing": _missing_words(expected, text),
+        "seam_drops": seam_drops(expected, segments),
+        "segments": len(segments) if segments else None,
+        "linebreaks": sum(s.count("\n") for s in (segments if segments else [text])),
+        "list_markers": re.findall(r"(?m)(?:^|\n)[ \t]*(\d+[.)]|[-*\u2022])[ \t]+\S", "\n".join(segments) if segments else text),
+        "digits": re.findall(r"\d+(?:[.,:/-]\d+)*", text),
+        "symbols": sorted({ch for ch in text if not (ch.isalnum() or ch in plain)}),
+        "trailing": text.strip()[-1:] if text.strip() else "",
+    }
+
+
+def word_diff(a, b, ctx=2, max_spans=10):
+    """Compact word-level difference of two texts: for every changed span, the words around it with [-removed-] and {+added+}.
+    '' when the texts are word-for-word equal (case and punctuation count)."""
+    import difflib
+    aw, bw = (a or "").split(), (b or "").split()
+    spans = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, aw, bw, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        piece = aw[max(0, i1 - ctx):i1]
+        if i2 > i1:
+            piece = piece + ["[-" + " ".join(aw[i1:i2]) + "-]"]
+        if j2 > j1:
+            piece = piece + ["{+" + " ".join(bw[j1:j2]) + "+}"]
+        spans.append(" ".join(piece + aw[i2:i2 + ctx]))
+    more = f" | (+{len(spans) - max_spans} more)" if len(spans) > max_spans else ""
+    return " | ".join(spans[:max_spans]) + more
+
+
+def _probe_timeout(wav):
+    """Harness timeout of a probe run: as the T6 gates (150 s, or the clip + 90 s for the long clips)."""
+    try:
+        return max(150, int(wav_seconds(wav)) + 90)
+    except Exception:
+        return 150
+
+
+def probe_selftest(binary, blob=None):
+    """Offline checks of the probe mode (no TTS, no network); returns a list of problems (empty = all good)."""
+    bad = []
+    want_ids = [f"{case}/{clip}" for case, _, clips, _ in PROBE_CASES for clip in clips]
+    if online_probe_ids(False) != [] or online_probe_ids(True) != want_ids or len(set(want_ids)) != len(want_ids) or len(want_ids) < 10:
+        bad.append("selection")
+    try:
+        ignored = os.path.relpath(RUN_PROBE_FLAG, ROOT) in open(os.path.join(ROOT, ".gitignore")).read().split()
+    except OSError:
+        ignored = False
+    if not ignored:
+        bad.append("RUN_PROBE is not gitignored")
+    control = [c for c in PROBE_CASES if c[0] == "control"]
+    if len(control) != 1 or control[0][1] != {} or PROBE_CASES[0][0] != "control" or "control" in PROBE_CASE_OPTS:
+        bad.append("the first case must be the control: empty extra object, no vocabulary, no flags")
+    all_args = []
+    for case, extra, clips, _ in PROBE_CASES:
+        args = probe_run_args(case, extra)
+        all_args.append(tuple(args))
+        opts = PROBE_CASE_OPTS.get(case, {})
+        if not isinstance(extra, dict) or json.loads(args[1]) != extra or args[0] != PROBE_FLAG or (VOCAB_FLAG in args) != bool(opts.get("vocab")):
+            bad.append(f"{case}: bad arguments")
+        if case != "control" and not extra and not opts:
+            bad.append(f"{case}: nothing differs from the control")
+        vocab = opts.get("vocab", [])
+        if any("|" in t or t != t.strip() or not t or len(t) > 64 for t in vocab) or len(vocab) > 100 \
+                or len({t.lower() for t in vocab}) != len(vocab):
+            bad.append(f"{case}: the vocabulary would be changed by the app's cleaning (or holds a '|')")
+        for clip in clips:
+            if clip not in PROBE_CLIPS:
+                bad.append(f"{case}: unknown clip {clip}")
+            elif control and clip not in control[0][2]:
+                bad.append(f"{case}/{clip}: the clip has no control run")
+    if len(set(all_args)) != len(all_args):
+        bad.append("two cases have the same arguments")
+    if any(c not in [x[0] for x in PROBE_CASES] for c in PROBE_CASE_OPTS):
+        bad.append("PROBE_CASE_OPTS names an unknown case")
+    for clip, (_, expected, wanted) in PROBE_CLIPS.items():
+        if isinstance(wanted, str) and wanted not in PROBE_VOCAB:
+            bad.append(f"{clip}: wanted spelling {wanted!r} is not in the vocabulary")
+        if recall(expected, expected) < 1.0 or not words(expected):
+            bad.append(f"{clip}: bad expected text")
+    # round 2 lists: sizes, limits, and "none of the 50 names is spoken in a T6 clip"
+    corpus = {c[0]: c for c in CORPUS}
+    spoken = set()
+    for cid in PROBE_T6_IDS:
+        spoken |= set(words(corpus[cid][3] if cid in corpus else PROBE_CLIPS[cid][1]))
+    said = [t for t in PROBE_NAMES_50 if any(w in spoken for w in words(t))]
+    if said:
+        bad.append(f"names of the 50-term vocabulary are spoken in a T6 clip: {said}")
+    if (len(PROBE_NAMES_50) != 50 or len(PROBE_VOCAB_100) != 100 or PROBE_VOCAB_100[-1] != "Siobhan" or len(PROBE_TERM_64) != 64
+            or len(PROBE_VOCAB_500) != 500 or len({t.lower() for t in PROBE_VOCAB_500}) != 500 or not 150 < len(PROBE_TERM_200) <= 200
+            or len(PROBE_VOCAB_1001) != 1001 or len({t.lower() for t in PROBE_VOCAB_1001}) != 1001
+            or sorted(PROBE_T6_IDS) != sorted(ONLINE_LIVE_IDS) or any(c not in PROBE_CLIPS for c in PROBE_T6_IDS)):
+        bad.append("round 2 lists: wrong sizes")
+    # the text helpers
+    two = ["We agreed to focus on reliability", "then on speed."]
+    checks = [
+        seam_drops("We agreed to focus on reliability first, then on speed.", two) == [{"expected": ["first"], "got": []}],
+        seam_drops("We agreed to focus on reliability then on speed.", two) == [],
+        seam_drops("We agreed to focus on reliability first, then on speed.", ["We agreed to focus on reliability first, then on speed."]) == [],
+        seam_drops("one two three four five six", ["one three", "four five six"]) == [],  # a gap away from the join is not a seam drop
+        word_diff("I have a bill tomorrow.", "I have a build tomorrow.") == "have a [-bill-] {+build+} tomorrow.",
+        word_diff("same text", "same text") == "" and word_diff(None, "a") == "{+a+}",
+        probe_wanted_hit(("Mary Anne", "O'Neil"), "Please invite Mary Anne O'Neil to the review.") is True,
+        probe_wanted_hit(("Mary Anne", "O'Neil"), "Please invite Mary Ann O'Neil to the review.") is False,
+        probe_wanted_hit("build", "I have a Build.") is True and probe_wanted_hit("build", "rebuild it") is False,
+        probe_wanted_hit(None, "x") is None,
+        _clip("x" * 200).endswith("... (200 chars)") and _clip("short") == "'short'" and _clip(None) == "None",
+    ]
+    f = probe_text_flags("I like the new design and I would like to call 5 people.",
+                         "Um, I the new design, you know:\n- I would like to call 5 people at 3:30", ["Um, I the new design, you know:\n- I would", "like to call 5 people at 3:30"])
+    checks += [f["fillers"] == ["um", "you know"], f["like"] == 1 and f["like_expected"] == 2, f["missing"] == ["and", "like"],
+               f["linebreaks"] == 1, f["digits"] == ["5", "3:30"], f["symbols"] == [":"], f["trailing"] == "0", f["segments"] == 2,
+               f["list_markers"] == ["-"],
+               probe_text_flags("x", "1. Review budget\n2. Finalize timeline\n3. Send recap", None)["list_markers"] == ["1.", "2.", "3."],
+               probe_text_flags("x", "Call 555-1212. It costs 3.50 - really.", None)["list_markers"] == []]
+    if not all(checks):
+        bad.append(f"text helpers: checks failed at {[i for i, c in enumerate(checks) if not c]}")
+    bad += [f"section: {b}" for b in probe_section_selftest()]
+    # The parser against the app's own wording. An older binary without the hook would start the normal app on an unknown flag,
+    # so run it only when the flag string is in the binary.
+    if blob is None:
+        blob = open(binary, "rb").read()
+    if b"--dump-live-probe-lines" not in blob or PROBE_FLAG.encode() not in blob:
+        return bad + ["this binary has no setup probe hook"]
+    p = subprocess.run([binary, "--dump-live-probe-lines"], capture_output=True, text=True, timeout=30)
+    pr = parse_probe(p.stdout)
+    want = {
+        "sent": [{"session": 1, "fields": [], "bytes": 150, "key_via": "header"},
+                 {"session": 2, "fields": ["setup.generationConfig.speechConfig", "setup.inputAudioTranscription.customVocabulary",
+                                           "setup.inputAudioTranscription.languageCodes"], "bytes": pr["sent"][1]["bytes"] if len(pr["sent"]) > 1 else -1,
+                  "key_via": "URL"}],
+        "accepted": True,
+        "setup_complete": [{"session": 1, "key_via": "header", "ms": 183}],
+        "closes": [{"when": "before", "session": 1, "key_via": "header", "http": 0, "close_code": 1007, "error": "NSPOSIXErrorDomain",
+                    "error_code": 57, "reason": "Invalid JSON payload received. Unknown name 'customVocabulary' at "
+                                                "'setup.input_audio_transcription': Cannot find field."},
+                   {"when": "before", "session": 2, "key_via": "URL", "http": 400, "close_code": 0, "error": "NSURLErrorDomain",
+                    "error_code": -1011, "reason": ""},
+                   {"when": "after", "session": 3, "key_via": "header", "http": 101, "close_code": 1011, "error": "none",
+                    "error_code": 0, "reason": "Internal error encountered."}],
+        "error_frames": [{"setup_complete": False, "code": 400, "status": "INVALID_ARGUMENT", "message": "Unsupported 'mode' value."}],
+        "server_fields": ["serverContent.generationComplete", "serverContent.inputTranscription.text", "setupComplete"],
+        "raw": "sample raw text",
+        "segments": ["sample raw", "text with \"quotes\"\nand a line break"],
+        "interim": [{"count": 12, "first_ms": 840, "finals": 2, "first_final_ms": 9100},
+                    {"count": 0, "first_ms": -1, "finals": 0, "first_final_ms": -1}],
+    }
+    if p.returncode != 0:
+        bad.append(f"--dump-live-probe-lines exit {p.returncode}")
+    for key in want:
+        if pr[key] != want[key]:
+            bad.append(f"parser: {key} = {pr[key]!r}")
+    if "never shown" in p.stdout:
+        bad.append("a field VALUE leaked into the probe lines")
+    # the same lines behind NSLog's timestamp prefix (how they arrive in an e2e run's output) must parse the same way
+    stamped = "\n".join("2026-11-13 10:00:00.000 GeminiFlow[1:2] " + l if l.startswith(PROBE_LOG_MARK) else l for l in p.stdout.splitlines())
+    if parse_probe(stamped) != pr:
+        bad.append("parser: differs behind the NSLog prefix")
+    if probe_outcome(parse_probe("")) != "accepted=no | no setupComplete and no close seen (no answer from the server, or no network)":
+        bad.append("outcome text for an empty log")
+    if probe_close_cell(pr) != "1007/http0 x2+after:1011+errframe" or probe_close_cell(parse_probe("")) != "-":
+        bad.append(f"close cell = {probe_close_cell(pr)!r}")
+    # a value that is not a JSON object must be refused before anything runs (exit 2)
+    p2 = subprocess.run([binary, "--e2e-file", os.devnull, LIVE_MODEL, PROBE_FLAG, "[1]"], capture_output=True, text=True, timeout=30)
+    if p2.returncode != 2 or "needs a JSON object" not in p2.stdout:
+        bad.append(f"a non-object extra was not refused (exit {p2.returncode})")
+    return bad
+
+
+def probe_dry_run():
+    """Offline look at the probe mode (no network, no app run): the plan, the exact flags of each case, and the clips."""
+    print(f"RUN_PROBE flag ({RUN_PROBE_FLAG}) present now: {probe_mode_enabled()}")
+    print(f"probe runs without the flag: {online_probe_ids(False)}; with the flag: {len(online_probe_ids(True))} runs")
+    for case, extra, clips, note in PROBE_CASES:
+        args = probe_run_args(case, extra)
+        shown = " ".join(a if len(a) <= 160 else a[:160] + f"...({len(a)} chars)" for a in args)
+        print(f"  {case}: {note}\n      {shown}\n      clips ({len(clips)}): {', '.join(clips)}")
+    total = 0.0
+    for clip, (build, expected, wanted) in PROBE_CLIPS.items():
+        wav = build()
+        secs = wav_seconds(wav)
+        runs = sum(1 for _, _, clips, _ in PROBE_CASES if clip in clips)
+        total += secs * runs
+        print(f"  clip {clip}: {secs:.1f}s x {runs} runs, wanted spelling {wanted!r}, expected {_clip(expected, 90)} -> {os.path.basename(wav)}")
+    n = len(online_probe_ids(True))
+    print(f"probe mode adds ~{(total + 6.0 * n) / 60:.0f} min to the online run ({n} runs, {total:.0f}s of audio, ~6 s of overhead per run assumed)")
+    return 0
+
+
+def _probe_ab_lines(rows, case, clips, title):
+    """Lines of an A/B block: `case` against the control on `clips`, with the informational flags of both outputs."""
+    by = {(w["case"], w["clip"]): w for w in rows}
+    lines, rc_c, rc_s, lat_c, lat_s, flagged = [], [], [], [], [], 0
+    for clip in clips:
+        c, s = by.get(("control", clip)), by.get((case, clip))
+        if c is None or s is None:
+            lines.append(f"    {clip}: no run to compare (control {'ok' if c else 'missing'}, {case} {'ok' if s else 'missing'})")
+            continue
+        expected = PROBE_CLIPS[clip][1]
+        fc = probe_text_flags(expected, probe_shown(c), c.get("segments") if c["via"] == "live" else None)
+        fs = probe_text_flags(expected, probe_shown(s), s.get("segments") if s["via"] == "live" else None)
+        rc_c.append(c["recall"]); rc_s.append(s["recall"])
+        if c["latency_ms"] is not None and s["latency_ms"] is not None:
+            lat_c.append(c["latency_ms"]); lat_s.append(s["latency_ms"])
+        lost = list(fs["missing"])
+        for w in fc["missing"]:
+            if w in lost:
+                lost.remove(w)
+        notes = []
+        if s["via"] != "live" or c["via"] != "live":
+            notes.append(f"NOT ON LIVE (control via {c['via']}, {case} via {s['via']})")
+        if fs["fillers"]:
+            notes.append(f"fillers left {fs['fillers']}")
+        if fs["like"] < fs["like_expected"]:
+            notes.append(f"a meaningful 'like' removed ({fs['like']} of {fs['like_expected']} kept)")
+        elif fs["like"] > fs["like_expected"]:
+            notes.append(f"filler 'like' left ({fs['like']}, expected {fs['like_expected']})")
+        if lost:
+            notes.append(f"words lost against the control {lost[:12]}")
+        new_seams = [d for d in fs["seam_drops"] if d not in fc["seam_drops"]]
+        if new_seams:
+            notes.append(f"words dropped at a segment join {[d['expected'] for d in new_seams][:6]}")
+        if fs["linebreaks"] > fc["linebreaks"]:
+            notes.append(f"{fs['linebreaks']} line break(s) introduced")
+        if fs["list_markers"] and fs["list_markers"] != fc["list_markers"]:
+            notes.append(f"list markers {fs['list_markers'][:6]}")
+        if fs["digits"] != fc["digits"]:
+            notes.append(f"digits {fc['digits'][:6]} -> {fs['digits'][:6]}")
+        new_symbols = [ch for ch in fs["symbols"] if ch not in fc["symbols"]]
+        if new_symbols:
+            notes.append(f"new symbols {new_symbols}")
+        if fs["trailing"] != fc["trailing"]:
+            notes.append(f"last character {fc['trailing']!r} -> {fs['trailing']!r}")
+        flagged += 1 if notes else 0
+        lines.append(f"    {clip:<20} recall {c['recall']:.2f} -> {s['recall']:.2f}  lat {c['latency_ms']} -> {s['latency_ms']} ms  "
+                     f"segments {fc['segments']} -> {fs['segments']}  fillers {fc['fillers']} -> {fs['fillers']}  "
+                     f"seam drops {len(fc['seam_drops'])} -> {len(fs['seam_drops'])}  " + ("FLAGS: " + "; ".join(notes) if notes else "no flags"))
+    head = f"  {title}: {len(rc_c)} clips compared, {flagged} with flags."
+    if rc_c:
+        head += (f" Mean recall (final text) control {statistics.mean(rc_c):.3f} vs {case} {statistics.mean(rc_s):.3f}."
+                 + (f" Median latency control {statistics.median(lat_c):.0f} ms vs {case} {statistics.median(lat_s):.0f} ms." if lat_c else ""))
+    return [head] + lines
+
+
+def print_probe_summary(rows):
+    """The summary printed after the T28 probe runs (rows = one dict per run): the table, the extra object and vocabulary of each
+    case, what the server said on rejections, the fields of its messages, the SMART A/B block, the vocabulary safety block, and
+    each case's output next to the control's output for the same clip."""
+    print("\nT28 LIVE SETUP PROBE SUMMARY (" + LIVE_MODEL + "). accepted = the server answered setupComplete to that setup message. "
+          "close = close code/HTTP status of a close before setupComplete. vocab = terms the app sent per Live session (REJ = its "
+          "safety net fired). output = Live's raw text when Live delivered (before the app's polish), else the final text of the fallback.")
+    print(f"  {'case/clip':<42} {'accepted':<8} {'close':<22} {'via':<8} {'lat':>8}  {'vocab':<10} {'wanted':<22} output")
+    for w in rows:
+        if w["wanted"] is None:
+            wanted = "-"
+        else:
+            wanted = f"{w['wanted'] if isinstance(w['wanted'], str) else '+'.join(w['wanted'])}: {'yes' if w['wanted_hit'] else 'no'}"
+        lat = "-" if w["latency_ms"] is None else f"{w['latency_ms']}ms"
+        vocab = ("/".join(str(n) for n in w.get("vocab_terms") or []) or "-") + (" REJ" if w.get("vocab_rejected") else "")
+        print(f"  {w['case'] + '/' + w['clip']:<42} {'yes' if w['accepted'] else 'no':<8} {w['close']:<22} {w['via']:<8} {lat:>8}  "
+              f"{vocab:<10} {wanted:<22} {_clip(probe_shown(w))}")
+    print("  extra setup object and vocabulary per case:")
+    for case, extra, _, note in PROBE_CASES:
+        js = json.dumps(extra, separators=(",", ":"))
+        opts = PROBE_CASE_OPTS.get(case, {})
+        vocab = opts.get("vocab", [])
+        vtxt = f"; vocabulary {len(vocab)} terms {vocab[:4]}{'...' if len(vocab) > 4 else ''}" if vocab else ""
+        print(f"    {case}: {js if len(js) <= 160 else js[:160] + f'...({len(js)} chars)'}{vtxt}{'; flags ' + str(opts['flags']) if opts.get('flags') else ''}   ({note})")
+    seen = set()
+    for w in rows:
+        for line in w["rejections"]:
+            if (w["case"], line) not in seen:
+                if not seen:
+                    print("  what the server said when it closed the socket or sent an error frame:")
+                seen.add((w["case"], line))
+                print(f"    {w['case']}: {line}")
+    if not seen:
+        print("  no socket close and no error frame in any probe run")
+    leaks = sorted({(w["case"], t) for w in rows for t in (w.get("terms_in_log") or [])})
+    print("  vocabulary terms found in the app's LOG lines (must be none): " + (str(leaks) if leaks else "none"))
+    control = {w["clip"]: w for w in rows if w["case"] == "control"}
+    base_fields = sorted({f for w in control.values() for f in w["server_fields"]})
+    print(f"  fields in the server's messages, control runs: {base_fields}")
+    for case in [c[0] for c in PROBE_CASES if c[0] != "control"]:
+        fields = sorted({f for w in rows if w["case"] == case for f in w["server_fields"]})
+        added, missing = [f for f in fields if f not in base_fields], [f for f in base_fields if f not in fields]
+        if added or missing:
+            print(f"    {case}: new fields {added}; fields not seen {missing}")
+    for line in _probe_ab_lines(rows, "mode_smart", PROBE_T6_IDS, "SMART A/B over every T6 clip (control -> SMART)"):
+        print(line)
+    for line in _probe_ab_lines(rows, "mode_smart", PROBE_SMART_EXTRA_IDS,
+                                "SMART on repetition, emphasis, self-correction, lists, spoken commands, amounts and dates (the texts are in the last block)"):
+        print(line)
+    # What the app's own polish (written for verbatim input) then does to the server's SMART text: raw -> final, per SMART row
+    print("  SMART rows, the server's text -> the app's final text after its own polish ([-server-] {+final+}; 'unchanged' = the polish left it alone):")
+    for w in rows:
+        if w["case"] not in ("mode_smart", "smart_vocab") or w["via"] != "live" or w["raw"] is None:
+            continue
+        server = " ".join(w["segments"]) if w.get("segments") else w["raw"]
+        final = w["result"] or ""
+        changed = word_diff(server.strip(), final.strip())
+        lost_breaks = server.count("\n") - final.count("\n")
+        note = "unchanged" if not changed and not lost_breaks else (changed or "same words")
+        if lost_breaks:
+            note += f" | line breaks {server.count(chr(10))} -> {final.count(chr(10))}"
+        print(f"    {w['case']}/{w['clip']}: {note}")
+    # Interim text (serverContent.interimInputTranscription; the app does not use it): how often and how early it arrives
+    print("  interim transcripts in the control runs (count; first interim and first final text, ms after the first audio was sent):")
+    for w in rows:
+        it = w.get("interim") or []
+        if w["case"] != "control" or not it:
+            continue
+        print(f"    {w['clip']:<20} interim messages {sum(x['count'] for x in it)}, first after {it[0]['first_ms']} ms; "
+              f"final texts {sum(x['finals'] for x in it)}, first after {it[0]['first_final_ms']} ms; Live sessions {len(it)}")
+    for line in _probe_ab_lines(rows, "vocab_names50", PROBE_T6_IDS,
+                                "Vocabulary safety: 50 unspoken names on every T6 clip (control -> with the list; any flag or DIFFERENT below is a side effect)"):
+        print(line)
+    print("  same clip, control vs case (raw Live text when Live delivered; long texts show only the changed words: [-control-] {+case+}):")
+    for w in rows:
+        c = control.get(w["clip"])
+        if w["case"] == "control" or c is None:
+            continue
+        a, b = probe_shown(c), probe_shown(w)
+        same = (a or "").strip() == (b or "").strip()
+        verdict = "NO OUTPUT to compare" if a is None or b is None else ("SAME as control" if same else "DIFFERENT")
+        head = (f"    {w['case']}/{w['clip']}: {verdict} (accepted={'yes' if w['accepted'] else 'no'}, via {w['via']}; control via {c['via']}; "
+                f"lat {c['latency_ms']} -> {w['latency_ms']} ms)")
+        if verdict != "DIFFERENT":
+            print(head + ("" if verdict != "SAME as control" else f"  {_clip(b, 100)}"))
+        elif max(len(a), len(b)) <= 160:
+            print(head + f"\n        control: {a!r}\n        case:    {b!r}")
+        else:
+            print(head + f"\n        changed: {word_diff(a, b)}")
+
+
+def run_vocabulary_gates(binary, gate, report, runner=None):
+    """T30 (online, regular suite): custom vocabulary on the real Live server, with the test-only list ONLINE_VOCAB.
+    (a) The listed names must come back ON LIVE in the listed spelling (the default output is "Shavon" / "Zyfra"), recall >=
+    ONLINE_MIN_RECALL, within the T8 limit. (b) A clip with no listed word must not change: the fillers clip with the same list
+    comes back on Live with a recall not below its own T6 run earlier in this suite run. In both, exactly one Live session carries
+    the 2 terms, nothing is rejected, and the log shows only the number of terms. `runner` replaces run_e2e in the offline self-test."""
+    runner = runner or run_e2e
+    for clip, wanted in ONLINE_VOCAB_SPELLING:
+        build, expected, _ = PROBE_CLIPS[clip]
+        r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[VOCAB_FLAG, ONLINE_VOCAB])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        spelled = wanted.lower() in words(res)
+        ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and spelled and rc >= ONLINE_MIN_RECALL
+              and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [2] and not r["vocab_rejected"] and not r["vocab_leak"]
+              and res.endswith(" "))
+        r.update({"id": f"vocabulary/{clip}", "model": LIVE_MODEL + "+vocabulary", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T30 live-vocabulary/{clip}", ok,
+             f"spelling {wanted!r}={'yes' if spelled else 'no'} recall={rc:.2f} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+             f"live_ok={r['live_ok']} fell_back={r['fell_back']} terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} "
+             f"terms in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+    cid = "fillers"
+    build, expected, _ = PROBE_CLIPS[cid]
+    t6 = next((t for t in report["tests"] if t.get("id") == cid and t.get("model") == LIVE_MODEL), None)
+    r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[VOCAB_FLAG, ONLINE_VOCAB])
+    res = r["result"] or ""
+    rc = recall(expected, res)
+    lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+    lower = " " + " ".join(words(res)) + " "
+    leaked = [f for f in FILLERS if f" {f} " in lower]
+    ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and rc >= ONLINE_MIN_RECALL and t6 is not None
+          and round(rc, 3) >= t6["recall"] and not leaked and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [2]
+          and not r["vocab_rejected"] and not r["vocab_leak"] and res.endswith(" "))
+    r.update({"id": f"vocabulary/{cid}", "model": LIVE_MODEL + "+vocabulary", "recall": round(rc, 3), "leaked_fillers": leaked})
+    report["tests"].append(r)
+    gate(f"T30 live-vocabulary/no-listed-word/{cid}", ok,
+         f"recall={rc:.2f} (T6 run of the same clip: {t6['recall'] if t6 else None}) lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+         f"live_ok={r['live_ok']} fell_back={r['fell_back']} leaked={leaked} terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} "
+         f"terms in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+
+def run_replacement_gate(binary, gate, report, runner=None):
+    """T32 (online, regular suite): a custom-words pair on the real Live path. The clip says "Please ask Owen to review the
+    document"; with the pair Owen=Eoin the final text must hold "Eoin" and no "Owen", ON LIVE, recall >= ONLINE_MIN_RECALL against
+    the text with "Eoin", within the T8 limit. The pair's target goes to Live as vocabulary (exactly 1 term in the one session),
+    nothing is rejected, and the log shows counts only. Reported, not gated: how many replacements the app's pass made (0 = Live
+    wrote "Eoin" by itself from the vocabulary; 1 = Live wrote "Owen" and the pass fixed it). `runner` replaces run_e2e in the
+    offline self-test."""
+    runner = runner or run_e2e
+    build, _, _ = PROBE_CLIPS["owen"]
+    r = runner(binary, build(), model=LIVE_MODEL, timeout=150, extra=[REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS])
+    res = r["result"] or ""
+    rc = recall(ONLINE_REPLACEMENT_EXPECTED, res)
+    lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+    ws = words(res)
+    ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and "eoin" in ws and "owen" not in ws and rc >= ONLINE_MIN_RECALL
+          and lat <= USER_MAX_LATENCY_MS and r["vocab_terms"] == [1] and not r["vocab_rejected"] and not r["vocab_leak"]
+          and bool(r["user_replacements"]) and all(p == 1 for p, _ in r["user_replacements"]) and res.endswith(" "))
+    r.update({"id": "replacement/owen", "model": LIVE_MODEL + "+replacement", "recall": round(rc, 3)})
+    report["tests"].append(r)
+    gate("T32 live-replacement/owen", ok,
+         f"'Eoin' in the text={'yes' if 'eoin' in ws else 'no'} 'Owen' left={'yes' if 'owen' in ws else 'no'} recall={rc:.2f} "
+         f"lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) live_ok={r['live_ok']} fell_back={r['fell_back']} "
+         f"vocabulary terms sent={r['vocab_terms']} rejected={r['vocab_rejected']} (pairs, replacements made)={r['user_replacements']} "
+         f"words in log={r['vocab_leak']} -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+
+def replacement_gate_selftest():
+    """Offline run of run_replacement_gate with canned e2e results (no app, no TTS, no network). Returns a list of problems."""
+    base = {"exit": 0, "latency_ms": 400, "live_ok": True, "fell_back": False, "vocab_terms": [1], "vocab_rejected": False,
+            "vocab_leak": [], "user_replacements": [(1, 1)], "tail": "", "result": ONLINE_REPLACEMENT_EXPECTED + " "}
+    modes = {  # mode -> (override of the canned result, must the gate pass?)
+        "replaced-by-the-pass": ({}, True),
+        "written-by-live": ({"user_replacements": [(1, 0)]}, True),
+        "owen-left": ({"result": "Please ask Owen to review the document. ", "user_replacements": [(1, 0)]}, False),
+        "both-names": ({"result": "Please ask Eoin Owen to review the document. "}, False),
+        "no-pair-in-force": ({"user_replacements": []}, False),
+        "target-not-sent": ({"vocab_terms": []}, False),
+        "fell-back": ({"live_ok": False, "fell_back": True}, False),
+        "slow": ({"latency_ms": USER_MAX_LATENCY_MS + 1}, False),
+        "word-in-log": ({"vocab_leak": ["Eoin"]}, False),
+        "no-result": ({"exit": "timeout", "latency_ms": None, "result": None}, False),
+    }
+    bad = []
+    real, clip_of = _selftest_clip_builders()
+    try:
+        for mode, (over, want) in modes.items():
+            def runner(binary, wav, model=None, timeout=90, extra=None):
+                ok_args = clip_of(wav) == "owen" and model == LIVE_MODEL and list(extra) == [REPLACEMENTS_FLAG, ONLINE_REPLACEMENTS]
+                return dict(base, **over) if ok_args else dict(base, result=None)
+            gates, report = [], {"tests": []}
+            try:
+                run_replacement_gate("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), report, runner=runner)
+                json.dumps(report)
+            except Exception as e:  # any exception here would also end the real online run
+                bad.append(f"{mode}: {type(e).__name__}: {e}")
+                continue
+            if gates != [("T32 live-replacement/owen", want)]:
+                bad.append(f"{mode}: {gates}, want pass={want}")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
+    finally:
+        PROBE_CLIPS.clear()
+        PROBE_CLIPS.update(real)
+    if recall(ONLINE_REPLACEMENT_EXPECTED, real["owen"][1].replace("Owen", "Eoin")) < 1.0 or "Owen" not in real["owen"][1]:
+        bad.append("the owen clip and the expected text disagree")
+    return bad
+
+
+def _selftest_clip_builders():
+    """For the offline self-tests: replace every PROBE_CLIPS builder by one that returns a token instead of running TTS; returns
+    (the real PROBE_CLIPS to restore, a function mapping a token back to its clip id)."""
+    real = dict(PROBE_CLIPS)
+    tokens = {}
+    for k, v in real.items():
+        token = f"<clip:{k}>"
+        tokens[token] = k
+        PROBE_CLIPS[k] = ((lambda t=token: t), v[1], v[2])
+    return real, lambda wav: tokens[wav]
+
+
+def vocabulary_gates_selftest():
+    """Offline run of run_vocabulary_gates with canned e2e results (no app, no TTS, no network): the three T30 online gates pass
+    for the expected outcome and each fails for the outcome it guards against. Returns a list of problems."""
+    base = {"exit": 0, "latency_ms": 400, "live_ok": True, "fell_back": False, "vocab_terms": [2], "vocab_rejected": False,
+            "vocab_leak": [], "tail": ""}
+    names = ["T30 live-vocabulary/name", "T30 live-vocabulary/product", "T30 live-vocabulary/no-listed-word/fillers"]
+    # mode -> (override of the canned result, text transform, gates that must FAIL)
+    modes = {
+        "good": ({}, lambda t: t, []),
+        "default-spelling": ({}, lambda t: t.replace("Siobhan", "Shavon").replace("Zyphra", "Zyfra"), names[:2]),
+        "rejected": ({"vocab_rejected": True, "vocab_terms": [2]}, lambda t: t, names),
+        "not-sent": ({"vocab_terms": []}, lambda t: t, names),
+        "fell-back": ({"live_ok": False, "fell_back": True}, lambda t: t, names),
+        "slow": ({"latency_ms": USER_MAX_LATENCY_MS + 1}, lambda t: t, names),
+        "term-in-log": ({"vocab_leak": ["Siobhan"]}, lambda t: t, names),
+        "fillers-worse": ({}, lambda t: t.replace("after the review", "after"), names[2:]),
+        "no-result": ({"exit": "timeout", "latency_ms": None}, lambda t: None, names),
+    }
+    bad = []
+    real, clip_of = _selftest_clip_builders()
+    try:
+        for mode, (over, transform, must_fail) in modes.items():
+            def runner(binary, wav, model=None, timeout=90, extra=None):
+                text = transform(real[clip_of(wav)][1])
+                ok_args = model == LIVE_MODEL and list(extra) == [VOCAB_FLAG, ONLINE_VOCAB]
+                return dict(base, result=(text + " ") if text is not None and ok_args else None, **over)
+            gates, report = [], {"tests": [{"id": "fillers", "model": LIVE_MODEL, "recall": 1.0}]}
+            try:
+                run_vocabulary_gates("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), report, runner=runner)
+            except Exception as e:  # any exception here would also end the real online run
+                bad.append(f"{mode}: {type(e).__name__}: {e}")
+                continue
+            failed = [n for n, ok in gates if not ok]
+            if [n for n, _ in gates] != names or failed != must_fail:
+                bad.append(f"{mode}: failed gates {failed}, want {must_fail}")
+            try:
+                json.dumps(report)
+            except (TypeError, ValueError) as e:
+                bad.append(f"{mode}: the report is not JSON-serializable ({e})")
+        # without a T6 run of the fillers clip in the report there is nothing to compare with: the gate must fail, not crash
+        gates = []
+        run_vocabulary_gates("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok))), {"tests": []},
+                             runner=lambda binary, wav, model=None, timeout=90, extra=None: dict(base, result=real[clip_of(wav)][1] + " "))
+        if [ok for _, ok in gates] != [True, True, False]:
+            bad.append(f"no-T6-run: {gates}")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
+    finally:
+        PROBE_CLIPS.clear()
+        PROBE_CLIPS.update(real)
+    if len(ONLINE_VOCAB.split("|")) != 2 or any(w not in ONLINE_VOCAB.split("|") for _, w in ONLINE_VOCAB_SPELLING):
+        bad.append("ONLINE_VOCAB must hold exactly the 2 spellings the gates check")
+    return bad
+
+
+def run_probe_section(binary, gate, report, runner=None):
+    """The T28 probe runs (online_main calls this only while RUN_PROBE exists). One gate per run: passes when the dictation was
+    delivered (exit 0, a non-empty text, recall >= the clip's delivery floor, by any path); everything else is informational and
+    goes to the gate line and the summary. `runner` replaces run_e2e in the offline self-test. Returns the rows (also stored in
+    report["probe"])."""
+    runner = runner or run_e2e
+    probe_rows, hook_missing = [], False
+    for case, extra, clips, note in PROBE_CASES:
+        args = probe_run_args(case, extra)
+        for clip in clips:
+            name = f"T28 live-setup-probe/{case}/{clip}"
+            if hook_missing:
+                gate(name, False, "skipped: this binary has no --e2e-live-setup-extra hook")
+                continue
+            build, expected, wanted = PROBE_CLIPS[clip]
+            wav = build()
+            r = runner(binary, wav, model=LIVE_MODEL, timeout=_probe_timeout(wav), extra=args)
+            res = r["result"] or ""
+            rc = recall(expected, res)
+            pr = r.get("probe")
+            if pr is None or not pr["sent"]:
+                # No probe line at all: the binary ignored the flag (built before the hook existed), or Live was never started
+                # (no API key / on-device engine). Nothing can be learned from further runs.
+                hook_missing = True
+                gate(name, False, "the app logged no 'Live setup probe' line: the binary has no --e2e-live-setup-extra hook (build the "
+                     f"candidate from the commit that adds it) or Live did not start. exit={r['exit']} -> {_clip(res, 200)}\n      tail: {r['tail']}")
+                continue
+            via = probe_via(r)
+            raw = pr["raw"]
+            shown = raw if via == "live" and raw is not None else res
+            hit = probe_wanted_hit(wanted, shown)
+            floor = PROBE_CLIP_MIN_RECALL.get(clip, PROBE_MIN_RECALL)
+            ok = r["exit"] == 0 and r["result"] is not None and res.strip() not in ("", "<NO SPEECH>") and rc >= floor
+            rejections = [f"closed {c['when']} setupComplete: close code {c['close_code']}, HTTP {c['http']}, error {c['error']}/{c['error_code']}, "
+                          f"key via {c['key_via']}, reason {c['reason']!r}" for c in pr["closes"]]
+            rejections += [f"error frame: code {e['code']}, status {e['status']}, message {e['message']!r}" for e in pr["error_frames"]]
+            row = {"case": case, "clip": clip, "extra": extra, "accepted": pr["accepted"], "close": probe_close_cell(pr), "via": via,
+                   "latency_ms": r["latency_ms"], "recall": round(rc, 3), "wanted": wanted, "wanted_hit": hit, "raw": raw,
+                   "result": r["result"], "rejections": rejections, "server_fields": pr["server_fields"],
+                   "setup_fields": pr["sent"][0]["fields"], "closes": pr["closes"], "error_frames": pr["error_frames"],
+                   "setup_complete": pr["setup_complete"], "exit": r["exit"], "segments": pr.get("segments"),
+                   "vocab_terms": r.get("vocab_terms"), "vocab_rejected": r.get("vocab_rejected"),
+                   "terms_in_log": r.get("vocab_leak"), "live_connects": r.get("live_connects"), "delivery_floor": floor,
+                   "interim": pr.get("interim"), "split_count": r.get("split_count")}
+            probe_rows.append(row)
+            r.update({"id": f"probe/{case}/{clip}", "model": LIVE_MODEL + "+probe", "recall": round(rc, 3)})
+            report["tests"].append(r)
+            wanted_txt = "" if wanted is None else f"wanted {wanted!r} in output={'yes' if hit else 'no'} "
+            vocab_txt = ""
+            if r.get("vocab_terms") or r.get("vocab_rejected"):
+                vocab_txt = (f"vocabulary terms sent per session={r.get('vocab_terms')} rejected={r.get('vocab_rejected')} "
+                             f"connects={r.get('live_connects')} terms in log={r.get('vocab_leak')} ")
+            gate(name, ok,
+                 f"{probe_outcome(pr)} | via={via} lat={r['latency_ms']}ms recall={rc:.2f} (delivered if a text came back with recall >= {floor}) "
+                 + wanted_txt + vocab_txt + f"setup fields={pr['sent'][0]['fields']} raw={_clip(raw, 300)} -> {_clip(res, 300)}"
+                 + ("" if ok else f"\n      tail: {r['tail']}"))
+    if probe_rows:
+        report["probe"] = probe_rows
+        try:
+            print_probe_summary(probe_rows)
+        except Exception as e:  # the summary is a convenience: a slip in it must not cost the run (the rows are in the report)
+            import traceback
+            print(f"T28 PROBE SUMMARY FAILED ({type(e).__name__}: {e}); every row is in the report JSON under \"probe\".\n{traceback.format_exc()}")
+    return probe_rows
+
+
+def probe_section_selftest():
+    """Offline run of run_probe_section with canned e2e results (no app, no TTS, no network), so the one online probe run cannot
+    trip over the section's own code: every outcome shape goes through the gates, the rows and the summary. Returns problems."""
+    import contextlib, io
+    L = "2026-11-13 10:00:00.000 GeminiFlow[1:2] " + PROBE_LOG_MARK + " "
+    sent = L + "session 1 sends the setup with 1 extra field(s) [setup.x] (200 bytes, key via header)\n"
+    done = L + "setupComplete=1 (session 1, key via header, 150 ms after the setup was sent)\n"
+    fields = L + "server message fields seen: [serverContent.generationComplete, serverContent.inputTranscription.text, setupComplete]\n"
+    closed = lambda sid, via: L + (f"socket closed before setupComplete (setupComplete=0, session {sid}, key via {via}, HTTP 101, close code 1007, "
+                                   f"error NSPOSIXErrorDomain 57) close reason \"Unknown name 'languageCodes' at 'setup'\"\n")
+    base = {"exit": 0, "latency_ms": 400, "rest_ok": False, "ondevice_fallback": False, "live_ok": False, "tail": "",
+            "vocab_terms": [], "vocab_rejected": False, "vocab_leak": [], "live_connects": 1}
+    case_of = {tuple(probe_run_args(case, extra)): case for case, extra, _, _ in PROBE_CASES}
+
+    def split2(text):
+        """Two 'Live segments' for a longer text (so the seam analysis runs), one for a short text."""
+        ws = text.split()
+        return [text] if len(ws) <= 12 else [" ".join(ws[:8]), " ".join(ws[8:])]
+
+    def live(text, segments=None, extra_fields="", final=None, interim="", **over):
+        segments = segments or split2(text)
+        out = (sent + done + fields.replace("setupComplete]", "setupComplete" + extra_fields + "]") + interim
+               + 'E2E LIVE RAW: "' + " ".join(segments).replace("\n", " ") + '"\n' + "E2E LIVE RAW SEGMENTS: " + json.dumps(segments) + "\n")
+        return dict(base, live_ok=True, result=(final if final is not None else " ".join(segments)) + " ", probe=parse_probe(out), **over)
+
+    def fake(mode, real, clip_of):
+        def runner(binary, wav, model=None, timeout=90, extra=None):
+            case, clip = case_of[tuple(extra)], clip_of(wav)
+            expected = real[clip][1]
+            if mode == "nohook":
+                return dict(base, result=expected + " ")
+            if mode == "lost":
+                return dict(base, exit="timeout", result=None, latency_ms=None, probe=parse_probe(sent))
+            spelled = expected.replace("Siobhan", "Shavon").replace("Zyphra", "Zyfra").replace("a build", "a bill")
+            vocab = PROBE_CASE_OPTS.get(case, {}).get("vocab", [])
+            sent_terms = {"vocab_terms": [len(vocab)]} if vocab else {}
+            if case == "control":
+                stats = (L + "interim transcripts: 30 messages, first 900 ms after the first audio was sent; final transcripts: 3 messages, "
+                         "first 9000 ms after the first audio was sent\n") if clip == "handsfree_long" else ""
+                return live("So like " + spelled[0].lower() + spelled[1:] if clip == "fillers" else spelled, interim=stats)
+            if case == "custom_vocabulary":
+                return live(expected.replace("Christopher", "Kristoffer").replace("bill", "build"), extra_fields=", usageMetadata")
+            if case == "language_codes":
+                out = sent + closed(1, "header") + sent.replace("session 1", "session 2").replace("header", "URL") + closed(2, "URL")
+                return dict(base, rest_ok=True, latency_ms=2100, live_connects=2, result=spelled + " ", probe=parse_probe(out))
+            if case == "mode_verbatim":
+                out = (sent + done + L + "server error frame (setupComplete=1, code 400, status INVALID_ARGUMENT) message \"Bad 'mode'\"\n"
+                       + L + "socket closed after setupComplete (setupComplete=1, session 1, key via header, HTTP 101, close code 1011, "
+                       "error none 0) close reason \"\"\n")
+                return dict(base, rest_ok=True, result=spelled + " ", probe=parse_probe(out))
+            if case == "mode_smart":
+                if clip == "long":       # a word lost exactly where two segments join
+                    ws = spelled.split()
+                    return live(" ".join(ws[:8] + ws[9:]), segments=[" ".join(ws[:8]), " ".join(ws[9:])])
+                if clip == "keep_like":  # a meaningful "like" removed
+                    return live(spelled.replace("I like the", "I the"))
+                if clip == "pause":      # a line break introduced
+                    return live(spelled, segments=[spelled.replace(". ", ".\n")])
+                if clip == "phone_digits":
+                    return live("Call 555-1212.")
+                if clip == "no_no_no":
+                    return live("No.")
+                if clip == "doc_list":   # a numbered list with line breaks; the app's polish then flattens it
+                    return live("x", segments=["1. Review budget\n2. Finalize timeline\n3. Send recap"],
+                                final="1. Review budget 2. Finalize timeline 3. Send recap.")
+                return live(spelled)
+            if case == "vocab_names50":
+                return live(spelled.replace("design doc", "Dee sign doc") if clip == "question" else spelled, **sent_terms)
+            if case == "vocab_reject_sim":
+                return live(spelled, vocab_terms=[2], vocab_rejected=True, live_connects=2)
+            if case == "vocab_shapes":
+                return live(expected.replace("Mary Ann O'Neal", "Mary Anne O'Neil"), vocab_leak=["Mary Anne"], **sent_terms)
+            if case in ("vocab_100", "smart_vocab"):
+                return live(expected, **sent_terms)
+            if case.startswith("alt_"):
+                return dict(base, ondevice_fallback=True, latency_ms=None, result=spelled + " ", probe=parse_probe(sent))
+            return live(spelled, **sent_terms)
+        return runner
+
+    bad = []
+    real, clip_of = _selftest_clip_builders()
+    try:
+        n = len(online_probe_ids(True))
+        for mode, want_pass in (("answers", n), ("nohook", 0), ("lost", 0)):
+            gates, report, buf = [], {"tests": []}, io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    rows = run_probe_section("/nonexistent", lambda name, ok, detail: gates.append((name, bool(ok), detail)), report,
+                                             runner=fake(mode, real, clip_of))
+            except Exception as e:  # any exception here would also end the real probe run
+                bad.append(f"{mode}: {type(e).__name__}: {e}")
+                continue
+            text = buf.getvalue()
+            if "PROBE SUMMARY FAILED" in text:
+                bad.append(f"{mode}: the summary raised: {text[text.index('PROBE SUMMARY FAILED'):][:300]}")
+            if len(gates) != n or sum(1 for g in gates if g[1]) != want_pass or len({g[0] for g in gates}) != n:
+                bad.append(f"{mode}: {sum(1 for g in gates if g[1])}/{len(gates)} gates passed, want {want_pass}/{n}: "
+                           f"{[g[0] for g in gates if g[1] != (want_pass > 0)][:4]}")
+            if mode == "nohook" and (rows or "no --e2e-live-setup-extra hook" not in gates[0][2]):
+                bad.append("nohook: not reported")
+            if mode != "answers":
+                continue
+            by = {(w["case"], w["clip"]): w for w in rows}
+            checks = [
+                len(rows) == n and report.get("probe") is rows and len(report["tests"]) == n,
+                by[("control", "name")]["accepted"] and by[("control", "name")]["via"] == "live" and by[("control", "name")]["wanted_hit"] is False,
+                by[("custom_vocabulary", "name")]["wanted_hit"] is True and by[("custom_vocabulary", "name_spelling")]["wanted_hit"] is True,
+                by[("custom_vocabulary", "bill")]["wanted_hit"] is True and by[("control", "bill")]["wanted_hit"] is False,
+                by[("control", "fillers")]["wanted_hit"] is None and by[("control", "long")]["segments"] is not None
+                and len(by[("control", "long")]["segments"]) == 2,
+                not by[("language_codes", "build")]["accepted"] and by[("language_codes", "build")]["close"] == "1007/http101 x2"
+                and by[("language_codes", "build")]["via"] == "rest" and len(by[("language_codes", "build")]["rejections"]) == 2,
+                by[("mode_verbatim", "fillers")]["accepted"] and by[("mode_verbatim", "fillers")]["close"] == "after:1011+errframe",
+                not by[("alt_generation_config", "name")]["accepted"] and by[("alt_generation_config", "name")]["via"] == "ondevice"
+                and by[("alt_generation_config", "name")]["close"] == "-",
+                by[("vocab_shapes", "mary_anne")]["wanted_hit"] is True and by[("control", "mary_anne")]["wanted_hit"] is False,
+                by[("vocab_reject_sim", "name")]["vocab_rejected"] is True and by[("vocab_names50", "long")]["vocab_terms"] == [50],
+                by[("mode_smart", "no_no_no")]["delivery_floor"] == 0.0 and by[("mode_smart", "fillers")]["delivery_floor"] == PROBE_MIN_RECALL,
+                "T28 LIVE SETUP PROBE SUMMARY" in text and "custom_vocabulary/name: DIFFERENT" in text and "iat_empty/build: SAME as control" in text,
+                "language_codes: closed before setupComplete: close code 1007, HTTP 101" in text and "Unknown name 'languageCodes'" in text,
+                "mode_verbatim: error frame: code 400, status INVALID_ARGUMENT" in text and "custom_vocabulary: new fields ['usageMetadata']" in text,
+                "SMART A/B over every T6 clip (control -> SMART): 17 clips compared, 3 with flags." in text,
+                "words dropped at a segment join" in text and "a meaningful 'like' removed (1 of 2 kept)" in text
+                and "1 line break(s) introduced" in text and "fillers ['you know'] -> []" not in text,
+                "digits [] -> ['555-1212']" in text and "words lost against the control ['no', 'no']" in text,
+                "Vocabulary safety: 50 unspoken names on every T6 clip" in text and "17 clips compared, 1 with flags." in text
+                and "vocab_names50/question: DIFFERENT" in text,
+                "vocabulary terms found in the app's LOG lines (must be none): [('vocab_shapes', 'Mary Anne')]" in text,
+                "raw_1001_terms" in text and " chars)" in text and "vocabulary 100 terms" in text,
+                "list markers ['1.', '2.', '3.']" in text and "2 line break(s) introduced" in text
+                and "mode_smart/doc_list: 3. Send [-recap-] {+recap.+} | line breaks 2 -> 0" in text and "mode_smart/fillers: unchanged" in text,
+                "handsfree_long" in text and "interim messages 30, first after 900 ms; final texts 3, first after 9000 ms; Live sessions 1" in text,
+                by[("control", "handsfree_long")]["interim"] == [{"count": 30, "first_ms": 900, "finals": 3, "first_final_ms": 9000}],
+            ]
+            if not all(checks):
+                bad.append(f"answers: checks failed at {[i for i, c in enumerate(checks) if not c]}")
+            try:
+                json.dumps(report)
+            except (TypeError, ValueError) as e:
+                bad.append(f"answers: the report is not JSON-serializable ({e})")
+    except Exception as e:
+        bad.append(f"{type(e).__name__}: {e}")
+    finally:
+        PROBE_CLIPS.clear()
+        PROBE_CLIPS.update(real)
+    return bad
+
+
+MAX_LOAD_PER_CPU = 3.0
+LOAD_WAIT_S = 600
+
+
+def wait_for_sane_load():
+    """E2E speech results are meaningless on a massively oversubscribed machine (seen: load 705 on 12 cores).
+    Wait up to LOAD_WAIT_S for the 1-min load average to fall below MAX_LOAD_PER_CPU x cores.
+    Returns True if OK; False means the run is INCONCLUSIVE (exit 5)."""
+    limit = MAX_LOAD_PER_CPU * os.cpu_count()
+    deadline = time.time() + LOAD_WAIT_S
+    while True:
+        load = os.getloadavg()[0]
+        if load <= limit:
+            return True
+        if time.time() > deadline:
+            print(f"INCONCLUSIVE: load average {load:.0f} > {limit:.0f} for {LOAD_WAIT_S}s; not running speech tests")
+            return False
+        print(f"waiting for load to drop: {load:.0f} > {limit:.0f}", flush=True)
+        time.sleep(30)
+
+
+def network_ok():
+    import socket
+    try:
+        socket.create_connection(("generativelanguage.googleapis.com", 443), timeout=4).close()
+        return True
+    except OSError:
+        return False
+
+
+def online_main(a):
+    if not network_ok():
+        print("SKIPPED: no network (run via run_online_tests.sh with network access)")
+        return 4
+    base = json.load(open(BASELINE)) if os.path.exists(BASELINE) else {}
+    report = {"bin": a.bin, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": "online", "tests": [], "gates": []}
+    fails = []
+
+    known = set(base.get("known_failures", []))
+    long_mode = long_mode_enabled()
+    if long_mode:
+        print(f"LONG MODE: {RUN_LONG_FLAG} exists; T23 long-dictation cases {online_long_ids(True)} run after the regular gates "
+              f"(~16 min more). Delete RUN_LONG afterwards.", flush=True)
+    probe_mode = probe_mode_enabled()
+    if probe_mode:
+        print(f"PROBE MODE: {RUN_PROBE_FLAG} exists; {len(online_probe_ids(True))} T28 Live setup probe runs follow the regular gates "
+              f"(~25 min more; --probe-dry-run prints the plan). Delete RUN_PROBE afterwards.", flush=True)
+
+    def gate(name, ok, detail):
+        # known_failures: pre-existing failures recorded by the coordinator. Reported, not blocking.
+        # Agents may REMOVE entries once fixed (XPASS) but must never add new ones.
+        tag = "PASS" if ok else ("XFAIL" if name in known else "FAIL")
+        if ok and name in known:
+            tag = "XPASS (fixed! remove from known_failures)"
+        report["gates"].append({"gate": name, "ok": bool(ok), "tag": tag, "detail": detail})
+        print(f"[{tag}] {name}: {detail}")
+        if not ok and name not in known:
+            fails.append(name)
+
+    corpus = {c[0]: c for c in CORPUS}
+    extra = {c[0]: c for c in ONLINE_EXTRA}
+    stats = {}
+    for label, model, ids, ok_key in (("T6 live", LIVE_MODEL, ONLINE_LIVE_IDS, "live_ok"),
+                                     ("T7 rest", REST_MODEL, ONLINE_REST_IDS, "rest_ok")):
+        recalls, lats = [], []
+        for cid in ids:
+            if cid in corpus:
+                _, voice, rate, text, expected = corpus[cid]
+                wav = tts(cid, voice, rate, text)
+            else:
+                _, build, expected = extra[cid]
+                wav = build()
+            r = run_e2e(a.bin, wav, model=model, timeout=max(150, int(wav_seconds(wav)) + 90))
+            res = r["result"] or ""
+            rc = recall(expected, res)
+            lower = " " + " ".join(words(res)) + " "
+            leaked = [f for f in FILLERS if f" {f} " in lower]
+            ok = (r["exit"] == 0 and r[ok_key] and not r["fell_back"] and rc >= ONLINE_MIN_RECALL
+                  and not leaked and res.endswith(" "))
+            r.update({"id": cid, "model": model, "recall": round(rc, 3), "leaked_fillers": leaked})
+            report["tests"].append(r)
+            recalls.append(rc)
+            if r["latency_ms"] is not None:
+                lats.append(r["latency_ms"])
+            gate(f"{label}/{cid}", ok,
+                 f"recall={rc:.2f} lat={r['latency_ms']}ms fell_back={r['fell_back']} leaked={leaked} -> {res!r}"
+                 + ("" if ok else f"\n      tail: {r['tail']}"))
+        key = label.split()[1]
+        if key == "live":
+            # T8: what the user experiences in Live mode, regardless of which path produced the text:
+            # no dropped words and a bounded wait. (T6 separately tracks whether Live itself handled it.)
+            for t in [t for t in report["tests"] if t.get("model") == model]:
+                lat = t["latency_ms"] if t["latency_ms"] is not None else 10**9
+                ok8 = t["exit"] == 0 and t["recall"] >= ONLINE_MIN_RECALL and lat <= USER_MAX_LATENCY_MS
+                gate(f"T8 user/{t['id']}", ok8,
+                     f"recall={t['recall']:.2f} lat={t['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) via={'fallback' if t['fell_back'] else 'live'}")
+        med = statistics.median(lats) if lats else None
+        stats[key] = {"mean_recall": statistics.mean(recalls), "median_latency_ms": med}
+        bl = base.get(f"online_{key}_median_latency_ms")
+        if med is not None and bl is not None:
+            # REST (the backup service) swings 1.3-4 s on normal days, so a ratcheting 2x-best-ever limit flaked constantly.
+            # USER-APPROVED 2026-11-10: fixed 4.5 s limit for REST. Live keeps the ratcheting limit.
+            limit = REST_MEDIAN_LIMIT_MS if key == "rest" else max(LATENCY_FLOOR_MS, 2 * bl)
+            gate(f"{label} median latency", med <= limit, f"{med}ms (baseline {bl}ms, limit {limit}ms)")
+        br = base.get(f"online_{key}_mean_recall")
+        if br is not None:
+            gate(f"{label} mean recall", stats[key]["mean_recall"] >= br - MAX_RECALL_DROP,
+                 f"{stats[key]['mean_recall']:.3f} (baseline {br:.3f})")
+
+    # T10: no-speech presses on Live must end (any outcome: <NO SPEECH> or REST/on-device text) within the T8 limit.
+    for cid, secs in ONLINE_LIVE_NOSPEECH:
+        wav = nospeech_wav(cid, secs)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = r["exit"] == 0 and r["result"] is not None and lat <= USER_MAX_LATENCY_MS
+        # Tightened (backlog 0e): REST hallucinates on noise, so the outcome must be <NO SPEECH>, nothing pasted, no REST call.
+        ok = ok and (r["result"] or "").strip() == "<NO SPEECH>" and r["nospeech_skip"] and not r["rest_called"]
+        r.update({"id": f"nospeech/{cid}", "model": LIVE_MODEL + "+nospeech", "recall": None})
+        report["tests"].append(r)
+        gate(f"T10 live-nospeech/{cid}", ok,
+             f"lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) exit={r['exit']} live_ok={r['live_ok']} fell_back={r['fell_back']} "
+             f"nospeech_skip={r['nospeech_skip']} rest_called={r['rest_called']} "
+             f"-> {(r['result'] or '')[:60]!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T27 (backlog 0u): silent presses in an ordinary quiet room (noise above the old RMS-60 level) must end as <NO SPEECH> too,
+    # with no REST call (REST invents text for room noise), within the T8 limit.
+    for cid, secs in ONLINE_LIVE_ROOM_NOISE:
+        wav = room_noise_wav(cid, secs)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and (r["result"] or "").strip() == "<NO SPEECH>" and r["nospeech_skip"] and not r["rest_called"]
+              and lat <= USER_MAX_LATENCY_MS)
+        r.update({"id": f"room_noise/{cid}", "model": LIVE_MODEL + "+roomnoise", "recall": None})
+        report["tests"].append(r)
+        gate(f"T27 live-room-noise/{cid}", ok,
+             f"lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) exit={r['exit']} nospeech_skip={r['nospeech_skip']} "
+             f"rest_called={r['rest_called']} -> {(r['result'] or '')[:60]!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T11: Live returns nothing (test-only hook) but the audio HAS speech: the no-speech check must run, must not fire, and the
+    # REST safety net must deliver the dictation with full recall (never lose a dictation).
+    for cid in ONLINE_LIVE_EMPTY_GUARD_IDS:
+        if cid in corpus:
+            _, voice, rate, text, expected = corpus[cid]
+            wav = tts(cid, voice, rate, text)
+        else:
+            _, build, expected = extra[cid]
+            wav = build()
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150, extra=["--e2e-live-drop-output"])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        ok = (r["exit"] == 0 and r["nospeech_check"] and not r["nospeech_skip"] and res.strip() != "<NO SPEECH>"
+              and r["rest_ok"] and not r["ondevice_fallback"] and rc >= ONLINE_MIN_RECALL and res.endswith(" "))
+        r.update({"id": f"live_empty_guard/{cid}", "model": LIVE_MODEL + "+drop", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T11 live-empty-guard/{cid}", ok,
+             f"check_ran={r['nospeech_check']} nospeech_skip={r['nospeech_skip']} rest_ok={r['rest_ok']} ondevice={r['ondevice_fallback']} "
+             f"recall={rc:.2f} lat={r['latency_ms']}ms -> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T12: a new press must never lose the previous dictation, and must itself be unaffected (backlog 6). Press #1 must come back
+    # after press #2 started (superseded) via REST on its own recording ("restfail": its saved on-device text, a coarser safety
+    # net, so the offline per-case recall floor applies); press #2 must finish on Live within the T8 limit with full recall.
+    _, _, _, text_a, exp_a = corpus["fillers"]
+    _, _, _, text_b, exp_b = corpus["question"]
+    wav_a, wav_b = tts("fillers", None, None, text_a), tts("question", None, None, text_b)
+    for phase, flags in ONLINE_SECOND_PRESS:
+        r = run_e2e_two(a.bin, wav_a, wav_b, phase, LIVE_MODEL, timeout=150, extra=flags)
+        ra, rb = r["results"].get(1) or "", r["results"].get(2) or ""
+        la, lb = r["latencies"].get(1, (None, False)), r["latencies"].get(2, (None, False))
+        rca, rcb = recall(exp_a, ra), recall(exp_b, rb)
+        if phase == "restfail":
+            ok_a = r["ondevice_fallback"] and r["snapshot_ondevice"] and rca >= MIN_CASE_RECALL
+        else:
+            ok_a = r["rest_ok"] and not r["ondevice_fallback"] and rca >= ONLINE_MIN_RECALL
+        ok_a = ok_a and la[1] and ra.endswith(" ") and ra.strip() != "<NO SPEECH>"
+        ok_b = (r["live_ok"] and rcb >= ONLINE_MIN_RECALL and rb.endswith(" ") and not lb[1]
+                and lb[0] is not None and lb[0] <= USER_MAX_LATENCY_MS)
+        ok = r["exit"] == 0 and r["both"] and r["second_started"] and ok_a and ok_b
+        report["tests"].append({"id": f"second_press/{phase}", "model": LIVE_MODEL + "+2press", "exit": r["exit"],
+                                "recall_a": round(rca, 3), "recall_b": round(rcb, 3), "latency_a_ms": la[0],
+                                "latency_b_ms": lb[0], "wall_s": r["wall_s"]})
+        gate(f"T12 second-press/{phase}", ok,
+             f"#1 superseded={la[1]} recall={rca:.2f} lat={la[0]}ms rest_ok={r['rest_ok']} ondevice={r['ondevice_fallback']} | "
+             f"#2 recall={rcb:.2f} lat={lb[0]}ms (limit {USER_MAX_LATENCY_MS}ms) live_ok={r['live_ok']} -> {ra!r} / {rb!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T14 (backlog 0c): the server ends the open turn on its own mid-press (test-only hook, e2e only), in the pause between two
+    # sentences. The second sentence must still come back on Live (the app re-opens the activity), not through the REST safety net.
+    for cid in ONLINE_SERVER_TURN_END_IDS:
+        _, build, expected = extra[cid]
+        wav = build()
+        pause = first_pause_start(wav)
+        at = round((pause or 0) + SERVER_TURN_END_INTO_PAUSE_S, 2)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150, extra=["--e2e-live-server-turn-end", str(at)])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (pause is not None and r["exit"] == 0 and r["fired"] and r["live_ok"] and not r["fell_back"]
+              and rc >= ONLINE_MIN_RECALL and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"server_turn_end/{cid}", "model": LIVE_MODEL + "+server-turn-end", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T14 live-server-turn-end/{cid}", ok,
+             f"turn end at {at:.2f}s (pause at {pause}) fired={r['fired']} reopened={r['reopened']} live_ok={r['live_ok']} "
+             f"fell_back={r['fell_back']} recall={rc:.2f} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T18 (backlog 0h): the Live socket dies mid-press (test-only hook). The app must reconnect while still recording, resend from
+    # the last covered byte, and deliver on Live: no REST fallback, full recall, no duplicated phrase at the seam, within the T8 limit.
+    for cid, at in ONLINE_LIVE_DROP:
+        _, build, expected = extra[cid]
+        wav = build()
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=max(150, int(wav_seconds(wav)) + 90), extra=["--e2e-live-drop-at", str(at)])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        dups = duplicated_phrases(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["dropped"] and r["reconnected"] and r["live_ok"] and not r["fell_back"] and not r["rest_called"]
+              and rc >= ONLINE_MIN_RECALL and not dups and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"live_drop/{cid}", "model": LIVE_MODEL + f"+drop@{at:g}s", "recall": round(rc, 3), "duplicated": dups})
+        report["tests"].append(r)
+        gate(f"T18 live-reconnect/{cid}", ok,
+             f"drop at {at:g}s dropped={r['dropped']} reconnected={r['reconnected']} live_ok={r['live_ok']} fell_back={r['fell_back']} "
+             f"rest_called={r['rest_called']} recall={rc:.2f} duplicated={dups[:3]} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+             f"-> {res!r}" + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T22 (backlog 26): released in silence after the split turn was already answered. Nothing is pending, so the app must finish
+    # on Live right away ("released between turns"), not at the 0.45 s grace timer (old: ~570 ms incl. the 120 ms cushion).
+    for cid, text in ONLINE_RELEASE_BETWEEN_TURNS:
+        wav = derived_wav("trailing_silence", f"{cid}_src", [text])
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150)
+        res = r["result"] or ""
+        rc = recall(text, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["live_ok"] and r["between_turns"] and not r["fell_back"] and not r["rest_called"]
+              and rc >= ONLINE_MIN_RECALL and lat <= RELEASE_BETWEEN_TURNS_MAX_MS and res.endswith(" "))
+        r.update({"id": f"release_between_turns/{cid}", "model": LIVE_MODEL + "+trailing-silence", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T22 live-release-between-turns/{cid}", ok,
+             f"between_turns={r['between_turns']} live_ok={r['live_ok']} fell_back={r['fell_back']} rest_called={r['rest_called']} "
+             f"recall={rc:.2f} lat={r['latency_ms']}ms (limit {RELEASE_BETWEEN_TURNS_MAX_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T29 (backlog 0z): the split turn is answered while "Fn" is held; a key click in the last 80 ms then opens one more activity,
+    # which the server closes empty (ACTIVITY_END echo, no generationComplete). The Live text is complete: it must be delivered
+    # on Live, with no REST call (before the fix: "Live: failed (server closed the final turn with no transcript ...)" -> REST).
+    # If the server answers the click turn instead (text or an empty generationComplete), the press ends the normal way and the
+    # gate still holds; tail_checks then shows no line.
+    for cid, text in ONLINE_SILENT_TAIL:
+        wav = silent_tail_wav(text)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150)
+        res = r["result"] or ""
+        rc = recall(text, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and not r["rest_called"] and r["split_count"] >= 1
+              and rc >= SILENT_TAIL_MIN_RECALL and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"silent_tail/{cid}", "model": LIVE_MODEL + "+click-tail", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T29 live-silent-tail/{cid}", ok,
+             f"live_ok={r['live_ok']} fell_back={r['fell_back']} rest_called={r['rest_called']} splits={r['split_count']} "
+             f"activities={r['live_activities']} recall={rc:.2f} (min {SILENT_TAIL_MIN_RECALL}) lat={r['latency_ms']}ms "
+             f"(limit {USER_MAX_LATENCY_MS}ms) tail_checks={r['tail_checks']} -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T25 (backlog 0p (a)): planned rotation at a split point, forced at 10 s of session age (test-only hook). The fresh session
+    # continues from the held-back position: on Live, nothing lost or repeated, no reconnect used.
+    for cid, build, expected, age in ONLINE_LIVE_ROTATE:
+        wav = build()
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=max(150, int(wav_seconds(wav)) + 90), extra=["--e2e-live-rotate-age", str(age)])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        dups = duplicated_phrases(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["rotation_count"] >= 1 and r["rotated_ready_count"] >= 1 and r["press_rotations"] >= 1
+              and r["reconnect_count"] == 0 and r["reconnect_scheduled"] == 0 and r["press_reconnects"] == 0
+              and r["live_ok"] and not r["fell_back"] and not r["rest_called"]
+              and rc >= ROTATION_MIN_RECALL and not dups and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"live_rotate/{cid}", "model": LIVE_MODEL + f"+rotate@{age:g}s", "recall": round(rc, 3), "duplicated": dups})
+        report["tests"].append(r)
+        gate(f"T25 live-rotation/{cid}", ok,
+             f"rotate age {age:g}s rotations={r['rotation_count']} ready={r['rotated_ready_count']} stats_rotations={r['press_rotations']} "
+             f"reconnects={r['reconnect_count']}/{r['reconnect_scheduled']}/{r['press_reconnects']} live_ok={r['live_ok']} "
+             f"fell_back={r['fell_back']} rest_called={r['rest_called']} recall={rc:.2f} (min {ROTATION_MIN_RECALL}) "
+             f"duplicated={dups[:3]} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T26 (backlog 0p (b)): the server's session-lifetime close, simulated every 8 s of session age (test-only hook): every close
+    # must be a planned rotation (not counted), even past the 2-reconnect budget, and the dictation must stay on Live, complete.
+    for cid, life in ONLINE_LIVE_LIFETIME:
+        _, build, expected = extra[cid]
+        wav = build()
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=max(150, int(wav_seconds(wav)) + 90), extra=["--e2e-live-lifetime", str(life)])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        dups = duplicated_phrases(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["lifetime_closes"] >= 3 and r["planned_close_count"] == r["lifetime_closes"]
+              and r["rotated_ready_count"] >= 3 and r["reconnect_count"] == 0 and r["reconnect_scheduled"] == 0
+              and r["press_reconnects"] == 0 and r["live_ok"] and not r["fell_back"] and not r["rest_called"]
+              and rc >= LIFETIME_MIN_RECALL and not dups and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"live_lifetime/{cid}", "model": LIVE_MODEL + f"+lifetime@{life:g}s", "recall": round(rc, 3), "duplicated": dups})
+        report["tests"].append(r)
+        gate(f"T26 live-lifetime-close/{cid}", ok,
+             f"lifetime {life:g}s closes={r['lifetime_closes']} planned={r['planned_close_count']} ready={r['rotated_ready_count']} "
+             f"reconnects={r['reconnect_count']}/{r['reconnect_scheduled']}/{r['press_reconnects']} live_ok={r['live_ok']} "
+             f"fell_back={r['fell_back']} rest_called={r['rest_called']} recall={rc:.2f} (min {LIFETIME_MIN_RECALL}) "
+             f"duplicated={dups[:3]} lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T15 (user-approved 2026-11-10): Live fails (its output is dropped, test-only) and the real REST answer is held 4 s
+    # (test-only), so REST can't answer within ~3 s of release. The on-device text must be delivered early (2.7-4.0 s after
+    # release: 3 s, or 1 s into a late-starting REST call), then the REST text as the final result with full recall.
+    for cid, hold in ONLINE_BOUNDED_WAIT:
+        _, voice, rate, text, expected = corpus[cid]
+        wav = tts(cid, voice, rate, text)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=150, extra=["--e2e-live-drop-output", "--e2e-rest-delay", str(hold)])
+        res, early, el = r["result"] or "", r["early"] or "", r["early_latency_ms"]
+        rc, erc = recall(expected, res), recall(expected, early)
+        ok = (r["exit"] == 0 and el is not None and 2700 <= el <= 4000 and erc >= MIN_CASE_RECALL and r["early_first"]
+              and r["rest_ok"] and not r["ondevice_fallback"] and rc >= ONLINE_MIN_RECALL and res.endswith(" "))
+        r.update({"id": f"bounded_wait/{cid}", "model": LIVE_MODEL + f"+drop+rest-hold-{hold:g}s", "recall": round(rc, 3)})
+        report["tests"].append(r)
+        gate(f"T15 bounded-wait/{cid}", ok,
+             f"early at {el}ms (want 2700-4000) early_recall={erc:.2f} early_first={r['early_first']} rest_ok={r['rest_ok']} "
+             f"ondevice={r['ondevice_fallback']} recall={rc:.2f} final lat={r['latency_ms']}ms -> early {early!r} / final {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T9: inject a fast HTTP 503 on the first REST attempt (test-only hook, e2e mode only). The same-model retry must bring the
+    # dictation back via REST (not on-device), with full recall, within the user latency limit.
+    # T9 measures what the RETRY adds (fast failure + 0.5 s backoff + local work = total latency minus the retried REST call's own
+    # server time, taken from app-log timestamps), not how fast the REST service is that minute. T7 already gates REST speed, and server-side REST latency swung
+    # 1.5-8 s on 2026-11-04, which made a fixed total limit flaky. Overall cap = the short-clip REST budget (~9.25 s) + margin.
+    RETRY_OVERHEAD_LIMIT_MS = 1500
+    RETRY_TOTAL_CAP_MS = 10000
+    for cid in ONLINE_REST_RETRY_IDS:
+        _, voice, rate, text, expected = corpus[cid]
+        wav = tts(cid, voice, rate, text)
+        r = run_e2e(a.bin, wav, model=REST_MODEL, timeout=150, extra=["--e2e-rest-503-once"])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lower = " " + " ".join(words(res)) + " "
+        leaked = [f for f in FILLERS if f" {f} " in lower]
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["injected_503"] and r["rest_retried"] and r["rest_ok"] and not r["ondevice_fallback"]
+              and rc >= ONLINE_MIN_RECALL and r["retried_call_s"] is not None
+              and lat - r["retried_call_s"] * 1000 <= RETRY_OVERHEAD_LIMIT_MS and lat <= RETRY_TOTAL_CAP_MS
+              and not leaked and res.endswith(" "))
+        r.update({"id": f"rest503/{cid}", "model": REST_MODEL + "+503", "recall": round(rc, 3), "leaked_fillers": leaked})
+        report["tests"].append(r)
+        gate(f"T9 rest503/{cid}", ok,
+             f"injected={r['injected_503']} retried={r['rest_retried']} rest_ok={r['rest_ok']} ondevice={r['ondevice_fallback']} "
+             f"recall={rc:.2f} lat={r['latency_ms']}ms retried_call={(r['retried_call_s'] or 0):.2f}s retry_overhead={(lat - (r['retried_call_s'] or 0) * 1000):.0f}ms "
+             f"(limits: overhead {RETRY_OVERHEAD_LIMIT_MS}ms, total {RETRY_TOTAL_CAP_MS}ms) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T9 slow (backlog 0f): the injected 503 arrives after `delay` s, past the cycle-6 fast window (a quarter of the budget), as the
+    # real 2026-11-06 503 did (5.97 s). The slow-retry policy must still bring the dictation back via REST. The existing T9 gates
+    # above are untouched; this case gets its own limits because the injected delay is deliberate server slowness, not retry cost:
+    #   overhead (latency minus the retried call's server time) <= delay + 1.5 s: the same 1.5 s retry-overhead allowance as T9,
+    #     on top of the simulated slow failure;
+    #   total <= the app's slow-retry deadline for this clip: REST budget (8 s + 0.25 s per audio second) + 4 s grace, + 0.25 s for
+    #     the release->REST hop. The app can't exceed it by design (the retry's idle timeout is what is left of that deadline).
+    for cid, delay in ONLINE_REST_SLOW_RETRY:
+        _, voice, rate, text, expected = corpus[cid]
+        wav = tts(cid, voice, rate, text)
+        with wave.open(wav) as w:
+            dur = w.getnframes() / float(w.getframerate())
+        overhead_limit_ms = int(delay * 1000) + RETRY_OVERHEAD_LIMIT_MS
+        total_cap_ms = int((8.0 + 0.25 * dur + 4.0) * 1000) + 250
+        r = run_e2e(a.bin, wav, model=REST_MODEL, timeout=150, extra=["--e2e-rest-503-once", "--e2e-rest-503-delay", str(delay)])
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        lower = " " + " ".join(words(res)) + " "
+        leaked = [f for f in FILLERS if f" {f} " in lower]
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        overhead = lat - (r["retried_call_s"] or 0) * 1000
+        ok = (r["exit"] == 0 and r["injected_503"] and r["rest_retried"] and r["rest_ok"] and not r["ondevice_fallback"]
+              and rc >= ONLINE_MIN_RECALL and r["retried_call_s"] is not None
+              and lat >= delay * 1000 and overhead <= overhead_limit_ms and lat <= total_cap_ms
+              and not leaked and res.endswith(" "))
+        r.update({"id": f"rest503slow/{cid}", "model": REST_MODEL + f"+503@{delay:g}s", "recall": round(rc, 3), "leaked_fillers": leaked})
+        report["tests"].append(r)
+        gate(f"T9 rest503-slow/{cid}", ok,
+             f"delay={delay:g}s injected={r['injected_503']} retried={r['rest_retried']} rest_ok={r['rest_ok']} ondevice={r['ondevice_fallback']} "
+             f"recall={rc:.2f} lat={r['latency_ms']}ms retried_call={(r['retried_call_s'] or 0):.2f}s retry_overhead={overhead:.0f}ms "
+             f"(limits: overhead {overhead_limit_ms}ms, total {total_cap_ms}ms for {dur:.2f}s audio) -> {res!r}"
+             + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T30 custom vocabulary (rules.json customVocabulary -> setup.inputAudioTranscription.customVocabulary): see run_vocabulary_gates.
+    run_vocabulary_gates(a.bin, gate, report)
+
+    # T32 custom-words replacement pair on Live ("when you hear Owen, write Eoin"): see run_replacement_gate.
+    run_replacement_gate(a.bin, gate, report)
+
+    # T23 (backlog 0m, OPT-IN: only while RUN_LONG exists): ~5 and ~10 min hands-free sessions must finish ON LIVE (no REST, no
+    # fallback) with recall >= 0.95, no phrase duplicated at a split/reconnect seam, release->text within the T8 limit. Reported
+    # (not gated): reconnects, Live session age at release, split activities, the app's peak RSS. Not part of the T6/T8 stats.
+    long_ids = online_long_ids(long_mode)
+    for cid, build, expected in [c for c in ONLINE_LONG if c[0] in long_ids]:
+        wav = build()
+        secs = wav_seconds(wav)
+        r = run_e2e(a.bin, wav, model=LIVE_MODEL, timeout=long_e2e_timeout_s(secs), rusage=True)
+        res = r["result"] or ""
+        rc = recall(expected, res)
+        dups = duplicated_phrases(expected, res)
+        lat = r["latency_ms"] if r["latency_ms"] is not None else 10**9
+        ok = (r["exit"] == 0 and r["live_ok"] and not r["fell_back"] and not r["rest_called"] and rc >= LONG_MIN_RECALL
+              and not dups and lat <= USER_MAX_LATENCY_MS and res.endswith(" "))
+        r.update({"id": f"long/{cid}", "model": LIVE_MODEL + "+long", "recall": round(rc, 3), "duplicated": dups,
+                  "audio_s": round(secs, 1)})
+        report["tests"].append(r)
+        report.setdefault("long_mode", []).append({k: r[k] for k in ("id", "audio_s", "recall", "latency_ms", "split_count",
+                                                                     "reconnect_count", "live_session_age_s", "live_activities",
+                                                                     "peak_rss_mb", "wall_s", "exit", "rotation_count",
+                                                                     "planned_close_count")})
+        gate(f"T23 long-dictation/{cid}", ok,
+             f"audio={secs:.0f}s recall={rc:.3f} (min {LONG_MIN_RECALL}) lat={r['latency_ms']}ms (limit {USER_MAX_LATENCY_MS}ms) "
+             f"live_ok={r['live_ok']} fell_back={r['fell_back']} rest_called={r['rest_called']} duplicated={dups[:3]} | "
+             f"splits={r['split_count']} reconnects={r['reconnect_count']} rotations={r['rotation_count']}+{r['planned_close_count']} "
+             f"live_session_age={r['live_session_age_s']}s "
+             f"activities={r['live_activities']} peak_rss={r['peak_rss_mb']}MB wall={r['wall_s']}s exit={r['exit']} "
+             f"-> {len(res)} chars {res[:60]!r}..." + ("" if ok else f"\n      tail: {r['tail']}"))
+
+    # T28 (backlog 0y-probe, OPT-IN: only while RUN_PROBE exists): ask the real Live server whether the `setup` message accepts
+    # the unverified inputAudioTranscription fields. A probe, not a quality gate: a run passes when the dictation was delivered
+    # (exit 0, recall >= PROBE_MIN_RECALL, by any path); everything else is REPORTED. Not part of the T6/T8 stats.
+    if probe_mode:
+        run_probe_section(a.bin, gate, report)
+
+    report["stats"] = stats
+    os.makedirs(LOGS, exist_ok=True)
+    rpath = os.path.join(LOGS, f"online-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    json.dump(report, open(rpath, "w"), indent=2)
+    print(f"\n{len(report['gates']) - len(fails)}/{len(report['gates'])} online gates passed. "
+          f"stats={json.dumps(stats)} Report: {rpath}")
+    if a.update_baseline and not fails:
+        nb = dict(base)
+        for key, st in stats.items():
+            nb[f"online_{key}_mean_recall"] = max(base.get(f"online_{key}_mean_recall", 0), st["mean_recall"])
+            if st["median_latency_ms"] is not None:
+                nb[f"online_{key}_median_latency_ms"] = min(base.get(f"online_{key}_median_latency_ms", 10**9),
+                                                            st["median_latency_ms"])
+        json.dump(nb, open(BASELINE, "w"), indent=2)
+        print("Online baseline updated.")
+    if fails:
+        print("FAILED online gates: " + ", ".join(fails))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

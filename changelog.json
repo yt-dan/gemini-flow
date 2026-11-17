@@ -1,0 +1,1104 @@
+{
+  "schemaVersion": 1,
+  "product": "GeminiFlow",
+  "entries": [
+    {
+      "cycle": 129,
+      "scope": "engine",
+      "timestamp": "17 Nov \u00b7 16:00",
+      "title": "Prevents Custom Words over-biasing on ALL-CAPS acronyms and double-consonant names",
+      "highlights": [
+        "Holds back unpronounceable ALL-CAPS consonant-cluster and broadcast-suffix acronyms (such as 'MGTV', 'GCP', and 'SDK') and pure-sonorant double-consonant names (such as 'Alanna' and 'Arianna') from cloud decoder boosting so ordinary speech is never misread as a custom word, while still matching spelled-out letters and phonetic variants locally.",
+        "Prevents auto-learning replacement pairs whose 'hear' side consists purely of common everyday words."
+      ]
+    },
+    {
+      "cycle": 128,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:35",
+      "title": "Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'",
+      "highlights": [
+        "Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.",
+        "Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."
+      ]
+    },
+    {
+      "cycle": 127,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:34",
+      "title": "Cleans up 'change that to', 'switch that to', and 'not X, Y' self-corrections",
+      "highlights": [
+        "When you revise an earlier detail mid-sentence with 'change that to', 'switch that to', or 'actually make it' ('Book it for 7 p.m., change that to 8 p.m.' or 'I will take 2 coffees, actually make it 3'), GeminiFlow updates the earlier word or number in place.",
+        "Cleans up comma-separated 'not X, Y' corrections when you repeat the word you are replacing ('Let us meet on Tuesday, not Tuesday, Wednesday' becomes 'Let us meet on Wednesday')."
+      ]
+    },
+    {
+      "cycle": 126,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:33",
+      "title": "Formats spoken household, cooking, fitness, and '24/7' expressions",
+      "highlights": [
+        "Abbreviates everyday personal, cooking, and fitness measurements after numbers, turning '5 feet 10 inches', '16 ounces', '8 fluid ounces', '2 tablespoons', '1 teaspoon', '2,000 kilocalories', and '120 beats per minute' into '5 ft 10 in', '16 oz', '8 fl oz', '2 tbsp', '1 tsp', '2,000 kcal', and '120 bpm'.",
+        "Turns spoken ratio expressions like '24 slash 7' and '50 slash 50' into '24/7' and '50/50'."
+      ]
+    },
+    {
+      "cycle": 125,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:32",
+      "title": "Formats spoken everyday abbreviations like 'RSVP', 'ASAP', 'FYI', 'ETA', and 'PTO' and group 'pax' ranges",
+      "highlights": [
+        "Turns spoken everyday and workplace abbreviations into uppercase, including 'RSVP', 'ASAP', 'FYI', 'TBD', 'TBA', 'Q&A', 'DIY', 'VIP', 'WFH', 'ETA', 'PTO', and 'OOO'.",
+        "Extends 'pax' dining and event count repair to cover numeric ranges and group questions such as 'table for 2 to 3 pax', '10-12 pax', and 'How many pax for dinner?'."
+      ]
+    },
+    {
+      "cycle": 124,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:31",
+      "title": "Removes filler 'like' before frequency words, everyday verbs, and possessives",
+      "highlights": [
+        "Catches filler 'like' before frequency adverbs ('I like often use', 'we like usually meet on Fridays'), before everyday verbs ('I like need to leave', 'we like want to book a table', 'I like think we should wait', 'I have like never been there'), and after possessives or articles ('my like calendar', 'the like whole thing').",
+        "Simplifies redundant connector pairs such as 'but yet', 'and also too', and 'in case if' into 'but', 'and also', and 'in case'."
+      ]
+    },
+    {
+      "cycle": 123,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:23",
+      "title": "Formats more personal and work email greetings, warm sign-offs, and messaging apps",
+      "highlights": [
+        "Adds paragraph breaks after full-name, family, and role-title email greetings such as 'Hi Sarah Johnson,', 'Dear Hiring Manager,', 'Hi Mom and Dad,', and 'Hey friends,'.",
+        "Formats warm personal and professional email sign-offs onto their own lines, including 'Warmly,', 'All the best,', 'Take care,', 'Speak soon,', 'See you soon,', 'With gratitude,', 'Lots of love,', and 'Yours truly,', and recognizes WeChat, Line, Messenger, and Viber for casual chat punctuation."
+      ]
+    },
+    {
+      "cycle": 122,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:22",
+      "title": "Formats spoken clock times and cleans up two-word conversational restarts",
+      "highlights": [
+        "Turns space-separated spoken clock times and ranges like '3 30 p.m.', '10 15 a.m.', 'at 6 30 tonight', and 'from 2 30 to 3 30 p.m.' into '3:30 p.m.', '10:15 a.m.', 'at 6:30 tonight', and '2:30-3:30 p.m.'.",
+        "Collapses mid-sentence restarts when you pause after a short phrase and start over with a new article or preposition ('I want a, I want the corner table' becomes 'I want the corner table' and 'I talked to the, I talked to my manager' becomes 'I talked to my manager')."
+      ]
+    },
+    {
+      "cycle": 121,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:21",
+      "title": "Cleans up 'make it', 'on second thought', and 'you know what' self-corrections",
+      "highlights": [
+        "When you revise a number, time, or day mid-sentence with 'make it' ('I will be there in 10 minutes, make it 15' or 'Table for 2, make it 4'), GeminiFlow updates the earlier number in place.",
+        "When you change your mind mid-sentence with 'on second thought' or 'actually, you know what' ('Let us meet on Tuesday, on second thought, let us do Wednesday'), GeminiFlow keeps only your updated plan."
+      ]
+    },
+    {
+      "cycle": 120,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:20",
+      "title": "Removes more redundant 'like' fillers and stacked sentence connectors",
+      "highlights": [
+        "Catches filler 'like' in everyday speech after prepositions ('at like 3 p.m.', 'in like 5 minutes', 'with like my friends', 'about like the budget'), before action verbs and contractions ('I like went to the store', 'he like can't make it', 'we're like trying to finish'), and after connectors ('if like', 'when like', 'because like').",
+        "Keeps genuine uses of 'like' untouched ('I like the new design', 'I would like to schedule a call', 'looks like rain') and simplifies stacked connectors like 'because then so that' into 'so that'."
+      ]
+    },
+    {
+      "cycle": 119,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:18",
+      "title": "Fixes '1 pax' and '2 pax' dining and group counts and adds question marks to casual questions",
+      "highlights": [
+        "Fixes '1 pax', '2 pax', '4 pax', and 'per pax' when dictated for dining reservations, travel, and events so they no longer transcribe as '1 packs', 'a 1 packs', '2 packs', or 'per packs', while keeping product phrases like '2 packs of gum' intact.",
+        "Adds a question mark to casual and work questions such as 'Any chance we can move the call to 4 p.m.?', 'Any thoughts on the proposal?', 'Anyone free for lunch today?', 'Want to grab coffee tomorrow?', and 'Mind if we reschedule?'."
+      ]
+    },
+    {
+      "cycle": 118,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:02",
+      "title": "Formats more technical slash pairs like 'pub/sub', 'key/value', 'UI/UX', and 'HTTP/2'",
+      "highlights": [
+        "Turns spoken technical slash pairs like 'pub slash sub', 'key slash value', 'request slash response', 'primary slash replica', 'active slash passive', 'producer slash consumer', 'UI slash UX', 'HTTP slash 2', and 'HTTP slash 3' into clean slash expressions.",
+        "Expands spoken Git and project folder slash paths to cover 'release/v1.2', 'refactor/audio', 'docs/api', and 'tests/e2e'."
+      ]
+    },
+    {
+      "cycle": 117,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:01",
+      "title": "Hyphenates AI and systems modifiers and restores casing on AI, database, and testing brands",
+      "highlights": [
+        "Hyphenates spoken technical modifiers before their nouns, including 'fine-tuned model', 'pre-trained weights', 'self-hosted runner', 'thread-safe cache', 'type-safe client', 'zero-copy buffers', 'event-driven pipeline', and 'non-blocking io'.",
+        "Restores proper capitalization on AI, database, and developer tool names including 'Anthropic', 'HuggingFace', 'LangChain', 'LlamaIndex', 'DuckDB', 'ClickHouse', 'DynamoDB', 'RabbitMQ', 'Datadog', 'PostHog', 'Playwright', 'Vitest', and 'Turborepo'."
+      ]
+    },
+    {
+      "cycle": 116,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 15:00",
+      "title": "Formats spoken Asia-Pacific currencies, inequality symbols, and '10x' multipliers",
+      "highlights": [
+        "Turns spoken currency amounts like '500 Hong Kong dollars', '80 New Zealand dollars', '1,000 New Taiwan dollars', '5,000 Indian rupees', and '10,000 Korean won' into 'HK$500', 'NZ$80', 'NT$1,000', '\u20b95,000', and '\u20a910,000'.",
+        "Formats spoken math comparisons and multipliers before numbers, turning 'greater than or equal to 95 percent', 'less than or equal to 100 milliseconds', and '10 x speedup' into '\u226595%', '\u2264100 ms', and '10x speedup'."
+      ]
+    },
+    {
+      "cycle": 115,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:59",
+      "title": "Formats spoken bold, italics, curly braces, and angle brackets",
+      "highlights": [
+        "Wraps phrases in Markdown bold or italics when you say 'bold ... end bold' or 'italic ... end italic' ('Make this bold high priority end bold' becomes 'Make this **high priority**').",
+        "Wraps template variables and tags in curly braces or angle brackets when you say 'open curly brace ... close curly brace' or 'open angle bracket ... close angle bracket'."
+      ]
+    },
+    {
+      "cycle": 114,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:58",
+      "title": "Formats spoken Markdown headings and checkbox task lists",
+      "highlights": [
+        "Turns spoken headings at the start of a line like 'Heading 1: Quarterly roadmap' or 'Heading 2 key milestones' into '# Quarterly roadmap' and '## Key milestones'.",
+        "Formats spoken task items when you say 'checkbox item ... next checkbox ...' or 'todo item ... next todo ...' into Markdown '- [ ] ' checklists."
+      ]
+    },
+    {
+      "cycle": 113,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:52",
+      "title": "Cleans up 'let me correct that' and 'correction' mid-sentence fixes",
+      "highlights": [
+        "When you correct yourself mid-sentence with 'let me correct that' or a comma-separated 'correction' ('The meeting is on Tuesday, let me correct that, Wednesday at 2 p.m.' or 'We shipped 12 builds today, correction, 15 builds'), GeminiFlow replaces the earlier detail automatically.",
+        "Leaves normal uses of the word 'correction' in everyday sentences like 'Make a small correction to the file' untouched."
+      ]
+    },
+    {
+      "cycle": 112,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:51",
+      "title": "Joins split software compound words like 'frontend', 'backend', 'runtime', and 'timeout'",
+      "highlights": [
+        "Joins split technical nouns like 'frontend', 'backend', 'runtime', 'timeout', 'rollback', and 'fallback' when dictated in software phrases, while keeping everyday verb phrases like 'roll back the changes' or 'front end of the train' as separate words.",
+        "Combines common two-part engineering terms including 'dataset', 'firewall', 'hostname', 'username', 'filename', 'breakpoint', 'checkpoint', 'deadlock', 'payload', and 'backlog'."
+      ]
+    },
+    {
+      "cycle": 111,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:50",
+      "title": "Formats spoken quotation marks, parentheses, and square brackets",
+      "highlights": [
+        "Wraps phrases in quotes when you say 'quote ... unquote' or 'open quote ... close quote' ('Set status to quote ready for review unquote' becomes 'Set status to \"ready for review\"').",
+        "Wraps spoken asides and tags in parentheses or square brackets when you say 'open paren ... close paren' or 'open bracket ... close bracket'."
+      ]
+    },
+    {
+      "cycle": 110,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:48",
+      "title": "Formats spoken aspect ratios, video resolutions, and metric units",
+      "highlights": [
+        "Turns spoken display aspect ratios and video resolutions like '16 by 9', '21 by 9', '4 by 3 aspect ratio', '10 80 p', and '4 k video' into '16:9', '21:9', '4:3 aspect ratio', '1080p', and '4K video'.",
+        "Abbreviates spoken metric weight, length, and volume units after numbers, turning '500 milligrams', '2.5 kilograms', '15 millimeters', '30 centimeters', '5 kilometers', and '250 milliliters' into '500 mg', '2.5 kg', '15 mm', '30 cm', '5 km', and '250 mL'."
+      ]
+    },
+    {
+      "cycle": 109,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:47",
+      "title": "Formats more command-line flags and keeps multi-sentence prose capitalized in code editors",
+      "highlights": [
+        "Turns multi-word and single-dash command flags like 'git merge dash dash ff only', 'docker build dash dash no cache', 'go test dash v', 'tail dash f', and 'kill dash 9' into 'git merge --ff-only', 'docker build --no-cache', 'go test -v', 'tail -f', and 'kill -9'.",
+        "Preserves capitalization and periods on multi-sentence notes starting with words like 'Make sure' or 'Go ahead' inside code editors while still formatting single-line terminal commands."
+      ]
+    },
+    {
+      "cycle": 108,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:38",
+      "title": "Keeps capitalization on bullet list items and cleans up dictation inside quotes",
+      "highlights": [
+        "When you start dictating after a bullet or task list marker like '- ', '* ', or '- [ ] ', GeminiFlow keeps the first word of the list item capitalized instead of lowercasing it.",
+        "When you place your cursor inside quotation marks mid-sentence, GeminiFlow leaves out the extra period and trailing space before the closing quote."
+      ]
+    },
+    {
+      "cycle": 107,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:37",
+      "title": "Formats spoken email Subject lines and preserves dotted arguments in terminal commands",
+      "highlights": [
+        "Turns spoken email headers like 'Subject colon quarterly roadmap update. Hi Sarah, thanks for the notes.' into a clean 'Subject: Quarterly roadmap update' line followed by a blank line before the greeting.",
+        "Keeps terminal commands lowercase and removes the trailing period even when arguments contain dotted filenames or paths like 'git add main.m' or 'python3 tests/run_tests.py'."
+      ]
+    },
+    {
+      "cycle": 106,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:36",
+      "title": "Formats spoken 'plus or minus', powers, and area, volume, and speed units",
+      "highlights": [
+        "Turns spoken expressions like 'plus or minus 5 percent' and '10 to the power of 6' into '\u00b15%' and '10^6'.",
+        "Abbreviates spoken area, volume, and speed units after numbers, turning '120 square meters', '1,500 square feet', '300 cubic meters', '65 miles per hour', and '105 kilometers per hour' into '120 m\u00b2', '1,500 sq ft', '300 m\u00b3', '65 mph', and '105 km/h'."
+      ]
+    },
+    {
+      "cycle": 105,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:35",
+      "title": "Formats spoken code backticks and hex color codes",
+      "highlights": [
+        "Wraps spoken inline code in backticks, turning 'backtick main dot m backtick' and 'backtick max underscore retries backtick' into '`main.m`' and '`max_retries`'.",
+        "Turns spoken hex color codes like 'hash 3 8 d c 8 2', 'hex f f 5 7 3 3', and 'hash f f f' into '#38DC82', '#FF5733', and '#FFF'."
+      ]
+    },
+    {
+      "cycle": 104,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:34",
+      "title": "Formats spoken HTTP status codes like '404 error', 'HTTP 503', and '200 OK'",
+      "highlights": [
+        "Turns spoken web status codes in error and response phrases like 'four oh four error', 'HTTP five oh three service unavailable', 'five oh two bad gateway', and 'two hundred okay' into '404 error', 'HTTP 503 service unavailable', '502 bad gateway', and '200 OK'.",
+        "Leaves normal numbers in everyday sentences like 'five hundred people in room four oh four' untouched."
+      ]
+    },
+    {
+      "cycle": 103,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:22",
+      "title": "Cleans up 'let me rephrase' and 'let me start over' self-corrections and higher ordinals",
+      "highlights": [
+        "When you change your mind mid-sentence with 'let me rephrase', 'let me rephrase that', or 'let me start over', GeminiFlow removes the earlier draft and keeps only your revised sentence or clause.",
+        "Expands spoken ordinal number self-corrections through 'thirteenth' to 'thirtieth' ('On the thirteenth floor, wait, fifteenth floor' becomes 'On the fifteenth floor')."
+      ]
+    },
+    {
+      "cycle": 102,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:20",
+      "title": "Formats spoken Canadian, Australian, Singapore, and Swiss currencies and hardware units",
+      "highlights": [
+        "Turns spoken currency amounts like '50 Canadian dollars', '80 Australian dollars', '100 Singapore dollars', and '2.5 million Swiss francs' into 'CA$50', 'A$80', 'S$100', and 'CHF 2.5 million'.",
+        "Abbreviates spoken hardware, battery, and audio measurements after numbers, turning '120 hertz', '96 watts', '5,000 milliamp hours', and '24 decibels' into '120 Hz', '96 W', '5,000 mAh', and '24 dB'."
+      ]
+    },
+    {
+      "cycle": 101,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:18",
+      "title": "Formats spoken Git branch names and single-dash command flags",
+      "highlights": [
+        "Turns spoken Git remote and branch references like 'origin slash main', 'upstream slash main', 'feature slash oauth', and 'hotfix slash login' into 'origin/main', 'upstream/main', 'feature/oauth', and 'hotfix/login'.",
+        "Formats spoken single-dash command-line flags such as 'git checkout dash b', 'git commit dash m', 'rm dash rf', 'ls dash la', and 'pytest dash v' into 'git checkout -b', 'git commit -m', 'rm -rf', 'ls -la', and 'pytest -v'."
+      ]
+    },
+    {
+      "cycle": 100,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:16",
+      "title": "Joins 4-letter split acronyms and more developer terms across speech engines",
+      "highlights": [
+        "Combines 4-part split acronyms and technical names like 'g r p c', 'u u i d', 'c o r s', 'fast a p i', and 'tailwind c s s' into 'gRPC', 'UUID', 'CORS', 'FastAPI', and 'TailwindCSS' when cross-checking both speech engines.",
+        "Expands built-in recognition for cloud, database, and developer terms including 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Redis', 'SQLite', 'CocoaPods', and 'VoiceOver'."
+      ]
+    },
+    {
+      "cycle": 99,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 14:15",
+      "title": "Cleans up two-word mid-thought restarts and speeds up phrase repetition checks",
+      "highlights": [
+        "Collapses mid-sentence restarts where you pause after a two-word connector like 'to the' or 'on the' and repeat the start of your phrase ('We should ship to the we should ship the update tomorrow' becomes 'We should ship the update tomorrow').",
+        "Uses fast in-memory buffers during phrase stutter and voice activity checks so short and medium dictations avoid extra memory allocations."
+      ]
+    },
+    {
+      "cycle": 98,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:58",
+      "title": "Formats spoken IPv4 addresses, API and file paths, and 'v1.2.0' version tags",
+      "highlights": [
+        "Turns spoken local and network IPv4 addresses like '127 dot 0 dot 0 dot 1 colon 8080', '192 dot 168 dot 1 dot 1', and '10 dot 0 dot 0 dot 1 slash 24' into '127.0.0.1:8080', '192.168.1.1', and '10.0.0.1/24'.",
+        "Formats spoken API routes, Unix paths, and version tags such as 'slash api slash v1 slash users', 'slash etc slash hosts', 'src slash components slash button dot tsx', and 'v 1 point 2 point 0' into '/api/v1/users', '/etc/hosts', 'src/components/button.tsx', and 'v1.2.0'."
+      ]
+    },
+    {
+      "cycle": 97,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:52",
+      "title": "Restores casing on cloud, '.js' framework, and Apple developer names",
+      "highlights": [
+        "Formats spoken '.js' framework names and cloud services including 'Next.js' (whether spoken as 'nextjs' or 'next dot js'), 'Vue.js', 'Node.js', 'Nuxt.js', 'NestJS', 'Three.js', 'TailwindCSS', 'Kubernetes', 'Cloudflare', 'Supabase', 'Vercel', 'Netlify', 'Firebase', 'Redis', 'SQLite', and 'gRPC'.",
+        "Restores official capitalization on Apple developer tools and platforms including 'iPadOS', 'Xcode', 'TestFlight', 'CocoaPods', and 'VoiceOver'."
+      ]
+    },
+    {
+      "cycle": 96,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:51",
+      "title": "Hyphenates spoken modifiers like 'open-source', 'cross-platform', and 'built-in'",
+      "highlights": [
+        "Adds hyphens to common technical modifiers before their nouns, turning 'open source library', 'cross platform support', 'built in cache', 'client side validation', 'server side rendering', 'in memory store', 'low latency streaming', 'high priority bug', and 'long running session' into hyphenated compounds.",
+        "Keeps normal phrases like 'built in Swift' or 'kept in memory' unchanged without hyphens."
+      ]
+    },
+    {
+      "cycle": 95,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:50",
+      "title": "Formats spoken Japanese yen and latency units like 'ms', '\u00b5s', and 'kbps'",
+      "highlights": [
+        "Formats spoken yen amounts such as '5,000 yen' and '10 million yen' into '\u00a55,000' and '\u00a510 million'.",
+        "Abbreviates spoken latency and audio bitrate measurements after numbers, turning '188.5 milliseconds', '45 microseconds', '10 nanoseconds', and '64 kilobits per second' into '188.5 ms', '45 \u00b5s', '10 ns', and '64 kbps'."
+      ]
+    },
+    {
+      "cycle": 94,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:49",
+      "title": "Formats spoken environment variables and underscore code names",
+      "highlights": [
+        "Turns spoken underscore identifiers like 'max underscore retries' and 'user underscore id' into 'max_retries' and 'user_id', and uppercases well-known environment variables like 'node underscore env' and 'gemini underscore api underscore key' into 'NODE_ENV' and 'GEMINI_API_KEY'.",
+        "Leaves normal sentences that use 'underscore' as a verb untouched."
+      ]
+    },
+    {
+      "cycle": 93,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:36",
+      "title": "Smarter Custom Words learning for dotted tech names and possessive names",
+      "highlights": [
+        "When you edit spoken words into dotted, slashed, or hyphenated names like 'Next.js', 'Vue.js', or 'CI/CD' after pasting, GeminiFlow now recognizes the full name and offers to remember it in Custom Words.",
+        "When you fix the spelling of a possessive name like 'Owen's' to 'Eoin's', GeminiFlow automatically learns the base name ('Owen' to 'Eoin') so future dictations match both forms."
+      ]
+    },
+    {
+      "cycle": 92,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:35",
+      "title": "Cleaner dictation inside and right after parentheses and brackets",
+      "highlights": [
+        "When you place your cursor inside empty parentheses or square brackets and dictate a note, GeminiFlow keeps the first word lowercase and leaves out the extra period and trailing space before the closing bracket.",
+        "Adds a leading space and lowercases continuing words when you dictate immediately after a closing parenthesis or bracket mid-sentence."
+      ]
+    },
+    {
+      "cycle": 91,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:34",
+      "title": "Formats spoken pull requests, issue numbers, and platform version numbers",
+      "highlights": [
+        "Turns spoken references like 'pull request 42', 'PR 105', 'issue number 108', 'ticket number 512', and 'bug number 79' into 'PR #42', 'PR #105', 'issue #108', 'ticket #512', and 'bug #79'.",
+        "Formats spoken version numbers after platform and tool names such as 'iOS 18 point 2', 'macOS 15 point 1', and 'Python 3 point 12 point 1' into 'iOS 18.2', 'macOS 15.1', and 'Python 3.12.1'."
+      ]
+    },
+    {
+      "cycle": 90,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:33",
+      "title": "Formats spoken keyboard shortcuts like 'Cmd+Shift+P' and 'Ctrl+C'",
+      "highlights": [
+        "Turns spoken keyboard shortcuts such as 'command shift P', 'command option escape', 'press command A', 'command C', 'command V', and 'control C' into 'Cmd+Shift+P', 'Cmd+Opt+Esc', 'press Cmd+A', 'Cmd+C', 'Cmd+V', and 'Ctrl+C'.",
+        "Leaves ordinary sentences like 'command a large fleet' or 'control a remote system' untouched."
+      ]
+    },
+    {
+      "cycle": 89,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:32",
+      "title": "Faster settings and combined vocabulary lookup across dictations",
+      "highlights": [
+        "Checks whether your rules settings file has changed on disk before reading it, avoiding repeat file reads when your settings are unchanged.",
+        "Reuses the combined vocabulary list in memory when neither your Custom Words nor your rules file has changed."
+      ]
+    },
+    {
+      "cycle": 88,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:16",
+      "title": "Formats spoken dotfiles like '.env' and '.gitignore' and more terminal commands",
+      "highlights": [
+        "Turns spoken dotfiles like 'dot env', 'dot env dot local', 'dot gitignore', 'dot zshrc', and 'dot npmrc' into '.env', '.env.local', '.gitignore', '.zshrc', and '.npmrc', and adds support for shell, Protobuf, GraphQL, SQLite, and Xcode project extensions.",
+        "Keeps more spoken command-line tools in lowercase when dictating into code editors and terminals, including 'swift', 'gh', 'uv', 'bun', 'pnpm', 'terraform', 'kubectl', and 'gcloud'."
+      ]
+    },
+    {
+      "cycle": 87,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:15",
+      "title": "Formats spoken euros, pounds, and computing units like 'GB', 'Mbps', and 'kHz'",
+      "highlights": [
+        "Formats spoken euro and pound amounts such as '20 euros and 50 cents', '3.5 million euros', '25 pounds and 50 pence', and '100 million pounds' into '\u20ac20.50', '\u20ac3.5 million', '\u00a325.50', and '\u00a3100 million'.",
+        "Abbreviates spoken technical units after numbers, turning '16 gigabytes', '500 megabytes', '100 megabits per second', '16 kilohertz', '2.4 gigahertz', and '60 frames per second' into '16 GB', '500 MB', '100 Mbps', '16 kHz', '2.4 GHz', and '60 fps'."
+      ]
+    },
+    {
+      "cycle": 86,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:14",
+      "title": "Formats spoken web links, URL paths, and developer brand names",
+      "highlights": [
+        "Turns spoken web addresses and local server paths such as 'https colon slash slash docs dot github dot com slash en slash actions' and 'http colon slash slash localhost colon 3000 slash api slash v1' into clean links.",
+        "Restores proper capitalization on developer and tech names including 'TypeScript', 'JavaScript', 'GraphQL', 'PostgreSQL', 'MongoDB', 'FastAPI', 'PyTorch', 'OpenAI', 'DeepSeek', 'GitLab', 'SwiftUI', and 'WebSocket'."
+      ]
+    },
+    {
+      "cycle": 85,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:12",
+      "title": "Skips disk reads when your Custom Words file has not changed",
+      "highlights": [
+        "Checks the file modification timestamp on your Custom Words list before reading from disk, avoiding repeat file reads on every dictation when your list is unchanged.",
+        "Reuses the prepared vocabulary and replacement pair lists in memory across turns."
+      ]
+    },
+    {
+      "cycle": 84,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 13:11",
+      "title": "Cleans up 'oops', 'whoops', and 'my bad' self-corrections and tech environment swaps",
+      "highlights": [
+        "Recognizes natural self-correction cues like 'oops', 'whoops', 'my bad', and 'oh my bad' ('Send it on Monday, my bad, Tuesday' becomes 'Send it on Tuesday').",
+        "Handles quick swaps between technical environments and modes such as 'Deploy to staging, sorry, production' and 'Update the frontend, wait, backend'."
+      ]
+    },
+    {
+      "cycle": 83,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:49",
+      "title": "Cleans up contraction stutters like 'I'm I am' and 'we're we are'",
+      "highlights": [
+        "When you start a word as a contraction and immediately repeat it in full ('I'm I am going to ship it', 'we're we are ready', 'it's it is working', or 'don't do not touch that'), GeminiFlow keeps only the resolved phrase.",
+        "Also cleans up the reverse restart ('I am I'm going to ship it' to 'I'm going to ship it')."
+      ]
+    },
+    {
+      "cycle": 82,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:48",
+      "title": "Joins more split software terms like 'webhook', 'dashboard', and 'pipeline'",
+      "highlights": [
+        "Combines developer terms that speech recognizers often split into two words, including 'web hook', 'key chain', 'hot key', 'life cycle', 'middle ware', 'meta data', 'frame work', 'sand box', 'screen shot', 'pipe line', 'dash board', 'bench mark', 'dead lock', 'host name', 'user name', 'pass word', 'file name', and 'byte code'.",
+        "Cross-checks these compound terms across both speech engines so your technical dictations stay clean."
+      ]
+    },
+    {
+      "cycle": 81,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:47",
+      "title": "Faster vocabulary and word-replacement caching during text cleanup",
+      "highlights": [
+        "Caches your cleaned custom vocabulary list and pre-built replacement patterns in memory when your settings files have not changed.",
+        "Skips compound-word cleanup checks when a sentence does not contain any matching stems."
+      ]
+    },
+    {
+      "cycle": 80,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:44",
+      "title": "Automatic log rotation during long-running sessions",
+      "highlights": [
+        "Rotates the diagnostic log file automatically during long-running dictation sessions whenever it reaches 5 MB, instead of only checking when the app starts.",
+        "Protects log timestamp formatting when background network tasks and the main app log at the same time."
+      ]
+    },
+    {
+      "cycle": 79,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:42",
+      "title": "Smarter question marks for negative questions, 'What's', and tag questions",
+      "highlights": [
+        "Adds a question mark reliably on negative questions ('Can't we meet at 3:00 p.m.?', 'Don't you think we should wait?'), contracted questions ('What's the plan for 3:00 p.m.?', 'How's the release going?'), 'What if' and 'Which' questions, and tag questions ('We are still meeting at 3:00 p.m., aren't we?', 'You updated the baseline, didn't you?').",
+        "Keeps imperative sentences like 'Do the migration tomorrow.' and 'Have a great weekend.' as statements with a period."
+      ]
+    },
+    {
+      "cycle": 78,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:19",
+      "title": "Improves British accent and technical phrase recognition on-device",
+      "highlights": [
+        "Repairs common on-device mishearings on British and fast voices such as 'fixed the bag' ('fixed the bug'), 'feels really Rispo' ('feels really responsive'), and 'off the laptop link to sleep' ('after the laptop wakes from sleep').",
+        "Preserves ordinary phrases like 'carry the bag' or 'in the bag' untouched."
+      ]
+    },
+    {
+      "cycle": 77,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:18",
+      "title": "Hyphenates spoken technical modifiers like 'end-to-end' and 'real-time'",
+      "highlights": [
+        "Formats spoken compound modifiers before their nouns, turning 'end to end tests', 'real time audio', 'read only mode', 'command line tool', 'out of the box support', 'zero downtime deployment', 'on call rotation', and 'hands on workshop' into 'end-to-end tests', 'real-time audio', 'read-only mode', 'command-line tool', 'out-of-the-box support', 'zero-downtime deployment', 'on-call rotation', and 'hands-on workshop'.",
+        "Leaves standalone phrases like 'from end to end' or 'in real time' unchanged."
+      ]
+    },
+    {
+      "cycle": 76,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:17",
+      "title": "Faster Custom Words lookup and replacement matching",
+      "highlights": [
+        "Caches your Custom Words list in memory between dictations when the file on disk has not changed, avoiding repeat file parsing on every sentence.",
+        "Reuses compiled matching patterns when applying 'When you hear X, write Y' word replacements."
+      ]
+    },
+    {
+      "cycle": 75,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:15",
+      "title": "Fixes 'defer loading' and 'settings screen' phrasing across speech engines",
+      "highlights": [
+        "Repairs 'differ loading' or 'differ rendering' to 'defer loading' and 'defer rendering' when followed by an action word, while keeping real comparisons like 'differ from the baseline' untouched.",
+        "Restores the dropped plural in 'the setting screen' or 'user setting menu' ('the settings screen', 'user settings menu') and keeps capitalized compound words like 'Code Base' formatted cleanly as 'Codebase'."
+      ]
+    },
+    {
+      "cycle": 74,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 12:10",
+      "title": "More reliable background finishing for multi-part live dictations",
+      "highlights": [
+        "When a long dictation with multiple speech segments finishes in the background while you start a new press, GeminiFlow now tracks each segment's completion echo and covered audio position individually.",
+        "Prevents an earlier segment's completion signal from ending the final segment early."
+      ]
+    },
+    {
+      "cycle": 73,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:51",
+      "title": "Joins split software compound words and fixes 'first, then on' phrasing",
+      "highlights": [
+        "Combines software compound words that speech recognizers often split apart, turning 'mock ups', 'code base', 'work flow', 'end point', 'time stamp', 'name space', 'data base', 'change log', and 'tool chain' into 'mockups', 'codebase', 'workflow', 'endpoint', 'timestamp', 'namespace', 'database', 'changelog', and 'toolchain'.",
+        "Fixes 'on reliability first thing on speed' to 'on reliability first, then on speed' while keeping real schedule phrases like 'first thing on Monday' untouched."
+      ]
+    },
+    {
+      "cycle": 72,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:50",
+      "title": "Smarter Custom Words learning for 3-letter acronyms and capitalization edits",
+      "highlights": [
+        "When you edit spaced letters like 'L L M' or 'S Q L' into 'LLM' or 'SQL' after pasting, GeminiFlow now recognizes the 3-word edit and offers to remember it in Custom Words.",
+        "Ignores simple first-letter capitalization changes on ordinary words ('meeting' to 'Meeting') while still learning real mixed-case brand and tech edits ('graphql' to 'GraphQL')."
+      ]
+    },
+    {
+      "cycle": 71,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:49",
+      "title": "Recovers compound tech names and two-word Custom Words across both speech engines",
+      "highlights": [
+        "When Apple's on-device listener recognizes a compound technical name or Custom Word like 'WebSocket', 'SwiftUI', 'PostgreSQL', or 'GeminiFlow' where the cloud transcript split it into two words ('web socket', 'Gemini flow'), GeminiFlow merges it into the proper spelling automatically.",
+        "Also cross-checks two-word Custom Words ('Agent Studio') against Apple's on-device transcript when the surrounding sentence matches."
+      ]
+    },
+    {
+      "cycle": 70,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:48",
+      "title": "Finishes background live dictations faster when the final pause has no speech",
+      "highlights": [
+        "When you start a second dictation right after releasing the first and the first dictation's final turn closes with only silence or a key click after earlier speech, GeminiFlow now finishes the first dictation immediately in 0.15 seconds instead of waiting 1.5 seconds.",
+        "If the first dictation had no earlier text, it switches to the backup transcription service right away instead of waiting out the full timeout."
+      ]
+    },
+    {
+      "cycle": 69,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:47",
+      "title": "Smarter mid-sentence cursor spacing and natural 'Scratch that' voice undo phrases",
+      "highlights": [
+        "Improves mid-sentence dictation continuation when inserting a new sentence before continuing text or when the text after your cursor has no leading space.",
+        "Recognizes natural voice undo phrases such as 'Oops, scratch that, please', 'Oh, sorry, undo the last sentence', and 'Wait, delete last dictation'."
+      ]
+    },
+    {
+      "cycle": 68,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:24",
+      "title": "Protects live audio streaming against uneven sample boundaries on reconnects",
+      "highlights": [
+        "Ensures every live audio chunk, reconnect resend, and planned session rotation stays aligned on exact 16-bit audio sample boundaries and within the recorded audio buffer.",
+        "Prevents audio clicks or range errors if a network reconnect or turn split resumes from an uneven byte offset."
+      ]
+    },
+    {
+      "cycle": 67,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:22",
+      "title": "Formats spoken filenames, slash compounds, and command-line flags",
+      "highlights": [
+        "Turns spoken developer and document filenames like 'main dot m', 'package dot json', 'readme dot md', 'index dot ts', and 'report dot pdf' into 'main.m', 'package.json', 'README.md', 'index.ts', and 'report.pdf'.",
+        "Formats spoken slash expressions and command-line flags such as 'and slash or', 'yes slash no', 'CI slash CD', 'TCP slash IP', 'I slash O', 'dash dash help', and 'dash dash dry run' into 'and/or', 'yes/no', 'CI/CD', 'TCP/IP', 'I/O', '--help', and '--dry-run'."
+      ]
+    },
+    {
+      "cycle": 66,
+      "scope": "mac",
+      "timestamp": "14 Nov \u00b7 11:21",
+      "title": "Refreshes the microphone automatically when your Mac wakes from sleep",
+      "highlights": [
+        "Detects when your Mac wakes from sleep while GeminiFlow is idle and refreshes the audio input engine right away.",
+        "Prevents the first dictation after opening your laptop lid from hitting a stale microphone connection or waiting for an automatic retry."
+      ]
+    },
+    {
+      "cycle": 65,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:19",
+      "title": "Shared iOS and Mac support for app-aware formatting, mid-sentence continuation, and voice undo",
+      "highlights": [
+        "Extends app-aware formatting to recognize popular iOS email, chat, and terminal apps alongside Mac apps.",
+        "Adds cross-platform engine hooks so iOS keyboards and host apps can supply surrounding cursor text for mid-sentence lowercase continuation and handle 'Scratch that' voice undo automatically."
+      ]
+    },
+    {
+      "cycle": 64,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 11:16",
+      "title": "Queues on-device audio file fallback when a new dictation is already recording",
+      "highlights": [
+        "When an earlier dictation falls back to Apple's on-device audio file recognizer while you are already speaking a new dictation, GeminiFlow now waits until you release the key before running the file recognizer so the two never compete for the on-device speech engine.",
+        "Preserves your exact dictation order by processing the queued recording right before delivering deferred pastes."
+      ]
+    },
+    {
+      "cycle": 63,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:39",
+      "title": "Zero-warning macOS 27 build and online slow split-turn test verification",
+      "highlights": [
+        "Updates audio tap compilation so GeminiFlow builds cleanly with zero compiler warnings on the latest macOS 27 SDK.",
+        "Adds an online test mode to simulate slow mid-dictation turn responses and verify that no spoken words are dropped while waiting."
+      ]
+    },
+    {
+      "cycle": 62,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:38",
+      "title": "Finishes rapid back-to-back dictations in parallel on Gemini Live",
+      "highlights": [
+        "When you release Fn and immediately start a new dictation before the previous one finishes, GeminiFlow now keeps the previous live connection open in the background for up to 1.5 seconds while starting a fresh connection for your new press.",
+        "Delivers the first dictation in a fraction of a second without having to re-send its entire audio recording to the slower backup service."
+      ]
+    },
+    {
+      "cycle": 61,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:30",
+      "title": "Fixes 'bill' vs 'build' in software phrases and formats spoken versions and ports",
+      "highlights": [
+        "When you dictate software phrases like 'ship the new build' or 'deploy the staging build', GeminiFlow now writes 'build' instead of 'bill', while leaving everyday sentences like 'pay the bill' or 'I have a bill tomorrow' untouched.",
+        "Formats spoken software version numbers and local ports such as 'version 2 point 4', 'version 1 point 0 point 2', 'localhost colon 3000', and 'port 80 80' into 'version 2.4', 'version 1.0.2', 'localhost:3000', and 'port 8080'."
+      ]
+    },
+    {
+      "cycle": 60,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:29",
+      "title": "Faster backup transcription on long dictations and protection for recordings over 8 minutes",
+      "highlights": [
+        "When a long dictation needs the backup transcription service after most of your speech was already confirmed live, GeminiFlow now sends only the unfinished tail and stitches it seamlessly onto the confirmed text.",
+        "Caps inline backup audio safely under Google's 20 MB request limit so recordings longer than 8 minutes never fail with an oversized payload error."
+      ]
+    },
+    {
+      "cycle": 59,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 10:28",
+      "title": "Connects to Gemini Live while the microphone starts and stops waiting sooner after you let go",
+      "highlights": [
+        "Starts the Gemini Live connection at the exact moment you press Fn in parallel with starting the microphone and status pill, cutting 65 to 350 milliseconds off connection setup on short presses.",
+        "Stops the post-release audio cushion as soon as your microphone captures quiet audio past the key release instead of always waiting the full 120 milliseconds."
+      ]
+    },
+    {
+      "cycle": 58,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:45",
+      "title": "Mid-sentence continuation after deleting words, 'oh sorry' self-corrections, and date formatting",
+      "highlights": [
+        "On Mac, when you delete a word and restart dictation in the middle of a sentence, GeminiFlow now continues with a lowercase word and matching spacing instead of starting with a capital letter.",
+        "Catches 'oh sorry' and 'sorry' mid-thought course corrections (such as 'I want to go at two, oh sorry, hey, I want to go at three') even when there is a pause before or after 'oh sorry', and formats spoken dates and phone numbers."
+      ]
+    },
+    {
+      "cycle": 57,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:38",
+      "title": "Formats spoken email addresses, web domains, and tech brand names",
+      "highlights": [
+        "Turns spoken email addresses and websites like 'sarah at acme dot com' and 'docs dot github dot com' into 'sarah@acme.com' and 'docs.github.com' while leaving normal sentences like 'look at example.com' intact.",
+        "Automatically capitalizes tech brand names like iPhone, iPad, iMac, iCloud, macOS, AirPods, MacBook, GitHub, and YouTube."
+      ]
+    },
+    {
+      "cycle": 56,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:35",
+      "title": "Keeps words spoken across mid-dictation turn splits without gaps or duplicates",
+      "highlights": [
+        "When the live server closes a speech turn while you are still talking, GeminiFlow re-sends the last fraction of a second of audio into the next turn so words in flight are never clipped.",
+        "Automatically removes any repeated boundary words when stitching live speech segments together."
+      ]
+    },
+    {
+      "cycle": 55,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:28",
+      "title": "Finishes 10-minute hands-free dictations smoothly even if the session expires at release",
+      "highlights": [
+        "If Google's 10-minute live session limit is reached right after you stop a long hands-free dictation, GeminiFlow keeps everything transcribed so far and finishes only the last few seconds on a fresh live connection.",
+        "Avoids falling back to re-sending the entire 10-minute recording from scratch when only the final sentence is still pending."
+      ]
+    },
+    {
+      "cycle": 54,
+      "scope": "engine",
+      "timestamp": "14 Nov \u00b7 09:25",
+      "title": "Keeps back-to-back dictations cleanly separated and protects the status pill",
+      "highlights": [
+        "When you finish one dictation and immediately start another, leftover audio from the first press can no longer spill into the start of the new recording.",
+        "Prevents a background API key check from covering the status pill while a dictation is still finishing, and removes unused internal session state."
+      ]
+    },
+    {
+      "cycle": 53,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:55",
+      "title": "Faster text cleanup and smoother installs on Apple M1 Macs",
+      "highlights": [
+        "Skips unnecessary text cleanup passes when a sentence has no numbers, spoken line breaks, or extra filler phrases, cutting text polish time significantly.",
+        "Fixes a self-test speed check that could block install.sh and update.sh on Apple M1 Macs under normal background load (GitHub issue #1)."
+      ]
+    },
+    {
+      "cycle": 52,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 22:45",
+      "title": "Learns new custom words when you fix a spelling after pasting",
+      "highlights": [
+        "When you manually fix the spelling of a name or special term right after pasting ('Shavon' to 'Siobhan' or 'Zebra' to 'Zyphra'), GeminiFlow notices the edit and offers a one-click 'Remember in Custom Words' item in the menu bar.",
+        "Ignores ordinary sentence edits and common words so it only suggests real names, brands, and technical terms."
+      ]
+    },
+    {
+      "cycle": 51,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:32",
+      "title": "Formats spoken currencies, percentages, temperatures, and question marks naturally",
+      "highlights": [
+        "Turns spoken numbers like '20 dollars and 50 cents', '$3.5 million dollars', '25.5 percent', '98.6 degrees', '1920 by 1080', and 'from 2 to 3 p.m.' into clean '$20.50', '$3.5 million', '25.5%', '98.6\u00b0', '1920x1080', and '2-3 p.m.' automatically.",
+        "Adds a question mark reliably when a question ends with 'a.m.' or 'p.m.' ('Can we meet at 3:00 p.m.?') or after a mid-sentence self-correction."
+      ]
+    },
+    {
+      "cycle": 50,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 22:25",
+      "title": "Say 'Scratch that' to undo your last paste and protect against window switches",
+      "highlights": [
+        "If you say 'Scratch that' or 'Undo that' right after a dictation is pasted, GeminiFlow removes the text it just typed instead of pasting the words 'Scratch that'.",
+        "If you switch to a different app before a dictation finishes, GeminiFlow copies the text safely to your clipboard instead of pasting into the wrong window."
+      ]
+    },
+    {
+      "cycle": 49,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:20",
+      "title": "Finishes dictation right away when you pause before letting go of Fn",
+      "highlights": [
+        "Watches the last fraction of a second of audio before you release the key and skips the extra 120ms wait when you have already finished speaking.",
+        "Keeps the full safety cushion whenever you are still speaking as you let go, so your last syllable is never cut off."
+      ]
+    },
+    {
+      "cycle": 48,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:15",
+      "title": "Combines both speech engines to catch small skipped words",
+      "highlights": [
+        "Cross-checks Google's cloud transcript with Apple's on-device listener at the moment you release the key, with zero extra wait.",
+        "Recovers quick connecting words like 'a', 'the', and 'to' that can get swallowed in fast speech, and prefers your Custom Words when the two engines hear a sound-alike differently."
+      ]
+    },
+    {
+      "cycle": 47,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 22:10",
+      "title": "Adapts formatting to the app you are typing in",
+      "highlights": [
+        "In email apps like Mail, Superhuman, Mimestream, and Outlook, greetings and sign-offs are spaced onto their own paragraphs automatically.",
+        "In chat apps like Slack, Messages, Discord, and WhatsApp, short one-sentence replies skip the trailing period, while code editors and terminals keep command names in lowercase."
+      ]
+    },
+    {
+      "cycle": 46,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 22:05",
+      "title": "Turns spoken lists into clean numbered and bulleted lists",
+      "highlights": [
+        "Say 'First, ... Second, ... Third, ...' or 'Number one, ... Number two, ...' and GeminiFlow formats your items as a numbered list on separate lines.",
+        "Say 'bullet point' or 'next bullet' before each item to create a clean bulleted list without touching ordinary sentences."
+      ]
+    },
+    {
+      "cycle": 45,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 21:55",
+      "title": "Clearer recognition when speaking softly or using AirPods",
+      "highlights": [
+        "Automatically boosts quiet speech on Mac and iPhone when you speak in a low voice or use AirPods and Bluetooth headsets.",
+        "Leaves normal speech, silence, and background room sounds untouched so nothing unwanted is picked up."
+      ]
+    },
+    {
+      "cycle": 44,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 21:30",
+      "title": "Cleans up mid-sentence self-corrections when you change your mind",
+      "highlights": [
+        "When you correct yourself out loud ('Meet at two, wait no, three p.m.' or 'invite Alice and, wait no, Bob and Carol'), GeminiFlow keeps only what you meant to say.",
+        "Understands natural backtrack phrases such as 'wait no', 'actually no', 'scratch that', 'sorry I meant', and 'or rather' while leaving everyday conversation untouched."
+      ]
+    },
+    {
+      "cycle": 43,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 16:15",
+      "title": "Faster text cleanup at the end of every dictation",
+      "highlights": [
+        "Keeps your text cleanup rules ready in memory instead of reloading them each time you speak.",
+        "Polishes and pastes your finished text almost instantly while using less battery."
+      ]
+    },
+    {
+      "cycle": 42,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 15:15",
+      "title": "Apple on-device speech recognizes your Custom Words",
+      "highlights": [
+        "Your custom words and replacement targets ('Siobhan', 'Eoin') are now provided to Apple's on-device speech recognizer with each dictation.",
+        "Improves on-device transcription accuracy and offline fallback when you speak names, technical terms, and custom vocabulary."
+      ]
+    },
+    {
+      "cycle": 41,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 14:15",
+      "title": "Faster fallback when a connection drops mid-sentence",
+      "highlights": [
+        "If a network glitch interrupts sending audio to Google's speech model, GeminiFlow catches the error immediately instead of waiting for a timeout.",
+        "During a dictation it reconnects and resumes from where it left off, and if you have already released the key it falls back to the safety net right away."
+      ]
+    },
+    {
+      "cycle": 40,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 13:20",
+      "title": "Custom Words: replacement pairs ('Owen -> Eoin')",
+      "highlights": [
+        "Teach GeminiFlow how to replace words you say with the spelling you want: type a pair such as 'Owen -> Eoin' directly in the Custom Words window (or enter it in custom-words.json).",
+        "Replaces whole words and phrases across all transcription engines ('Owen' and 'Owen's' change; 'Owens' and 'Bowen' stay untouched) and biases the spelling in Gemini Live."
+      ]
+    },
+    {
+      "cycle": 39,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 12:15",
+      "title": "Custom Words: names and unusual terms spelled your way",
+      "highlights": [
+        "A list of up to 100 names and unusual terms is sent to Google's speech model with each dictation so it writes them the way you do (in testing 'Shavon' became 'Siobhan'). If the service ever refuses the list, dictation carries on without it.",
+        "On the Mac, edit the list from the Custom Words menu item. It is stored outside the project folder and applies from your next dictation. Keep it to names and unusual terms: a listed everyday word replaces its sound-alikes."
+      ]
+    },
+    {
+      "cycle": 38,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 12:10",
+      "title": "Sturdier Setup, Changelog and API key windows",
+      "highlights": [
+        "First run asks for Speech Recognition and the microphone at the right moments, the API key box only accepts something that looks like a key and shows the saved key masked, and closing a window hands you back to the app you were typing in.",
+        "Buttons need a press and release on the same spot, the search box clears with its X or Esc, long changelog titles no longer overlap, VoiceOver can read both windows, and test runs no longer flash extra icons in the menu bar.",
+        "An update no longer restarts the app while you are dictating: it waits until your text has been delivered."
+      ]
+    },
+    {
+      "cycle": 37,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 11:35",
+      "title": "Long dictations stay on Live when the last sound is only a click or a breath",
+      "highlights": [
+        "After a pause in a long dictation, a key click or breath just before release no longer throws away the text Live already returned and sends the whole recording to the slower backup.",
+        "The text is finished on Live only when the audio after the last answered part has no speech in it; anything that could be a word still goes to the backup, so nothing said is lost."
+      ]
+    },
+    {
+      "cycle": 36,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 11:00",
+      "title": "Repeated phrases and mid-thought restarts cleaned up",
+      "highlights": [
+        "Keeps one copy when a phrase is said twice in a row while you gather a thought ('with my with my new app', 'I would I would', 'will do will do'), and when you restart after one dropped word ('I also want you to give some I also want you to give updates').",
+        "Leaves deliberate repeats alone: emphasis after a comma ('I know, I know'), courtesy phrases, names, number runs and idioms such as 'again and again'. Runs on your Mac in well under a millisecond."
+      ]
+    },
+    {
+      "cycle": 35,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 10:30",
+      "title": "Brand refresh shared with GeminiFlow for iOS & cleaner windows",
+      "highlights": [
+        "Adopted the iOS brand mark (three slanted bars) for the menu bar icon and the in-app icon, and the GeminiFlow wordmark typography in window headers.",
+        "Moved the Changelog and Setup titles below the window buttons and removed the trailing dots from menu items and buttons."
+      ]
+    },
+    {
+      "cycle": 34,
+      "scope": "mac",
+      "timestamp": "13 Nov \u00b7 09:40",
+      "title": "Mac-native Changelog (Cmd+L), closable Setup window (Cmd+P) & iOS sync",
+      "highlights": [
+        "Added a clean, flat Mac-native Changelog window (Cmd+L, Cmd+W, Esc) with inline titlebar search, Engine filter, collapsible timeline, and canonical changelog.json for iOS sync.",
+        "Replaced the modal Permissions alert with a closable Setup & Permissions window (Cmd+P) featuring live API key, Microphone, Accessibility, Speech, and Fn-key status indicators plus API key paste sanitization."
+      ]
+    },
+    {
+      "cycle": 33,
+      "scope": "engine",
+      "timestamp": "13 Nov \u00b7 09:09",
+      "title": "Silent-press prompt-echo guard & low-evidence silence net",
+      "highlights": [
+        "Stopped silent presses with 1 to 4 stray on-device noise characters from pasting echoed REST instructions ('Transcribe and clean up this audio dictation.').",
+        "Instructed the REST fallback model to return an empty result on silence or background noise and routed empty low-evidence responses cleanly to No speech."
+      ]
+    },
+    {
+      "cycle": 32,
+      "scope": "engine",
+      "timestamp": "12 Nov \u00b7 16:46",
+      "title": "Noise-relative silence detection & REST plausibility safety net",
+      "highlights": [
+        "Measured speech evidence relative to each press's 20th-percentile room noise floor so quiet-room taps and holds end immediately as No speech instead of calling REST.",
+        "Added a numbers-only REST plausibility net rejecting hallucinated zero-timestamps ('00:00') and runaway text lengths on silent audio."
+      ]
+    },
+    {
+      "cycle": 31,
+      "scope": "engine",
+      "timestamp": "12 Nov \u00b7 15:16",
+      "title": "Zero word loss across slow split turns",
+      "highlights": [
+        "Held voiced audio (with 0.3s pre-roll) behind any in-flight split turn until generationComplete arrives instead of reopening early after 1.5s, eliminating dropped seam words.",
+        "Raised the T26 multi-close hands-free recall gate from 0.95 to 0.99."
+      ]
+    },
+    {
+      "cycle": 30,
+      "scope": "mac",
+      "timestamp": "12 Nov \u00b7 13:16",
+      "title": "Hands-free HUD indicator redesign",
+      "highlights": [
+        "Replaced the outer mint rim and glow in locked hands-free mode with a crisp 7px green indicator dot on a soft inner halo and solid green waveform bars inside the pill.",
+        "Kept hold-to-talk, Thinking, and notice pill renders pixel-identical."
+      ]
+    },
+    {
+      "cycle": 29,
+      "scope": "engine",
+      "timestamp": "12 Nov \u00b7 12:01",
+      "title": "Planned Live session rotation before the 10-minute server cap",
+      "highlights": [
+        "Proactively rotates the Gemini Live WebSocket at the first quiet split point after 8.5 minutes with zero resent audio and zero seam duplicates.",
+        "Treats server closes after 9.5 minutes (or after goAway) as planned rotations that do not consume the 2-reconnect drop budget."
+      ]
+    },
+    {
+      "cycle": 28,
+      "scope": "mac",
+      "timestamp": "12 Nov \u00b7 09:10",
+      "title": "Accurate 4-gram duplicate-phrase test gate",
+      "highlights": [
+        "Updated duplicated_phrases() in the test runner to flag 4-grams only when they appear at least twice in the output and more often than in expected text, eliminating false positives on minor recognizer phrasing variants."
+      ]
+    },
+    {
+      "cycle": 27,
+      "scope": "engine",
+      "timestamp": "11 Nov \u00b7 19:57",
+      "title": "5- and 10-minute marathon dictation suite & privacy-safe press stats",
+      "highlights": [
+        "Added opt-in 5-minute and 10-minute continuous Live dictation gates (T23) and scaled the e2e watchdog for multi-minute sessions.",
+        "Logged one numbers-only Press stats line per dictation (audio duration, Live session age, reconnects, and activity count)."
+      ]
+    },
+    {
+      "cycle": 26,
+      "scope": "mac",
+      "timestamp": "11 Nov \u00b7 17:35",
+      "title": "Visual distinction for locked hands-free HUD & offscreen PNG renderer",
+      "highlights": [
+        "Added visual differentiation between hold-to-talk and double-tap locked hands-free mode on the floating HUD pill.",
+        "Added --render-hud-png for deterministic 2x offscreen HUD verification."
+      ]
+    },
+    {
+      "cycle": 25,
+      "scope": "engine",
+      "timestamp": "11 Nov \u00b7 15:37",
+      "title": "Release-cushion telemetry & atomic test audio cache",
+      "highlights": [
+        "Logged numbers-only Fn-up release cushion coverage (hostTime reach past key release and post-release RMS) to measure real hardware buffer lag.",
+        "Made test runner TTS and WAV cache writes atomic so interrupted runs never leave truncated audio fixtures."
+      ]
+    },
+    {
+      "cycle": 24,
+      "scope": "engine",
+      "timestamp": "11 Nov \u00b7 13:47",
+      "title": "Instant completion when releasing Fn between Live turns",
+      "highlights": [
+        "Finished Live dictations immediately on key release (~135ms instead of ~570ms) when all prior speech was already finalized at a pause split and no uncovered speech remains."
+      ]
+    },
+    {
+      "cycle": 23,
+      "scope": "engine",
+      "timestamp": "11 Nov \u00b7 11:55",
+      "title": "Last-sentence question punctuation & filler-like cleanup",
+      "highlights": [
+        "Judged trailing '?' vs '.' from the final sentence rather than earlier clauses in multi-sentence dictations.",
+        "Removed stray filler 'like' immediately preceding a stripped 'kind of' or 'sort of' hedge."
+      ]
+    },
+    {
+      "cycle": 22,
+      "scope": "engine",
+      "timestamp": "11 Nov \u00b7 09:56",
+      "title": "Context-aware 'kind of' and 'sort of' filler removal",
+      "highlights": [
+        "Stripped 'kind of' and 'sort of' only when set off as spoken pauses or adjacent to vocal fillers, preserving meaningful uses like 'what kind of car' and 'sort of works'."
+      ]
+    },
+    {
+      "cycle": 21,
+      "scope": "engine",
+      "timestamp": "10 Nov \u00b7 19:36",
+      "title": "Pronoun capitalization, mixed-case brands & grammatical doubles",
+      "highlights": [
+        "Protected 'i.e.', dotfiles ('.env'), URLs, and mixed-case names ('iPhone', 'macOS') during capitalization and punctuation cleanup.",
+        "Collapsed single-word stutters ('the the', 'I I') while keeping grammatical doubles ('had had', 'that that', 'very very')."
+      ]
+    },
+    {
+      "cycle": 20,
+      "scope": "engine",
+      "timestamp": "10 Nov \u00b7 17:59",
+      "title": "Header-only API key auth & automatic log redaction",
+      "highlights": [
+        "Moved Gemini API key authentication from query URLs into the x-goog-api-key request header across Live WebSocket and REST calls.",
+        "Added defensive secret scrubbing in GFLog and static binary/request verification (T19)."
+      ]
+    }
+  ]
+}
