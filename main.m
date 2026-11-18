@@ -69,6 +69,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(131), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 15:30", @"title": @"Keeps keys and passwords out of the context used for whispered or unclear speech", @"highlights": @[@"Removes anything shaped like a key, token, link, email address, file path, long number, or NAME=value setting from the short text before your cursor before it is used as context, and uses none of that text when it mentions a password, API key, token, or one-time code.", @"Does not read the text before your cursor at all in password managers, authenticator apps, terminals, messaging apps, database and API tools, or in windows whose title points to a sign-in, payment, or secrets page.", @"Does not pass along the name of the app you are in when it is one of those apps, and never offers to remember a word that looks like a key."]},
             @{@"cycle": @(130), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 13:00", @"title": @"Clearer recognition when whispering or mumbling, with an automatic context rescue pass", @"highlights": @[@"Boosts quiet whispers and soft speech into normal speaking volume with crisp consonant clarity, while leaving background room noise untouched.", @"Keeps clear speech instant on the fast streaming path, and automatically runs a sub-second full-sentence rescue pass using your boosted audio, Custom Words, text before your cursor, and last two dictations in memory whenever speech is whispered or mumbled."]},
             @{@"cycle": @(129), @"scope": @"engine", @"timestamp": @"17 Nov \u00B7 16:00", @"title": @"Prevents Custom Words over-biasing on ALL-CAPS acronyms and double-consonant names", @"highlights": @[@"Holds back unpronounceable ALL-CAPS consonant-cluster and broadcast-suffix acronyms (such as 'MGTV', 'GCP', and 'SDK') and pure-sonorant double-consonant names (such as 'Alanna' and 'Arianna') from cloud decoder boosting so ordinary speech is never misread as a custom word, while still matching spelled-out letters and phonetic variants locally.", @"Prevents auto-learning replacement pairs whose 'hear' side consists purely of common everyday words."]},
             @{@"cycle": @(128), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:35", @"title": @"Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'", @"highlights": @[@"Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.", @"Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."]},
@@ -4884,6 +4885,161 @@ static NSString *GFSanitizeTransientContextSnippet(NSString *raw, NSUInteger max
     return [[trimmed substringToIndex:end] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 }
 
+// Cycle 131: context hygiene. The short text before the cursor is used as read-only model context on the rescue and
+// backup passes, so anything credential-shaped is removed first, and some apps and windows are not read at all.
+
+// YES for anything shaped like a credential, URL, email, path, KEY=VALUE pair, code identifier, or long number.
+static BOOL GFContextTokenLooksSecret(NSString *raw) {
+    NSUInteger n = raw.length;
+    if (n == 0) return NO;
+    static NSArray<NSString *> *prefixes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        prefixes = @[@"AIza", @"sk-", @"sk_", @"pk_", @"rk_", @"whsec_", @"hf_", @"gsk_", @"glpat-", @"npm_", @"pypi-",
+                     @"SG.", @"ya29.", @"PMAK-", @"r8_", @"hvs.", @"ghp_", @"gho_", @"ghu_", @"ghs_", @"ghr_",
+                     @"github_pat_", @"xoxa-", @"xoxb-", @"xoxp-", @"xoxr-", @"xoxe-", @"xoxs-", @"xapp-", @"AKIA",
+                     @"ASIA", @"eyJ"];
+    });
+    for (NSString *p in prefixes) {
+        if ([raw hasPrefix:p]) return YES;
+    }
+    NSUInteger digits = 0, upper = 0, lower = 0, symbols = 0, caseFlips = 0;
+    BOOL prevUpper = NO, havePrev = NO;
+    for (NSUInteger i = 0; i < n; i++) {
+        unichar c = [raw characterAtIndex:i];
+        if (c >= '0' && c <= '9') {
+            digits++; havePrev = NO;
+        } else if (c >= 'A' && c <= 'Z') {
+            upper++; if (havePrev && !prevUpper) caseFlips++;
+            prevUpper = YES; havePrev = YES;
+        } else if (c >= 'a' && c <= 'z') {
+            lower++; if (havePrev && prevUpper) caseFlips++;
+            prevUpper = NO; havePrev = YES;
+        } else {
+            if (c == '@' || c == '/' || c == '\\' || c == '=' || c == '_' || c == '+' || c == '%' || c == '&' || c == '#' ||
+                c == '$' || c == '~' || c == '|' || c == '<' || c == '>' || c == '{' || c == '}' || c == '[' || c == ']' ||
+                c == '^' || c == '*' || c == '`') symbols++;
+            havePrev = NO;
+        }
+    }
+    if (symbols > 0) return YES;                                           // URLs, emails, paths, KEY=VALUE, identifiers
+    if (digits > 0 && (upper + lower) > 0 && n >= 8) return YES;             // letters and digits at key-like length
+    if (digits >= 6 && (upper + lower) == 0) return YES;                   // card numbers, numeric codes, long IDs
+    if (caseFlips >= 5) return YES;                                        // random-looking mixed case at any length
+    if (n >= 12 && caseFlips >= 4) return YES;
+    if (n >= 32) return YES;
+    return NO;
+}
+
+// YES when a piece of text names a credential ("password", "api key", "api_key", "--api-key", "token", "OTP", ...).
+static BOOL GFContextLabelLooksCredential(NSString *label) {
+    if (label.length == 0) return NO;
+    static NSArray<NSString *> *phrases;
+    static NSSet<NSString *> *wholeWords;
+    static NSCharacterSet *nonWord;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // Substring matches: long enough that they cannot hide inside an ordinary word.
+        phrases = @[@"password", @"passcode", @"passphrase", @"secret", @"api key", @"apikey", @"private key",
+                    @"credential", @"recovery phrase", @"recovery code", @"recovery key", @"seed phrase", @"mnemonic",
+                    @"security code", @"verification code", @"card number", @"bearer", @"authorization", @"pin code"];
+        // Whole-word matches only: "footprint" contains "otp" and "lessness" contains "ssn".
+        wholeWords = [NSSet setWithArray:@[@"token", @"tokens", @"cvv", @"cvc", @"ssn", @"otp", @"totp", @"pin"]];
+        nonWord = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+    });
+    // "_" and "-" count as spaces, so api_key, --api-key, and private_key read as "api key" and "private key".
+    NSString *l = [[label.lowercaseString stringByReplacingOccurrencesOfString:@"_" withString:@" "]
+                   stringByReplacingOccurrencesOfString:@"-" withString:@" "];
+    for (NSString *w in phrases) {
+        if ([l rangeOfString:w].location != NSNotFound) return YES;
+    }
+    for (NSString *part in [l componentsSeparatedByCharactersInSet:nonWord]) {
+        if (part.length > 0 && [wholeWords containsObject:part]) return YES;
+    }
+    return NO;
+}
+
+// Drops the snippet entirely when it mentions a credential label; otherwise removes every credential-shaped token.
+// A secret that looks like an ordinary word has no recognizable shape and cannot be caught here.
+static NSString *GFRedactTransientContextSecrets(NSString *snippet) {
+    if (snippet.length == 0) return nil;
+    if (GFContextLabelLooksCredential(snippet)) return nil;
+    static NSCharacterSet *edge;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        edge = [NSCharacterSet characterSetWithCharactersInString:@".,;:!?()\"'\u2018\u2019\u201C\u201D\u2026-"];
+    });
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    BOOL removed = NO;
+    for (NSString *raw in [snippet componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]) {
+        if (raw.length == 0) continue;
+        NSString *tok = [raw stringByTrimmingCharactersInSet:edge];
+        if (GFContextTokenLooksSecret(raw) || GFContextTokenLooksSecret(tok)) { removed = YES; continue; }
+        [kept addObject:raw];
+    }
+    if (!removed) return snippet;
+    NSString *out = [kept componentsJoinedByString:@" "];
+    return out.length >= 3 ? out : nil;
+}
+
+// YES when the text before the cursor must not be read in this app, and its name must not be passed on. An unknown app
+// (no bundle ID) is off limits. Matching is by substring of the lowercased bundle ID.
+static BOOL GFContextAppIsOffLimits(NSString *bundleID) {
+    if (bundleID.length == 0) return YES;
+    static NSArray<NSString *> *blocked;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        blocked = @[// password managers, authenticators, system security
+                    @"1password", @"bitwarden", @"lastpass", @"dashlane", @"keepass", @"enpass", @"nordpass", @"protonpass",
+                    @"keychainaccess", @"com.apple.passwords", @"authy", @"authenticator", @"com.apple.systempreferences",
+                    @"com.apple.systemsettings", @"com.apple.wallet", @"com.apple.securityagent", @"com.apple.loginwindow",
+                    @"macpass", @"yubico", @"steptwo", @"step-two", @"gpgtools", @"gpgkeychain", @"roboform", @"keepersecurity",
+                    // terminals and remote sessions
+                    @"com.apple.terminal", @"iterm", @"dev.warp", @"kitty", @"alacritty", @"ghostty", @"wezterm", @"co.zeit.hyper",
+                    @"org.tabby", @"waveterm", @"termius", @"royalts", @"screensharing", @"teamviewer", @"anydesk",
+                    // database, API, and network tools
+                    @"postman", @"insomnia", @"bruno", @"tableplus", @"sequel", @"dbeaver", @"pgadmin", @"postico", @"datagrip",
+                    @"mongodb.compass", @"luckymarmot.paw", @"rapidapi", @"proxyman", @"charles", @"wireshark", @"transmit",
+                    @"cyberduck", @"filezilla",
+                    // wallets
+                    @"electrum", @"ledger", @"trezor",
+                    // messaging
+                    @"signal", @"whatsapp", @"telegram", @"com.apple.mobilesms", @"com.apple.ichat", @"com.apple.facetime",
+                    @"discord", @"com.facebook.archon", @"messenger", @"wechat", @"im.riot", @"element.io", @"viber",
+                    @"naver.line", @"threema", @"slack", @"com.microsoft.teams", @"kakao", @"zulip", @"mattermost"];
+    });
+    NSString *b = bundleID.lowercaseString;
+    for (NSString *s in blocked) {
+        if ([b rangeOfString:s].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
+static BOOL GFMacFrontWindowIsOffLimits(pid_t pid);
+
+// YES when a window title points to sign-in, payment, secrets, private browsing, or a web messenger. An empty or
+// unreadable title is off limits.
+static BOOL GFContextWindowTitleIsOffLimits(NSString *windowTitle) {
+    NSString *t = [windowTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].lowercaseString;
+    if (t.length == 0) return YES;
+    static NSArray<NSString *> *blocked;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        blocked = @[@"password", @"passcode", @"passphrase", @"secret", @"credential", @"api token", @"access token",
+                    @"auth token", @"bearer token", @"refresh token", @"session token", @"security token", @"api key",
+                    @"apikey", @".env", @"private browsing", @"incognito", @"inprivate", @"private window", @"bank",
+                    @"wallet", @"2fa", @"two-factor", @"verification code", @"sign in", @"log in", @"login", @"keychain",
+                    @"seed phrase", @"recovery phrase", @"recovery code", @"ssh", @"billing", @"checkout", @"payment",
+                    @"credit card", @"oauth", @".pem", @"id_rsa", @"id_ed25519", @"authorized_keys", @"known_hosts",
+                    @"kubeconfig", @"totp", @"one-time", @"mnemonic", @"private key", @"pgp", @"gpg",
+                    @"whatsapp", @"telegram", @"messages for web", @"messenger", @"slack", @"discord", @"microsoft teams"];
+    });
+    for (NSString *s in blocked) {
+        if ([t rangeOfString:s].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
 static BOOL GFRestContextEchoRejected(NSString *restText, NSString *cursorBefore, NSArray<NSString *> *recentTexts,
                                       NSUInteger liveSegments, NSString *onDeviceText) {
     if (restText.length == 0) return NO;
@@ -4999,7 +5155,7 @@ static NSString *GFBuildContextualDictationSystemPrompt(NSArray<NSString *> *cus
         [p appendFormat:@"\n\nPreferred spellings and custom vocabulary (use ONLY when phonetically supported by the audio): %@", joinedWords];
     }
     NSString *cleanApp = GFSanitizeTransientContextSnippet(appName, 60, NO);
-    NSString *cleanCur = GFSanitizeTransientContextSnippet(cursorBefore, kGFMaxTransientContextChars, YES);
+    NSString *cleanCur = GFRedactTransientContextSecrets(GFSanitizeTransientContextSnippet(cursorBefore, kGFMaxTransientContextChars, YES));
     NSMutableArray<NSString *> *cleanRec = [NSMutableArray array];
     for (NSString *r in recentTexts) {
         NSString *cr = GFSanitizeTransientContextSnippet(r, kGFMaxTransientContextChars, NO);
@@ -6980,13 +7136,17 @@ static BOOL GFMacDeliveryIntercept(AppDelegate *slf, NSString *text, GFDictation
         pid_t nowPid = (nowFront && nowFront.processIdentifier != getpid()) ? nowFront.processIdentifier
                        : (gGFLastOtherFrontApp ? gGFLastOtherFrontApp.processIdentifier : 0);
         if (nowPid <= 0 || nowPid != targetPid) return;
+        NSRunningApplication *learnApp = [NSRunningApplication runningApplicationWithProcessIdentifier:nowPid];
+        if (GFContextAppIsOffLimits(learnApp.bundleIdentifier) || GFMacFrontWindowIsOffLimits(nowPid)) return; // local only, but still not read there
         id elem = GFCopyFocusedElement();
-        if (!elem) return;
+        if (!elem || GFAXIsSecureElement((__bridge AXUIElementRef)elem)) return;
         NSString *fieldText = GFAXString((__bridge AXUIElementRef)elem, kAXValueAttribute);
         if (fieldText.length == 0) return;
         NSDictionary<NSString *, NSString *> *pair = GFDetectEditedCustomWordPair(
             pastedSnapshot, fieldText, GFLoadCustomWordEntriesFromPath(GFCustomWordsPath()));
         if (!pair) return;
+        // An accepted Custom Word is sent with every dictation, so never suggest anything credential-shaped.
+        if (GFContextTokenLooksSecret(pair[kGFCustomWordWrite]) || GFContextTokenLooksSecret(pair[kGFCustomWordHear])) return;
         gGFPendingAutoLearnPair = pair;
         if (slf.menu) {
             if (gGFAutoLearnMenuItem && gGFAutoLearnMenuItem.menu) {
@@ -7017,18 +7177,45 @@ static NSString *GFMacCursorContextAdapt(AppDelegate *slf, NSString *text) {
     return GFAdaptTextForMidSentenceCursor(text, beforeCur, afterCur, [slf customVocabularyForDictation]);
 }
 
+// YES when the focused window of `pid` must not be read: its title points to sign-in, payment, secrets, private browsing,
+// or a web messenger, or the title cannot be read. Two short Accessibility requests (0.05 s limit each).
+static BOOL GFMacFrontWindowIsOffLimits(pid_t pid) {
+    if (pid <= 0 || pid == getpid()) return YES;
+    AXUIElementRef app = AXUIElementCreateApplication(pid);
+    if (!app) return YES;
+    AXUIElementSetMessagingTimeout(app, 0.05);
+    CFTypeRef win = NULL;
+    AXError e = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute, &win);
+    CFRelease(app);
+    if (e != kAXErrorSuccess || !win || CFGetTypeID(win) != AXUIElementGetTypeID()) { if (win) CFRelease(win); return YES; }
+    AXUIElementSetMessagingTimeout((AXUIElementRef)win, 0.05);
+    NSString *title = GFAXString((AXUIElementRef)win, kAXTitleAttribute);
+    CFRelease(win);
+    return GFContextWindowTitleIsOffLimits(title);
+}
+
 static void GFMacCaptureStartContext(AppDelegate *slf, GFDictation *d) {
     if (!slf || !d || gGFRunningUnitTests || slf.unitTestMode || slf.e2eMode.length > 0) return;
     NSRunningApplication *front = [NSWorkspace sharedWorkspace].frontmostApplication;
-    if (front.localizedName.length > 0 && d.transientAppName.length == 0) {
+    // If GeminiFlow itself is briefly frontmost, judge the app the text will go to (the last other front app).
+    if (front && front.processIdentifier == getpid() && gGFLastOtherFrontApp) front = gGFLastOtherFrontApp;
+    BOOL appOffLimits = GFContextAppIsOffLimits(front.bundleIdentifier);
+    if (appOffLimits) {
+        d.transientAppName = nil; // the model is not told that a password manager or messenger is in front
+    } else if (front.localizedName.length > 0) {
         d.transientAppName = GFSanitizeTransientContextSnippet(front.localizedName, 60, NO);
     }
-    if (d.transientCursorBefore.length == 0 && AXIsProcessTrusted()) {
-        id elem = GFCopyFocusedElement();
-        if (elem) {
-            NSString *before = GFAXReadExtendedContextBeforeCursor(elem, kGFMaxTransientContextChars);
-            if (before.length > 0) {
-                d.transientCursorBefore = GFSanitizeTransientContextSnippet(before, kGFMaxTransientContextChars, YES);
+    // The text before the cursor is not read at all in off-limits apps or in off-limits windows: the window title is
+    // checked FIRST, and for an off-limits window the app name is not passed on either. Only then is the text read, and
+    // credential-shaped tokens are removed before it is kept.
+    if (!appOffLimits && AXIsProcessTrusted()) {
+        if (GFMacFrontWindowIsOffLimits(front.processIdentifier)) {
+            d.transientAppName = nil;
+        } else if (d.transientCursorBefore.length == 0) {
+            id elem = GFCopyFocusedElement();
+            if (elem) {
+                NSString *before = GFAXReadExtendedContextBeforeCursor(elem, kGFMaxTransientContextChars);
+                d.transientCursorBefore = GFRedactTransientContextSecrets(GFSanitizeTransientContextSnippet(before, kGFMaxTransientContextChars, YES));
             }
         }
     }
@@ -7113,9 +7300,10 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     if (!d) return;
     NSString *seedCursor = (self.e2eMode.length > 0) ? self.e2eCursorContext : self.hostCursorBeforeText;
     if (seedCursor.length > 0) {
-        d.transientCursorBefore = GFSanitizeTransientContextSnippet(seedCursor, kGFMaxTransientContextChars, YES);
+        d.transientCursorBefore = GFRedactTransientContextSecrets(GFSanitizeTransientContextSnippet(seedCursor, kGFMaxTransientContextChars, YES));
     }
-    if (self.e2eMode.length == 0 && self.targetAppBundleID.length > 0) {
+    // The app name is not kept for off-limits apps: the model is not told that a password manager or messenger is in front.
+    if (self.e2eMode.length == 0 && self.targetAppBundleID.length > 0 && !GFContextAppIsOffLimits(self.targetAppBundleID)) {
         d.transientAppName = GFSanitizeTransientContextSnippet(self.targetAppBundleID, 60, NO);
     }
     if ((self.e2eMode.length == 0 || self.e2eCursorContext.length > 0) && self.recentDictations.count > 0) {
@@ -19623,17 +19811,17 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                                              @"Second recent note about the release checklist.",
                                              @"Third older note that must not be included."] mutableCopy];
                 NSMutableString *longBefore = [NSMutableString string];
-                for (int k = 0; k < 30; k++) [longBefore appendString:@"0123456789"]; // 300 chars
-                [longBefore appendString:@" Replying to Siobhan:"];
+                for (int k = 0; k < 30; k++) [longBefore appendString:@"lorem ipsum "]; // 360 chars of plain words
+                [longBefore appendString:@"Replying to Siobhan:"];
                 ctxApp.hostCursorBeforeText = longBefore;
-                ctxApp.targetAppBundleID = @"com.tinyspeck.slackmacgap";
+                ctxApp.targetAppBundleID = @"com.apple.mail";
                 GFDictation *ctxD = [[GFDictation alloc] init];
                 ctxD.serial = 1;
                 ctxD.transientApiKey = @"DUMMY-TRANSIENT-KEY";
                 [ctxApp captureTransientContextForDictation:ctxD];
                 BOOL capturedOk = (ctxD.transientCursorBefore.length == kGFMaxTransientContextChars)
                                && [ctxD.transientCursorBefore hasSuffix:@"Replying to Siobhan:"]
-                               && [ctxD.transientAppName isEqualToString:@"com.tinyspeck.slackmacgap"]
+                               && [ctxD.transientAppName isEqualToString:@"com.apple.mail"]
                                && (ctxD.transientRecentContext.count == 2)
                                && [ctxD.transientRecentContext[0] containsString:@"quarterly budget"]
                                && [ctxD.transientRecentContext[1] containsString:@"release checklist"];
@@ -19767,6 +19955,60 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 if (c130_p3b) passed++; else failed++;
                 printf("%s: Cycle 130 Phase 3b contextual prompt, anti-echo net, and bounded Rescue upgrade + consensus fallback (%d%d%d%d)\n",
                        c130_p3b ? "PASS" : "FAIL", promptHasAll, echoBlocked, okUpgrade, okFallback);
+            }
+            // Cycle 131: context hygiene (synthetic text only)
+            {
+                NSString *fakeKey = [@"AI" stringByAppendingString:@"zaSyDUMMYDUMMYDUMMY0123456789abcdefghi"];
+                NSString *ctxLabel = [NSString stringWithFormat:@"deploy finished, run export GEMINI_API_KEY=%@ then ping Avery", fakeKey];
+                NSString *ctxTok = [NSString stringWithFormat:@"deploy finished, then %@ and ping Avery", fakeKey];
+                NSString *promptLabel = GFBuildContextualDictationSystemPrompt(@[], @"Editor", ctxLabel, @[], nil, nil, NO);
+                NSString *promptTok = GFBuildContextualDictationSystemPrompt(@[], @"Editor", ctxTok, @[], nil, nil, NO);
+                NSString *promptPlain = GFBuildContextualDictationSystemPrompt(@[], @"Editor", @"Please loop in Avery before", @[], nil, nil, NO);
+                BOOL c131_1 = GFContextTokenLooksSecret(fakeKey)
+                           && GFContextTokenLooksSecret(@"GEMINI_API_KEY=abc")
+                           && GFContextTokenLooksSecret(@"https://example.com/Path")
+                           && GFContextTokenLooksSecret(@"someone@example.com")
+                           && GFContextTokenLooksSecret(@"Tr0ub4dor3x")
+                           && GFContextTokenLooksSecret(@"kXzQpLmNwRtY")
+                           && GFContextTokenLooksSecret(@"4242424242424242") && GFContextTokenLooksSecret(@"123-456")
+                           && !GFContextTokenLooksSecret(@"Avery") && !GFContextTokenLooksSecret(@"GitHub")
+                           && !GFContextTokenLooksSecret(@"2026") && !GFContextTokenLooksSecret(@"")
+                           && GFContextLabelLooksCredential(@"API Key") && GFContextLabelLooksCredential(@"api_key")
+                           && GFContextLabelLooksCredential(@"--recovery-code") && GFContextLabelLooksCredential(@"Enter OTP")
+                           && !GFContextLabelLooksCredential(@"Carbon footprint") && !GFContextLabelLooksCredential(@"Tokenizer settings")
+                           && !GFContextLabelLooksCredential(@"Subject") && !GFContextLabelLooksCredential(nil);
+                BOOL c131_2 = GFRedactTransientContextSecrets(ctxLabel) == nil
+                           && [GFRedactTransientContextSecrets(ctxTok) isEqualToString:@"deploy finished, then and ping Avery"]
+                           && GFRedactTransientContextSecrets(@"my password is correct horse") == nil
+                           && GFRedactTransientContextSecrets(@"run the tool with --api-key CorrectHorse now") == nil
+                           && GFRedactTransientContextSecrets(fakeKey) == nil
+                           && GFRedactTransientContextSecrets(@"") == nil && GFRedactTransientContextSecrets(nil) == nil
+                           && [GFRedactTransientContextSecrets(@"Please loop in Avery before") isEqualToString:@"Please loop in Avery before"]
+                           && [GFRedactTransientContextSecrets(@"see https://example.com/Path and mail someone@example.com today") isEqualToString:@"see and mail today"]
+                           && [GFRedactTransientContextSecrets(@"card 4242-4242-4242-4242 then 123456 for 5 items") isEqualToString:@"card then for 5 items"]
+                           && [promptLabel rangeOfString:@"zaSy"].location == NSNotFound
+                           && [promptLabel rangeOfString:@"Text immediately before cursor"].location == NSNotFound
+                           && [promptTok rangeOfString:@"zaSy"].location == NSNotFound
+                           && [promptTok rangeOfString:@"then and ping Avery"].location != NSNotFound
+                           && [promptPlain rangeOfString:@"Text immediately before cursor: Please loop in Avery before"].location != NSNotFound;
+                AppDelegate *hygApp = [[AppDelegate alloc] init];
+                hygApp.unitTestMode = YES;
+                hygApp.hostCursorBeforeText = [NSString stringWithFormat:@"notes for Avery %@ and more", fakeKey];
+                hygApp.targetAppBundleID = @"com.example.passwords.1password";
+                GFDictation *hygD = [[GFDictation alloc] init];
+                [hygApp captureTransientContextForDictation:hygD];
+                BOOL c131_3 = hygD.transientAppName == nil
+                           && [hygD.transientCursorBefore isEqualToString:@"notes for Avery and more"]
+                           && GFContextAppIsOffLimits(nil) && GFContextAppIsOffLimits(@"com.apple.Terminal")
+                           && GFContextAppIsOffLimits(@"org.example.signal-desktop") && !GFContextAppIsOffLimits(@"com.example.editor")
+                           && GFContextWindowTitleIsOffLimits(nil) && GFContextWindowTitleIsOffLimits(@"  ")
+                           && GFContextWindowTitleIsOffLimits(@"Sign in - Example Bank") && GFContextWindowTitleIsOffLimits(@".env - project")
+                           && GFContextWindowTitleIsOffLimits(@"New Incognito Tab") && GFContextWindowTitleIsOffLimits(@"Access token - Settings")
+                           && !GFContextWindowTitleIsOffLimits(@"Quarterly roadmap - Mail") && !GFContextWindowTitleIsOffLimits(@"Token usage - Assistant chat");
+                BOOL c131Ok = c131_1 && c131_2 && c131_3;
+                if (c131Ok) passed++; else failed++;
+                printf("%s: Cycle 131 context hygiene (secret-shaped tokens, credential labels, redaction at the prompt, off-limits apps and windows) (%d%d%d)\n",
+                       c131Ok ? "PASS" : "FAIL", c131_1, c131_2, c131_3);
             }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);

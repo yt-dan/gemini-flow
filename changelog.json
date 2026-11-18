@@ -3,6 +3,17 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 131,
+      "scope": "engine",
+      "timestamp": "18 Nov \u00b7 15:30",
+      "title": "Keeps keys and passwords out of the context used for whispered or unclear speech",
+      "highlights": [
+        "Removes anything shaped like a key, token, link, email address, file path, long number, or NAME=value setting from the short text before your cursor before it is used as context, and uses none of that text when it mentions a password, API key, token, or one-time code.",
+        "Does not read the text before your cursor at all in password managers, authenticator apps, terminals, messaging apps, database and API tools, or in windows whose title points to a sign-in, payment, or secrets page.",
+        "Does not pass along the name of the app you are in when it is one of those apps, and never offers to remember a word that looks like a key."
+      ]
+    },
+    {
       "cycle": 130,
       "scope": "engine",
       "timestamp": "18 Nov \u00b7 13:00",

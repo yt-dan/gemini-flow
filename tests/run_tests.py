@@ -595,7 +595,13 @@ def main():
     # T1 unit
     p = subprocess.run([a.bin, "--test"], capture_output=True, text=True, timeout=60)
     summ = re.search(r"Summary: (\d+) passed, (\d+) failed", p.stdout)
-    gate("T1 unit (--test)", p.returncode == 0, summ.group(0) if summ else p.stdout[-300:])
+    # Name the failing unit tests in the gate detail (first three), so a one-off failure in a ratchet re-run can be told apart
+    # from a real regression afterwards: the timing checks in the suite can tip over their limits when the machine is busy.
+    unit_fails = [ln[:200] for ln in p.stdout.splitlines() if ln.startswith("FAIL")][:3]
+    unit_detail = summ.group(0) if summ else p.stdout[-300:]
+    if unit_fails:
+        unit_detail += " | " + " | ".join(unit_fails) + " | loadavg=%.2f" % os.getloadavg()[0]
+    gate("T1 unit (--test)", p.returncode == 0, unit_detail)
 
     # T19 API key never in a URL (backlog 15): every Gemini request the binary builds (REST generateContent, the pre-warm HEAD,
     # the API-key check, the Live upgrade with header auth) carries the key in the x-goog-api-key header and has no key= in its

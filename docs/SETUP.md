@@ -30,7 +30,7 @@ What happens:
 ## 3. Give permissions (one time)
 macOS asks before an app can use the microphone or type for you.
 1. **Microphone** and **Speech Recognition**: click **Allow** when asked.
-2. **Accessibility**: open **System Settings → Privacy & Security → Accessibility** and turn on **GeminiFlow**. This lets GeminiFlow paste the text at your cursor, and read a short snippet of the text just before your cursor (never password fields) to help it with whispered or unclear speech.
+2. **Accessibility**: open **System Settings → Privacy & Security → Accessibility** and turn on **GeminiFlow**. This lets GeminiFlow paste the text at your cursor, and read a short snippet of the text just before your cursor to help it with whispered or unclear speech (never password fields, password managers, terminals, or messaging apps, and with anything that looks like a key or token removed first).
 
 ## 4. Add your API key
 Click the menu bar icon → **Set Gemini API Key…** → paste your key with **⌘ + V** → **Save**. You should see **Gemini Live ready**.
