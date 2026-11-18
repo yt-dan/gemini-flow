@@ -9,6 +9,7 @@ It uses Google's **Gemini Live** speech-to-text, streamed while you talk, so tex
 - **Esc** cancels.
 - Silence or an accidental tap pastes nothing ("No speech").
 - Filler words ("um", "uh", "you know") and stutters are cleaned up automatically. You can change this in `rules.json`.
+- Whispered or mumbled speech is boosted and gets a quick second pass. When that second pass or the backup service runs, GeminiFlow also sends Gemini (with your own API key) up to 200 characters of the text before your cursor, your last two dictations, and the name of the app you are typing in, so it can pick the right words. Password fields are never read, and this context is held in memory only and cleared as soon as the dictation ends.
 - Your last 5 dictations are in the menu bar under **Recent Dictations**. They're kept in memory only and never saved to disk.
 
 ## Install (about 5 minutes)

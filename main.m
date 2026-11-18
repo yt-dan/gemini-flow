@@ -18,6 +18,10 @@ static NSString * const kPrefSelectedModel = @"GeminiFlow_SelectedModel"; // leg
 static NSString * const kPrefEngineMode = @"GeminiFlow_EngineMode"; // @"gemini" or @"ondevice"
 static NSString * const kDefaultModel = @"gemini-3.5-flash-lite";          // REST safety net only (Live failure)
 static NSString * const kDefaultLiveModel = @"gemini-3.5-transcribe-live"; // THE engine: streaming, text ~0.4 s after release
+static NSString * const kRescueModel = @"gemini-3.5-flash";                // Multimodal context rescue for whispers and mumbles
+static const NSTimeInterval kGFWhisperRescueDeadlineSeconds = 0.95;        // Bounded extra wait for Rescue Lane
+static const NSUInteger kGFWhisperRescueMaxPCMBytes = 16 * 32000;          // 16 s max inline clip for Rescue Lane
+static const NSUInteger kGFMaxTransientContextChars = 200;                 // Max cursor/recent snippet length in RAM
 
 static void GFLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2); // file logger, defined below
 
@@ -65,6 +69,7 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(130), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 13:00", @"title": @"Clearer recognition when whispering or mumbling, with an automatic context rescue pass", @"highlights": @[@"Boosts quiet whispers and soft speech into normal speaking volume with crisp consonant clarity, while leaving background room noise untouched.", @"Keeps clear speech instant on the fast streaming path, and automatically runs a sub-second full-sentence rescue pass using your boosted audio, Custom Words, text before your cursor, and last two dictations in memory whenever speech is whispered or mumbled."]},
             @{@"cycle": @(129), @"scope": @"engine", @"timestamp": @"17 Nov \u00B7 16:00", @"title": @"Prevents Custom Words over-biasing on ALL-CAPS acronyms and double-consonant names", @"highlights": @[@"Holds back unpronounceable ALL-CAPS consonant-cluster and broadcast-suffix acronyms (such as 'MGTV', 'GCP', and 'SDK') and pure-sonorant double-consonant names (such as 'Alanna' and 'Arianna') from cloud decoder boosting so ordinary speech is never misread as a custom word, while still matching spelled-out letters and phonetic variants locally.", @"Prevents auto-learning replacement pairs whose 'hear' side consists purely of common everyday words."]},
             @{@"cycle": @(128), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:35", @"title": @"Hyphenates everyday personal and workplace modifiers like 'follow-up', 'full-time', and '1-on-1'", @"highlights": @[@"Adds hyphens to common personal and work modifiers before their nouns, including 'follow-up email', 'check-in call', 'full-time role', 'part-time schedule', 'long-term plan', 'short-term goal', 'last-minute change', 'in-person meeting', 'one-way ticket', 'round-trip flight', 'day-to-day work', 'face-to-face chat', 'step-by-step guide', and 'up-to-date schedule'.", @"Formats 'one on one' or '1 on 1' before meeting and call nouns into '1-on-1' ('our 1-on-1 meeting'), while keeping verb phrases like 'follow up with Sarah' or 'check in at the hotel' unhyphenated."]},
             @{@"cycle": @(127), @"scope": @"engine", @"timestamp": @"14 Nov \u00B7 15:34", @"title": @"Cleans up 'change that to', 'switch that to', and 'not X, Y' self-corrections", @"highlights": @[@"When you revise an earlier detail mid-sentence with 'change that to', 'switch that to', or 'actually make it' ('Book it for 7 p.m., change that to 8 p.m.' or 'I will take 2 coffees, actually make it 3'), GeminiFlow updates the earlier word or number in place.", @"Cleans up comma-separated 'not X, Y' corrections when you repeat the word you are replacing ('Let us meet on Tuesday, not Tuesday, Wednesday' becomes 'Let us meet on Wednesday')."]},
@@ -2918,6 +2923,15 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, strong) id earlyElement;               // focused AXUIElement at that Cmd+V
 @property (nonatomic, assign) BOOL earlyUserInput;           // a real keyDown/mouseDown since the early delivery
 @property (nonatomic, assign) BOOL earlyResolved;            // the late REST outcome was handled
+// Whisper & Mumble Accuracy Upgrade (Cycle 130): acoustic whisper telemetry + transient RAM-only context
+@property (nonatomic, assign) BOOL whisperOrLowSNRBoosted;
+@property (nonatomic, assign) double maxAppliedGain;
+@property (nonatomic, copy) NSString *transientApiKey;
+@property (nonatomic, copy) NSString *transientAppName;
+@property (nonatomic, copy) NSString *transientCursorBefore;
+@property (nonatomic, copy) NSArray<NSString *> *transientRecentContext;
+@property (nonatomic, strong) NSURLSessionDataTask *rescueTask;
+@property (nonatomic, assign) BOOL rescueFinished;
 @end
 @implementation GFDictation
 @end
@@ -2925,9 +2939,18 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 // Adaptive digital gain boost (AGC) state for low-voice / AirPods dictation (shared with iOS via transplant.py).
 typedef struct {
     double noiseFloorRMS;
+    double windowMinRMS;
     double voicedAccumulatorRMS;
+    double hpPrevX;
+    double hpPrevY;
+    double prevRawSample;
+    NSUInteger framesProcessed;
+    NSUInteger windowFrameCount;
     NSUInteger consecutiveVoicedFrames;
+    NSUInteger consecutiveWhisperFrames;
+    NSUInteger totalWhisperFrames;
     double currentGain;
+    double maxGainApplied;
     BOOL isBluetoothInput;
     BOOL initialized;
 } GFAdaptiveGainState;
@@ -3022,6 +3045,9 @@ typedef struct {
 @property (nonatomic, copy) NSString *e2eRestFakeText;    // test hook (e2e only): overrides canned REST text for --e2e-rest-fake-ok
 @property (nonatomic, assign) double e2eRestDelay;       // test hook (e2e only): first real REST call is held s before it is sent
 @property (nonatomic, assign) BOOL e2eLiveDropOutput;  // test hook (e2e only): ignore Live serverContent (final turn closes empty)
+@property (nonatomic, assign) BOOL e2eWhisperRescue;   // test hook (e2e only): enable Whisper/Mumble Rescue Lane in e2e mode
+@property (nonatomic, copy) NSString *e2eCursorContext; // test hook (e2e only): synthetic cursor-before context
+@property (nonatomic, copy) void (^whisperRescueTestHook)(NSString *model, NSString *sysPrompt, NSString *userPrompt, void (^respond)(NSInteger status, NSString *text));
 @property (nonatomic, assign) NSTimeInterval e2ePressTime;
 @property (nonatomic, assign) NSTimeInterval e2eReleaseTime;
 @property (nonatomic, copy) NSString *e2eSecondPressFile;   // test hook (e2e only): a second press starts while the first finishes
@@ -4489,6 +4515,61 @@ static GFSpeechEvidence GFMeasureSpeechEvidence(const int16_t *samples, NSUInteg
             e.evidenceSeconds = MAX(e.evidenceSeconds, kSpeechEvidenceMinSeconds);
         }
     }
+    // Cycle 130: Whisper & low-SNR speech evidence (noiseRMS up to 450 RMS).
+    // Evaluates ~120 Hz high-passed frames (stripping sub-bass HVAC rumble & DC offset) to distinguish sustained
+    // formant-structured whispers/murmurs (hpR1 >= 0.18, hpZCR <= 0.40, >= 6 consecutive frames) from room tone & clicks.
+    if ((e.peakRMS < kSpeechPeakRMS || e.evidenceSeconds < kSpeechEvidenceMinSeconds) && e.noiseRMS <= 450.0 && total >= 9) {
+        double stackHPRMS[1024], stackHPSorted[1024], stackHPR1[1024], stackHPZCR[1024];
+        double *hpRMS = useHeap ? malloc(sizeof(double) * total) : stackHPRMS;
+        double *hpSorted = useHeap ? malloc(sizeof(double) * total) : stackHPSorted;
+        double *hpR1 = useHeap ? malloc(sizeof(double) * total) : stackHPR1;
+        double *hpZCR = useHeap ? malloc(sizeof(double) * total) : stackHPZCR;
+        if (hpRMS && hpSorted && hpR1 && hpZCR) {
+            double hpPrevX = 0.0, hpPrevY = 0.0, hpPeak = 0.0;
+            for (NSUInteger f = 0; f < total; f++) {
+                double acc = 0.0, corr1 = 0.0, prevY = 0.0;
+                NSUInteger zc = 0;
+                for (NSUInteger i = 0; i < frame; i++) {
+                    double x = (double)samples[f * frame + i];
+                    double y = (x - hpPrevX) + 0.95 * hpPrevY;
+                    hpPrevX = x;
+                    hpPrevY = y;
+                    acc += y * y;
+                    if (i > 0) {
+                        corr1 += y * prevY;
+                        if ((y >= 0.0) != (prevY >= 0.0)) zc++;
+                    }
+                    prevY = y;
+                }
+                hpRMS[f] = sqrt(acc / frame);
+                if (hpRMS[f] > hpPeak) hpPeak = hpRMS[f];
+                hpR1[f] = (acc > 0.0) ? (corr1 / acc) : 0.0;
+                hpZCR[f] = (double)zc / (double)(frame - 1);
+            }
+            memcpy(hpSorted, hpRMS, sizeof(double) * total);
+            qsort_b(hpSorted, total, sizeof(double), ^int(const void *a, const void *b) {
+                double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : (x > y ? 1 : 0);
+            });
+            double hpP20Noise = hpSorted[total / 5];
+            double whisperThreshold = MAX(105.0, 2.05 * hpP20Noise);
+            NSUInteger whispEv = 0, curWhisp = 0, maxConsecWhisp = 0;
+            for (NSUInteger f = 0; f < total; f++) {
+                if (hpRMS[f] >= whisperThreshold && hpR1[f] >= 0.18 && hpZCR[f] <= 0.40) {
+                    whispEv++;
+                    curWhisp++;
+                    if (curWhisp > maxConsecWhisp) maxConsecWhisp = curWhisp;
+                } else {
+                    curWhisp = 0;
+                }
+            }
+            double whispSeconds = whispEv * 0.02;
+            if (hpPeak >= 145.0 && whispSeconds >= 0.18 && maxConsecWhisp >= 6) {
+                e.peakRMS = MAX(e.peakRMS, kSpeechPeakRMS);
+                e.evidenceSeconds = MAX(e.evidenceSeconds, MAX(kSpeechEvidenceMinSeconds, whispSeconds));
+            }
+        }
+        if (useHeap) { free(hpRMS); free(hpSorted); free(hpR1); free(hpZCR); }
+    }
     if (useHeap) { free(rms); free(sorted); }
     return e;
 }
@@ -4535,10 +4616,20 @@ static BOOL GFIsBluetoothOrHeadsetInput(AVAudioFormat *inputFormat) {
 
 static void GFAdaptiveGainReset(GFAdaptiveGainState *st, BOOL isBluetoothInput) {
     if (!st) return;
-    st->noiseFloorRMS = isBluetoothInput ? 35.0 : 50.0;
+    double initFloor = isBluetoothInput ? 35.0 : 50.0;
+    st->noiseFloorRMS = initFloor;
+    st->windowMinRMS = 1e9;
     st->voicedAccumulatorRMS = 0.0;
+    st->hpPrevX = 0.0;
+    st->hpPrevY = 0.0;
+    st->prevRawSample = 0.0;
+    st->framesProcessed = 0;
+    st->windowFrameCount = 0;
     st->consecutiveVoicedFrames = 0;
+    st->consecutiveWhisperFrames = 0;
+    st->totalWhisperFrames = 0;
     st->currentGain = 1.0;
+    st->maxGainApplied = 1.0;
     st->isBluetoothInput = isBluetoothInput;
     st->initialized = YES;
 }
@@ -4559,51 +4650,87 @@ static double GFAdaptiveGainProcessPCM16(GFAdaptiveGainState *st, int16_t *sampl
     for (NSUInteger f = 0; f < numFrames; f++) {
         NSUInteger start = f * frame;
         NSUInteger frameLen = (count < frame) ? count : frame;
-        double acc = 0.0, corr1 = 0.0;
+        double hpAcc = 0.0, hpCorr1 = 0.0, prevHP = 0.0;
+        NSUInteger hpZC = 0;
         for (NSUInteger i = 0; i < frameLen; i++) {
-            double v = samples[start + i];
-            acc += v * v;
-            if (i > 0) corr1 += v * (double)samples[start + i - 1];
+            double x = (double)samples[start + i];
+            double y = (x - st->hpPrevX) + 0.95 * st->hpPrevY;
+            st->hpPrevX = x;
+            st->hpPrevY = y;
+            hpAcc += y * y;
+            if (i > 0) {
+                hpCorr1 += y * prevHP;
+                if ((y >= 0.0) != (prevHP >= 0.0)) hpZC++;
+            }
+            prevHP = y;
         }
-        double rms = sqrt(acc / frameLen);
-        double r1 = (acc > 0.0) ? (corr1 / acc) : 0.0;
+        double hpRMS = sqrt(hpAcc / frameLen);
+        double hpR1 = (hpAcc > 0.0) ? (hpCorr1 / hpAcc) : 0.0;
+        double hpZCR = (frameLen > 1) ? ((double)hpZC / (double)(frameLen - 1)) : 0.5;
 
-        if (rms < st->noiseFloorRMS) {
-            st->noiseFloorRMS = 0.85 * st->noiseFloorRMS + 0.15 * MAX(15.0, rms);
-        } else if (rms < st->noiseFloorRMS * 2.2) {
-            st->noiseFloorRMS = 0.96 * st->noiseFloorRMS + 0.04 * rms;
-        } else if (r1 < 0.45 && rms < 350.0) {
-            st->noiseFloorRMS = 0.80 * st->noiseFloorRMS + 0.20 * rms;
+        // 1. Seed ambient floor from first 2 frames when <= 450 RMS so louder room tone (130-350 RMS) starts calibrated.
+        st->framesProcessed += 1;
+        if (st->framesProcessed <= 2 && hpRMS <= 450.0) {
+            if (st->framesProcessed == 1) st->noiseFloorRMS = MAX(15.0, hpRMS);
+            else st->noiseFloorRMS = MAX(15.0, MIN(st->noiseFloorRMS, hpRMS));
         }
 
-        BOOL isVoiced = NO;
-        if (st->noiseFloorRMS <= 65.0) {
-            double minVoiceRMS = st->isBluetoothInput ? 95.0 : 120.0;
-            isVoiced = (rms >= MAX(minVoiceRMS, 3.0 * st->noiseFloorRMS)) && (r1 >= 0.45 || rms >= 350.0);
-        } else {
-            isVoiced = (rms >= MAX(350.0, 3.2 * st->noiseFloorRMS)) && (r1 >= 0.45 || rms >= 700.0);
-        }
-
-        if (isVoiced) {
-            st->consecutiveVoicedFrames += 1;
-            if (st->voicedAccumulatorRMS == 0.0) {
-                st->voicedAccumulatorRMS = rms;
-            } else if (rms > st->voicedAccumulatorRMS) {
-                st->voicedAccumulatorRMS = 0.60 * st->voicedAccumulatorRMS + 0.40 * rms;
+        // 2. Rolling 40-frame (0.8 s) minimum-statistics floor tracks consonant closures and inter-word pauses.
+        if (hpRMS < st->windowMinRMS) st->windowMinRMS = hpRMS;
+        st->windowFrameCount += 1;
+        if (st->windowFrameCount >= 40) {
+            double targetFloor = MAX(15.0, MIN(450.0, st->windowMinRMS));
+            if (targetFloor <= st->noiseFloorRMS) {
+                st->noiseFloorRMS = 0.50 * st->noiseFloorRMS + 0.50 * targetFloor;
             } else {
-                st->voicedAccumulatorRMS = 0.92 * st->voicedAccumulatorRMS + 0.08 * rms;
+                st->noiseFloorRMS = MIN(st->noiseFloorRMS * 1.30 + 8.0, 0.70 * st->noiseFloorRMS + 0.30 * targetFloor);
+            }
+            st->windowMinRMS = 1e9;
+            st->windowFrameCount = 0;
+        }
+        if (hpRMS < st->noiseFloorRMS) {
+            st->noiseFloorRMS = 0.80 * st->noiseFloorRMS + 0.20 * MAX(15.0, hpRMS);
+        }
+
+        // Broadband white noise has hpR1 <= 0.16 and hpZCR >= 0.42; formant speech/whisper has hpR1 >= 0.18 and hpZCR <= 0.40.
+        BOOL isStructuredSpeech = (hpR1 >= 0.18 && hpZCR <= 0.40);
+        if (!isStructuredSpeech && hpRMS < 400.0) {
+            st->noiseFloorRMS = 0.85 * st->noiseFloorRMS + 0.15 * MAX(15.0, hpRMS);
+        }
+
+        double minSpeechRMS = st->isBluetoothInput ? 85.0 : 105.0;
+        BOOL aboveAmbient = (hpRMS >= MAX(minSpeechRMS, 2.05 * st->noiseFloorRMS));
+        BOOL isVoiced = aboveAmbient && (hpR1 >= 0.45 || (hpRMS >= 650.0 && hpZCR <= 0.40));
+        BOOL isWhisper = aboveAmbient && isStructuredSpeech && (hpRMS < 1500.0);
+
+        if (isVoiced || isWhisper) {
+            st->consecutiveVoicedFrames += 1;
+            if (isWhisper && (hpR1 < 0.65 || hpRMS < 500.0)) {
+                st->consecutiveWhisperFrames += 1;
+                if (st->consecutiveWhisperFrames >= 5) st->totalWhisperFrames += 1;
+            } else {
+                st->consecutiveWhisperFrames = 0;
+            }
+            if (st->voicedAccumulatorRMS == 0.0) {
+                st->voicedAccumulatorRMS = hpRMS;
+            } else if (hpRMS > st->voicedAccumulatorRMS) {
+                st->voicedAccumulatorRMS = 0.60 * st->voicedAccumulatorRMS + 0.40 * hpRMS;
+            } else {
+                st->voicedAccumulatorRMS = 0.92 * st->voicedAccumulatorRMS + 0.08 * hpRMS;
             }
         } else {
             st->consecutiveVoicedFrames = 0;
+            st->consecutiveWhisperFrames = 0;
             st->currentGain = 1.0 + (st->currentGain - 1.0) * 0.75;
             if (st->currentGain < 1.02) st->currentGain = 1.0;
         }
 
-        if (st->consecutiveVoicedFrames >= 3) {
-            const double kTargetSpeechRMS = 1800.0;
-            double maxGain = st->isBluetoothInput ? 5.0 : 3.5;
+        NSUInteger neededFrames = isVoiced ? 3 : 5;
+        if (st->consecutiveVoicedFrames >= neededFrames) {
+            const double kTargetSpeechRMS = 1900.0;
+            double maxGain = (st->isBluetoothInput || st->consecutiveWhisperFrames >= 5) ? 5.2 : 4.2;
             if (st->voicedAccumulatorRMS < kTargetSpeechRMS) {
-                double desired = MIN(maxGain, MAX(1.0, kTargetSpeechRMS / MAX(80.0, st->voicedAccumulatorRMS)));
+                double desired = MIN(maxGain, MAX(1.0, kTargetSpeechRMS / MAX(75.0, st->voicedAccumulatorRMS)));
                 st->currentGain = 0.65 * st->currentGain + 0.35 * desired;
             } else {
                 st->currentGain = 0.70 * st->currentGain + 0.30 * 1.0;
@@ -4611,17 +4738,43 @@ static double GFAdaptiveGainProcessPCM16(GFAdaptiveGainState *st, int16_t *sampl
             }
         }
 
+        BOOL lastWhisperPreEmphasis = NO;
         if (st->currentGain > 1.01) {
             double g = st->currentGain;
+            if (g > st->maxGainApplied) st->maxGainApplied = g;
+            BOOL applyWhisperPreEmphasis = (g > 1.05 && st->consecutiveWhisperFrames >= 5 && hpR1 < 0.72);
+            lastWhisperPreEmphasis = applyWhisperPreEmphasis;
+            double prev = st->prevRawSample;
             for (NSUInteger i = 0; i < frameLen; i++) {
-                samples[start + i] = GFAdaptiveGainLimitPCM16((double)samples[start + i] * g);
+                double raw = (double)samples[start + i];
+                double shaped = applyWhisperPreEmphasis ? (raw + 0.28 * (raw - prev)) : raw;
+                prev = raw;
+                samples[start + i] = GFAdaptiveGainLimitPCM16(shaped * g);
             }
+            st->prevRawSample = prev;
+        } else if (frameLen > 0) {
+            st->prevRawSample = (double)samples[start + frameLen - 1];
         }
-    }
-    if (count > frame && (count % frame) != 0 && st->currentGain > 1.01) {
-        double g = st->currentGain;
-        for (NSUInteger i = numFrames * frame; i < count; i++) {
-            samples[i] = GFAdaptiveGainLimitPCM16((double)samples[i] * g);
+        if (f + 1 == numFrames && count > frame && (count % frame) != 0) {
+            for (NSUInteger i = numFrames * frame; i < count; i++) {
+                double x = (double)samples[i];
+                double y = (x - st->hpPrevX) + 0.95 * st->hpPrevY;
+                st->hpPrevX = x;
+                st->hpPrevY = y;
+            }
+            if (st->currentGain > 1.01) {
+                double g = st->currentGain;
+                double prev = st->prevRawSample;
+                for (NSUInteger i = numFrames * frame; i < count; i++) {
+                    double raw = (double)samples[i];
+                    double shaped = lastWhisperPreEmphasis ? (raw + 0.28 * (raw - prev)) : raw;
+                    prev = raw;
+                    samples[i] = GFAdaptiveGainLimitPCM16(shaped * g);
+                }
+                st->prevRawSample = prev;
+            } else {
+                st->prevRawSample = (double)samples[count - 1];
+            }
         }
     }
     return st->currentGain;
@@ -4686,6 +4839,193 @@ static NSUInteger GFRestCharBudget(BOOL noLoudSpeech, double evidenceSeconds, do
     double speech = noLoudSpeech ? 0.0 : MAX(0.0, MAX(evidenceSeconds, loudSeconds));
     return (NSUInteger)floor(kRestCharsBase + kRestCharsPerSpeechSecond * MIN(speech, 36000.0));
 }
+
+// Cycle 130: Transient RAM-only context sanitization, anti-echo net, and Two-Speed Whisper/Mumble Rescue helpers.
+static NSString *GFNormalize(NSString *s);
+
+static inline BOOL GFIsHighSurrogateUnit(unichar c) { return c >= 0xD800 && c <= 0xDBFF; }
+static inline BOOL GFIsLowSurrogateUnit(unichar c) { return c >= 0xDC00 && c <= 0xDFFF; }
+
+static NSString *GFSanitizeTransientContextSnippet(NSString *raw, NSUInteger maxChars, BOOL keepTail) {
+    if (![raw isKindOfClass:[NSString class]] || raw.length == 0 || maxChars == 0) return nil;
+    NSMutableString *clean = [NSMutableString stringWithCapacity:MIN(raw.length, maxChars + 32)];
+    NSCharacterSet *ctrl = [NSCharacterSet controlCharacterSet];
+    BOOL prevSpace = NO;
+    for (NSUInteger i = 0; i < raw.length; i++) {
+        unichar c = [raw characterAtIndex:i];
+        if (GFIsHighSurrogateUnit(c)) {
+            if (i + 1 < raw.length && GFIsLowSurrogateUnit([raw characterAtIndex:i + 1])) {
+                [clean appendFormat:@"%C%C", c, [raw characterAtIndex:i + 1]];
+                i++;
+                prevSpace = NO;
+            }
+            continue;
+        }
+        if (GFIsLowSurrogateUnit(c)) continue;
+        if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+            if (!prevSpace && clean.length > 0) { [clean appendString:@" "]; prevSpace = YES; }
+        } else if (![ctrl characterIsMember:c]) {
+            [clean appendFormat:@"%C", c];
+            prevSpace = NO;
+        }
+    }
+    NSString *trimmed = [clean stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) return nil;
+    if (trimmed.length <= maxChars) return trimmed;
+    if (keepTail) {
+        NSUInteger start = trimmed.length - maxChars;
+        if (start < trimmed.length && GFIsLowSurrogateUnit([trimmed characterAtIndex:start])) start++;
+        if (start >= trimmed.length) return nil;
+        return [[trimmed substringFromIndex:start] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    }
+    NSUInteger end = maxChars;
+    if (end > 0 && GFIsHighSurrogateUnit([trimmed characterAtIndex:end - 1])) end--;
+    if (end == 0) return nil;
+    return [[trimmed substringToIndex:end] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+}
+
+static BOOL GFRestContextEchoRejected(NSString *restText, NSString *cursorBefore, NSArray<NSString *> *recentTexts,
+                                      NSUInteger liveSegments, NSString *onDeviceText) {
+    if (restText.length == 0) return NO;
+    NSString *low = restText.lowercaseString;
+    NSString *odLow = (onDeviceText ?: @"").lowercaseString;
+    if (([low containsString:@"context_do_not_repeat"] || [low containsString:@"rough_drafts_for_clues"]) &&
+        ![odLow containsString:@"context_do_not_repeat"]) {
+        return YES;
+    }
+    NSString *odTrim = [onDeviceText ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (liveSegments > 0 || odTrim.length > kRestPlausibilityMaxNoiseOnDeviceChars) return NO;
+    NSString *normOut = GFNormalize(restText);
+    if (normOut.length < 8) return NO;
+    if (cursorBefore.length > 0) {
+        NSString *normCur = GFNormalize(cursorBefore);
+        if (normCur.length >= normOut.length && [normCur containsString:normOut]) return YES;
+    }
+    for (NSString *rec in recentTexts) {
+        NSString *normRec = GFNormalize(rec);
+        if (normRec.length >= normOut.length && [normRec containsString:normOut]) return YES;
+    }
+    return NO;
+}
+
+static double GFTranscriptLexicalJaccard(NSString *a, NSString *b, NSUInteger *outWordsA, NSUInteger *outWordsB) {
+    static NSRegularExpression *wordRe;
+    static NSSet<NSString *> *fillers;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        wordRe = [NSRegularExpression regularExpressionWithPattern:@"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?" options:0 error:nil];
+        fillers = [NSSet setWithArray:@[@"um", @"uh", @"erm", @"er", @"ah", @"hmm"]];
+    });
+    NSMutableSet<NSString *> *setA = [NSMutableSet set];
+    NSMutableSet<NSString *> *setB = [NSMutableSet set];
+    NSUInteger countA = 0, countB = 0;
+    if (a.length > 0) {
+        for (NSTextCheckingResult *m in [wordRe matchesInString:a options:0 range:NSMakeRange(0, a.length)]) {
+            NSString *w = [[a substringWithRange:m.range] lowercaseString];
+            if ([fillers containsObject:w]) continue;
+            countA++;
+            [setA addObject:w];
+        }
+    }
+    if (b.length > 0) {
+        for (NSTextCheckingResult *m in [wordRe matchesInString:b options:0 range:NSMakeRange(0, b.length)]) {
+            NSString *w = [[b substringWithRange:m.range] lowercaseString];
+            if ([fillers containsObject:w]) continue;
+            countB++;
+            [setB addObject:w];
+        }
+    }
+    if (outWordsA) *outWordsA = countA;
+    if (outWordsB) *outWordsB = countB;
+    if (setA.count == 0 && setB.count == 0) return 1.0;
+    if (setA.count == 0 || setB.count == 0) return 0.0;
+    NSMutableSet<NSString *> *inter = [setA mutableCopy];
+    [inter intersectSet:setB];
+    NSMutableSet<NSString *> *uni = [setA mutableCopy];
+    [uni unionSet:setB];
+    return uni.count > 0 ? ((double)inter.count / (double)uni.count) : 1.0;
+}
+
+// Fast Lane (~0.2 s, returns NO) vs Bounded Rescue Lane (+0.3-0.5 s, returns YES).
+static BOOL GFShouldTriggerWhisperMumbleRescue(BOOL whisperBoosted, double maxGain, NSString *liveRaw,
+                                               NSString *onDeviceRaw, NSUInteger pcmBytes, BOOL isSuperseded) {
+    if (isSuperseded) return NO;
+    if (pcmBytes < 16000 || pcmBytes > kGFWhisperRescueMaxPCMBytes) return NO;
+    NSUInteger wordsLive = 0, wordsOnDev = 0;
+    double jacc = GFTranscriptLexicalJaccard(liveRaw, onDeviceRaw, &wordsLive, &wordsOnDev);
+    if (wordsLive == 0) return NO;
+    // 1. Acoustic whisper / very low voice: rescue unless both streams already agree almost identically.
+    if (whisperBoosted || maxGain >= 3.1) {
+        if (wordsLive >= 3 && wordsOnDev >= 3 && jacc >= 0.92 && labs((long)wordsLive - (long)wordsOnDev) <= 1) {
+            return NO;
+        }
+        return YES;
+    }
+    // 2. Mumbled / slurred speech at normal volume: heavy stream disagreement or severe Live word drop.
+    if (wordsLive >= 4 && wordsOnDev >= 4 && jacc < 0.58) return YES;
+    if (wordsOnDev >= 6 && wordsLive * 10 < wordsOnDev * 7) return YES;
+    return NO;
+}
+
+static BOOL GFWhisperRescueOutputPlausible(NSString *rescued, NSString *consensusFallback, NSString *onDeviceDraft, double audioSeconds) {
+    NSString *trim = [rescued ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trim.length == 0) return NO;
+    if (GFRestIsPromptEcho(trim)) return NO;
+    NSString *low = trim.lowercaseString;
+    if ([low containsString:@"context_do_not_repeat"] || [low containsString:@"rough_drafts_for_clues"]) return NO;
+    if ([trim hasPrefix:@"00:00"] || [trim hasPrefix:@"0:00"]) return NO;
+    NSUInteger maxAllowed = MAX(consensusFallback.length * 2 + 36, (NSUInteger)ceil(MAX(1.0, audioSeconds) * 44.0 + 24.0));
+    if (trim.length > maxAllowed) return NO;
+    NSUInteger minAgreed = MIN(consensusFallback.length, onDeviceDraft.length);
+    if (minAgreed >= 30 && trim.length * 10 < minAgreed * 5) return NO;
+    return YES;
+}
+
+static NSString *GFBuildContextualDictationSystemPrompt(NSArray<NSString *> *customWords,
+                                                        NSString *appName,
+                                                        NSString *cursorBefore,
+                                                        NSArray<NSString *> *recentTexts,
+                                                        NSString *liveDraft,
+                                                        NSString *onDeviceDraft,
+                                                        BOOL isRescuePass) {
+    NSMutableString *p = [NSMutableString stringWithString:
+        @"You are a voice dictation and transcription engine. Output ONLY the clean, punctuated transcript of what the user dictated in the audio. "
+        @"The speaker may be whispering, murmuring softly, or mumbling syllables; listen carefully to the full sentence to reconstruct unclear words accurately. "
+        @"Remove filler words (um, uh, like, you know) while preserving legitimate words and comparisons. Fix punctuation, capitalization, and resolve spoken self-corrections (for example, 'meet at 2 wait no 3pm' becomes 'meet at 3:00 PM'). "
+        @"Do not add line breaks, greetings formatting, or anything the user did not say. If the audio contains only silence or background noise with no intelligible speech, output an empty string (never repeat instructions). Output only the final text with no commentary or quotes."];
+    if (customWords.count > 0) {
+        NSUInteger limit = MIN((NSUInteger)100, customWords.count);
+        NSString *joinedWords = [[customWords subarrayWithRange:NSMakeRange(0, limit)] componentsJoinedByString:@", "];
+        [p appendFormat:@"\n\nPreferred spellings and custom vocabulary (use ONLY when phonetically supported by the audio): %@", joinedWords];
+    }
+    NSString *cleanApp = GFSanitizeTransientContextSnippet(appName, 60, NO);
+    NSString *cleanCur = GFSanitizeTransientContextSnippet(cursorBefore, kGFMaxTransientContextChars, YES);
+    NSMutableArray<NSString *> *cleanRec = [NSMutableArray array];
+    for (NSString *r in recentTexts) {
+        NSString *cr = GFSanitizeTransientContextSnippet(r, kGFMaxTransientContextChars, NO);
+        if (cr.length > 0) [cleanRec addObject:cr];
+        if (cleanRec.count >= 2) break;
+    }
+    if (cleanApp.length > 0 || cleanCur.length > 0 || cleanRec.count > 0) {
+        [p appendString:@"\n\n<CONTEXT_DO_NOT_REPEAT>\nRead-only topic context to disambiguate mumbled words, names, and homophones. NEVER repeat, continue, answer, or summarize any text from this block:"];
+        if (cleanApp.length > 0) [p appendFormat:@"\nActive app: %@", cleanApp];
+        if (cleanCur.length > 0) [p appendFormat:@"\nText immediately before cursor: %@", cleanCur];
+        if (cleanRec.count > 0) [p appendFormat:@"\nRecent dictations in session: %@", [cleanRec componentsJoinedByString:@" | "]];
+        [p appendString:@"\n</CONTEXT_DO_NOT_REPEAT>"];
+    }
+    NSString *cleanLive = GFSanitizeTransientContextSnippet(liveDraft, 600, NO);
+    NSString *cleanOD = GFSanitizeTransientContextSnippet(onDeviceDraft, 600, NO);
+    if (isRescuePass && (cleanLive.length > 0 || cleanOD.length > 0)) {
+        [p appendString:@"\n\n<ROUGH_DRAFTS_FOR_CLUES_ONLY>\nTwo streaming recognizers produced these rough drafts on the same audio (either draft may have misheard whispered or mumbled syllables; trust the audio first, using these drafts only as phonetic clues):"];
+        if (cleanLive.length > 0) [p appendFormat:@"\nStreaming draft A: %@", cleanLive];
+        if (cleanOD.length > 0) [p appendFormat:@"\nOn-device draft B: %@", cleanOD];
+        [p appendString:@"\n</ROUGH_DRAFTS_FOR_CLUES_ONLY>"];
+    } else if (!isRescuePass && cleanOD.length > 4) {
+        [p appendFormat:@"\n\n<ROUGH_DRAFTS_FOR_CLUES_ONLY>\nOn-device phonetic clue draft (trust the audio first): %@\n</ROUGH_DRAFTS_FOR_CLUES_ONLY>", cleanOD];
+    }
+    return p;
+}
+
 static BOOL GFHasZeroTimestampPrefix(NSString *text) {
     static NSRegularExpression *re;
     static dispatch_once_t once;
@@ -5207,6 +5547,7 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
 }
 static BOOL (*gGFMacDeliveryInterceptHook)(AppDelegate *slf, NSString *text, GFDictation *d) = NULL;
 static NSString *(*gGFMacCursorContextAdaptHook)(AppDelegate *slf, NSString *text) = NULL;
+static void (*gGFMacCaptureStartContextHook)(AppDelegate *slf, GFDictation *d) = NULL;
 static id GFCopyFocusedElement(void) {
     AXUIElementRef sys = AXUIElementCreateSystemWide();
     if (!sys) return nil;
@@ -5262,10 +5603,40 @@ static BOOL GFAXSelectPastedText(id element, NSString *pasted) {
     GFAXSetSelection(el, CFRangeMake(sel.location, 0));
     return NO;
 }
+static BOOL GFAXIsSecureElement(AXUIElementRef el) {
+    if (!el) return NO;
+    NSString *role = GFAXString(el, kAXRoleAttribute) ?: @"";
+    NSString *subrole = GFAXString(el, kAXSubroleAttribute) ?: @"";
+    return ([role rangeOfString:@"Secure" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            [subrole rangeOfString:@"Secure" options:NSCaseInsensitiveSearch].location != NSNotFound);
+}
+static NSString *GFAXReadExtendedContextBeforeCursor(id element, NSUInteger maxChars) {
+    AXUIElementRef el = (__bridge AXUIElementRef)element;
+    if (!el || maxChars == 0) return nil;
+    AXUIElementSetMessagingTimeout(el, 0.15);
+    if (GFAXIsSecureElement(el)) return nil;
+    CFTypeRef rv = NULL;
+    CFRange sel = CFRangeMake(0, 0);
+    BOOL gotSel = AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute, &rv) == kAXErrorSuccess && rv
+                  && CFGetTypeID(rv) == AXValueGetTypeID() && AXValueGetValue((AXValueRef)rv, kAXValueCFRangeType, &sel);
+    if (rv) CFRelease(rv);
+    if (!gotSel || sel.location <= 0) return nil;
+    NSString *all = GFAXString(el, kAXValueAttribute);
+    if (all && (NSUInteger)sel.location <= all.length) {
+        NSUInteger loc = (NSUInteger)sel.location;
+        if (loc > 0 && GFIsHighSurrogateUnit([all characterAtIndex:loc - 1])) loc--;
+        NSUInteger bStart = loc > maxChars ? (loc - maxChars) : 0;
+        if (bStart < loc && GFIsLowSurrogateUnit([all characterAtIndex:bStart])) bStart++;
+        return (loc > bStart) ? [all substringWithRange:NSMakeRange(bStart, loc - bStart)] : nil;
+    }
+    CFIndex bStart = MAX((CFIndex)0, sel.location - (CFIndex)maxChars);
+    return (sel.location > bStart) ? GFAXStringForRange(el, CFRangeMake(bStart, sel.location - bStart)) : nil;
+}
 static BOOL GFAXReadCursorContext(id element, NSString **outBefore, NSString **outAfter) {
     AXUIElementRef el = (__bridge AXUIElementRef)element;
     if (!el) return NO;
     AXUIElementSetMessagingTimeout(el, 0.15);
+    if (GFAXIsSecureElement(el)) return NO;
     CFTypeRef rv = NULL;
     CFRange sel = CFRangeMake(0, 0);
     BOOL gotSel = AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute, &rv) == kAXErrorSuccess && rv
@@ -5275,10 +5646,14 @@ static BOOL GFAXReadCursorContext(id element, NSString **outBefore, NSString **o
     NSString *all = GFAXString(el, kAXValueAttribute);
     if (all && (NSUInteger)sel.location <= all.length) {
         NSUInteger loc = (NSUInteger)sel.location;
+        if (loc > 0 && GFIsHighSurrogateUnit([all characterAtIndex:loc - 1])) loc--;
         NSUInteger bStart = loc > 80 ? loc - 80 : 0;
+        if (bStart < loc && GFIsLowSurrogateUnit([all characterAtIndex:bStart])) bStart++;
         if (outBefore) *outBefore = [all substringWithRange:NSMakeRange(bStart, loc - bStart)];
         NSUInteger aStart = MIN(all.length, (NSUInteger)(sel.location + MAX((CFIndex)0, sel.length)));
+        if (aStart < all.length && GFIsLowSurrogateUnit([all characterAtIndex:aStart])) aStart++;
         NSUInteger aLen = MIN((NSUInteger)40, all.length - aStart);
+        if (aLen > 0 && GFIsHighSurrogateUnit([all characterAtIndex:aStart + aLen - 1])) aLen--;
         if (outAfter) *outAfter = [all substringWithRange:NSMakeRange(aStart, aLen)];
         return YES;
     }
@@ -6642,9 +7017,27 @@ static NSString *GFMacCursorContextAdapt(AppDelegate *slf, NSString *text) {
     return GFAdaptTextForMidSentenceCursor(text, beforeCur, afterCur, [slf customVocabularyForDictation]);
 }
 
+static void GFMacCaptureStartContext(AppDelegate *slf, GFDictation *d) {
+    if (!slf || !d || gGFRunningUnitTests || slf.unitTestMode || slf.e2eMode.length > 0) return;
+    NSRunningApplication *front = [NSWorkspace sharedWorkspace].frontmostApplication;
+    if (front.localizedName.length > 0 && d.transientAppName.length == 0) {
+        d.transientAppName = GFSanitizeTransientContextSnippet(front.localizedName, 60, NO);
+    }
+    if (d.transientCursorBefore.length == 0 && AXIsProcessTrusted()) {
+        id elem = GFCopyFocusedElement();
+        if (elem) {
+            NSString *before = GFAXReadExtendedContextBeforeCursor(elem, kGFMaxTransientContextChars);
+            if (before.length > 0) {
+                d.transientCursorBefore = GFSanitizeTransientContextSnippet(before, kGFMaxTransientContextChars, YES);
+            }
+        }
+    }
+}
+
 __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     gGFMacDeliveryInterceptHook = GFMacDeliveryIntercept;
     gGFMacCursorContextAdaptHook = GFMacCursorContextAdapt;
+    gGFMacCaptureStartContextHook = GFMacCaptureStartContext;
 }
 
 #pragma mark - Audio Recording Engine
@@ -6716,6 +7109,48 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     return self.recordedPCMData ?: [NSData data];
 }
 
+- (void)captureTransientContextForDictation:(GFDictation *)d {
+    if (!d) return;
+    NSString *seedCursor = (self.e2eMode.length > 0) ? self.e2eCursorContext : self.hostCursorBeforeText;
+    if (seedCursor.length > 0) {
+        d.transientCursorBefore = GFSanitizeTransientContextSnippet(seedCursor, kGFMaxTransientContextChars, YES);
+    }
+    if (self.e2eMode.length == 0 && self.targetAppBundleID.length > 0) {
+        d.transientAppName = GFSanitizeTransientContextSnippet(self.targetAppBundleID, 60, NO);
+    }
+    if ((self.e2eMode.length == 0 || self.e2eCursorContext.length > 0) && self.recentDictations.count > 0) {
+        NSMutableArray<NSString *> *snap = [NSMutableArray arrayWithCapacity:2];
+        for (NSString *r in self.recentDictations) {
+            NSString *cr = GFSanitizeTransientContextSnippet(r, kGFMaxTransientContextChars, NO);
+            if (cr.length > 0) [snap addObject:cr];
+            if (snap.count >= 2) break;
+        }
+        if (snap.count > 0) d.transientRecentContext = [snap copy];
+    }
+    if (gGFMacCaptureStartContextHook) {
+        gGFMacCaptureStartContextHook(self, d);
+    }
+#if TARGET_OS_IPHONE
+    if (!self.unitTestMode) {
+        self.targetAppBundleID = nil;
+        self.hostCursorBeforeText = nil;
+        self.hostCursorAfterText = nil;
+    }
+#endif
+}
+
+- (void)clearTransientContextForDictation:(GFDictation *)d {
+    if (!d) return;
+    d.transientApiKey = nil;
+    d.transientAppName = nil;
+    d.transientCursorBefore = nil;
+    d.transientRecentContext = nil;
+    if (d.rescueTask) {
+        [d.rescueTask cancel];
+        d.rescueTask = nil;
+    }
+}
+
 - (void)startRecording {
     if (self.isRecording) return;
 
@@ -6726,6 +7161,7 @@ __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     self.dictationSerial += 1;
     self.activeDictation = [[GFDictation alloc] init];
     self.activeDictation.serial = self.dictationSerial;
+    [self captureTransientContextForDictation:self.activeDictation];
     GFLog(@"startRecording (handsFree=%d, speechAuth=%ld, recognizerAvailable=%d)", self.isHandsFree,
           (long)[SFSpeechRecognizer authorizationStatus], self.speechRecognizer.isAvailable);
     self.hasCompletedGeminiTurn = NO;
@@ -7111,6 +7547,7 @@ static BOOL GFShouldRewarmAudioEngineOnSystemWake(BOOL isRecording, BOOL hasAudi
     self.isRecording = NO;
     self.isHandsFree = NO;
     self.activeDictation.finished = YES;
+    [self clearTransientContextForDictation:self.activeDictation];
     self.recognitionSessionId += 1; // drop any late recognizer callbacks
     self.isFinalizingOnDevice = NO;
     [self stopAudioEngine];
@@ -7199,6 +7636,8 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
             && convertedBuffer.frameLength > 0 && convertedBuffer.int16ChannelData != NULL && convertedBuffer.int16ChannelData[0] != NULL) {
             appliedGain = GFAdaptiveGainProcessPCM16(&self->_agcState, convertedBuffer.int16ChannelData[0], convertedBuffer.frameLength);
         }
+        double chunkMaxGain = self->_agcState.maxGainApplied;
+        BOOL chunkWhisperBoosted = (self->_agcState.totalWhisperFrames >= 6 || chunkMaxGain >= 3.1);
         if (appliedGain > 1.01) {
             GFAdaptiveGainScaleFloatBuffer(buffer, (float)appliedGain);
         }
@@ -7235,6 +7674,14 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
                     if (!s || !GFShouldAcceptCapturedChunk(chunkSerial, s.dictationSerial, chunkSessionId, s.recognitionSessionId)) return;
                     [s.recordedPCMData appendData:chunkData];
                     s.lastCapturedAudioEndTime = captureEnd;
+                    if (s.activeDictation) {
+                        if (chunkMaxGain > s.activeDictation.maxAppliedGain) {
+                            s.activeDictation.maxAppliedGain = chunkMaxGain;
+                        }
+                        if (chunkWhisperBoosted) {
+                            s.activeDictation.whisperOrLowSNRBoosted = YES;
+                        }
+                    }
                     if (s.isRecording) [s.hudPanel updateAudioLevel:animLevel];
 
                     [s pumpLiveAudioForce:NO];
@@ -7299,6 +7746,7 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
 - (void)cancelRecording {
     self.isRecording = NO;
     self.isHandsFree = NO;
+    [self clearTransientContextForDictation:self.activeDictation];
     [self flushDeferredPastes]; // a previous dictation that finished during this press still gets pasted (backlog 6)
     self.recognitionSessionId += 1; // drop any late recognizer callbacks / pending finalization
     self.isFinalizingOnDevice = NO;
@@ -7347,6 +7795,7 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
     [self setMenuIconState:2];
     NSString *engineMode = [self effectiveEngineMode];
     NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
+    dictation.transientApiKey = apiKey;
     BOOL liveUsed = [engineMode isEqualToString:@"gemini"] && apiKey.length > 0 && [self isLiveWebSocketModel:[self currentGeminiModel]];
     GFLog(@"%@", GFPressStatsLogLineWithRotations(self.recordedPCMData.length / 32000.0, liveUsed,
                                                   GFLiveSessionAgeSeconds([NSDate timeIntervalSinceReferenceDate], self.liveSocketReadyTime),
@@ -8994,6 +9443,130 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     return [acc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+- (BOOL)attemptWhisperMumbleRescueForDictation:(GFDictation *)dictation
+                                       liveRaw:(NSString *)liveRaw
+                                   onDeviceRaw:(NSString *)onDeviceRaw
+                             consensusFallback:(NSString *)consensusFallback {
+    if (!dictation) return NO;
+    BOOL allowInRun = (self.e2eMode.length == 0 && !self.unitTestMode)
+                   || self.e2eWhisperRescue
+                   || (self.whisperRescueTestHook != nil);
+    if (!allowInRun) return NO;
+    NSData *pcm = [self pcmForDictation:dictation];
+    if (!GFShouldTriggerWhisperMumbleRescue(dictation.whisperOrLowSNRBoosted, dictation.maxAppliedGain,
+                                            liveRaw, onDeviceRaw, pcm.length, dictation.superseded)) {
+        return NO;
+    }
+    NSString *apiKey = dictation.transientApiKey;
+    if (apiKey.length == 0 && self.whisperRescueTestHook == nil) return NO;
+
+    NSArray<NSString *> *vocab = [self customVocabularyForDictation];
+    NSString *sysPrompt = GFBuildContextualDictationSystemPrompt(vocab, dictation.transientAppName,
+                                                                 dictation.transientCursorBefore,
+                                                                 dictation.transientRecentContext,
+                                                                 liveRaw, onDeviceRaw, YES);
+    NSString *userPrompt = @"Reconstruct and clean up the speaker's exact dictated utterance from this audio.";
+    double audioSeconds = pcm.length / 32000.0;
+    dictation.liveHadTextAtSupersede = YES;
+    dictation.rescueFinished = NO;
+
+    __weak typeof(self) weakSelf = self;
+    void (^deliverOutcome)(NSInteger, NSString *, double) = ^(NSInteger statusCode, NSString *rawCandidate, double elapsed) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf || dictation.rescueFinished || dictation.finished) return;
+        dictation.rescueFinished = YES;
+        dictation.rescueTask = nil;
+        NSString *cleaned = [rawCandidate ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (statusCode == 200 && GFWhisperRescueOutputPlausible(cleaned, consensusFallback, onDeviceRaw, audioSeconds)
+            && [strongSelf restOutputPlausible:cleaned dictation:dictation]) {
+            if (!strongSelf.unitTestMode) {
+                GFLog(@"Whisper rescue (%@): ok in %.2fs (%lu chars, %.1fs audio, gain %.2fx)",
+                      kRescueModel, elapsed, (unsigned long)cleaned.length, audioSeconds, dictation.maxAppliedGain);
+            }
+            [strongSelf applyFinalTranscript:[strongSelf polishOnDeviceTranscript:cleaned] dictation:dictation];
+        } else {
+            if (!strongSelf.unitTestMode) {
+                GFLog(@"Whisper rescue (%@): fallback to consensus after %.2fs (HTTP %ld, %lu rescue chars)",
+                      kRescueModel, elapsed, (long)statusCode, (unsigned long)cleaned.length);
+            }
+            [strongSelf applyFinalTranscript:[strongSelf polishOnDeviceTranscript:consensusFallback] dictation:dictation];
+        }
+    };
+
+    if (self.whisperRescueTestHook) {
+        NSTimeInterval t0 = [NSDate timeIntervalSinceReferenceDate];
+        self.whisperRescueTestHook(kRescueModel, sysPrompt, userPrompt, ^(NSInteger status, NSString *text) {
+            deliverOutcome(status, text, [NSDate timeIntervalSinceReferenceDate] - t0);
+        });
+        return YES;
+    }
+
+    NSData *wavData = [self createWavDataFromPCM:pcm];
+    NSString *b64Audio = [wavData base64EncodedStringWithOptions:0];
+    NSMutableURLRequest *rescueReq = GFGeminiRequest(GFGenerateContentURL(kRescueModel), apiKey);
+    rescueReq.timeoutInterval = kGFWhisperRescueDeadlineSeconds + 0.25;
+    rescueReq.HTTPMethod = @"POST";
+    [rescueReq setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    NSDictionary *audioPart = @{@"inlineData": @{@"mimeType": @"audio/wav", @"data": b64Audio}};
+    NSDictionary *genConfig = @{@"temperature": @(0.0), @"maxOutputTokens": @(kRestMaxOutputTokens),
+                                @"thinkingConfig": @{@"thinkingBudget": @(0)}};
+    NSDictionary *body = @{@"systemInstruction": @{@"parts": @[@{@"text": sysPrompt}]},
+                           @"contents": @[@{@"parts": @[audioPart, @{@"text": userPrompt}]}],
+                           @"generationConfig": genConfig};
+    NSData *rescueBodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    if (!rescueBodyData) {
+        deliverOutcome(0, @"", 0.0);
+        return YES;
+    }
+    rescueReq.HTTPBody = rescueBodyData;
+
+    NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
+    if (!self.unitTestMode) {
+        GFLog(@"Whisper rescue: starting bounded %.2fs pass on %@ (%.1fs audio, whisper=%d, maxGain=%.2fx)",
+              kGFWhisperRescueDeadlineSeconds, kRescueModel, audioSeconds,
+              dictation.whisperOrLowSNRBoosted, dictation.maxAppliedGain);
+    }
+    void (^rescueDone)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *resp, NSError *err) {
+        NSInteger code = [resp isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)resp).statusCode : 0;
+        NSMutableString *extracted = [NSMutableString string];
+        if (!err && code == 200 && data.length > 0) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSArray *candidates = [json isKindOfClass:[NSDictionary class]] ? json[@"candidates"] : nil;
+            if ([candidates isKindOfClass:[NSArray class]] && candidates.count > 0) {
+                NSArray *parts = candidates[0][@"content"][@"parts"];
+                if ([parts isKindOfClass:[NSArray class]]) {
+                    for (NSDictionary *p in parts) {
+                        if ([p[@"thought"] boolValue]) continue;
+                        NSString *t = p[@"text"] ?: p[@"audioTranscription"][@"text"];
+                        if ([t isKindOfClass:[NSString class]]) [extracted appendString:t];
+                    }
+                }
+            }
+        }
+        double elapsed = [NSDate timeIntervalSinceReferenceDate] - startTime;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            deliverOutcome(err ? 0 : code, extracted, elapsed);
+        });
+    };
+    NSURLSessionDataTask *rTask = [[NSURLSession sharedSession] dataTaskWithRequest:rescueReq completionHandler:rescueDone];
+    dictation.rescueTask = rTask;
+    [rTask resume];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kGFWhisperRescueDeadlineSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf || dictation.rescueFinished || dictation.finished) return;
+        dictation.rescueFinished = YES;
+        [dictation.rescueTask cancel];
+        dictation.rescueTask = nil;
+        if (!strongSelf.unitTestMode) {
+            GFLog(@"Whisper rescue: %.2fs budget elapsed; delivering consensus transcript (%lu chars)",
+                  kGFWhisperRescueDeadlineSeconds, (unsigned long)consensusFallback.length);
+        }
+        [strongSelf applyFinalTranscript:[strongSelf polishOnDeviceTranscript:consensusFallback] dictation:dictation];
+    });
+    return YES;
+}
+
 - (void)finishLiveTranscriptWithReason:(NSString *)reason {
     if (self.hasCompletedGeminiTurn) return;
     self.hasCompletedGeminiTurn = YES;
@@ -9010,6 +9583,7 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     }
     [self closeLiveWebSocket];
     if (joined.length > 0) {
+        NSString *liveRaw = joined;
         NSString *onDev = self.latestOnDeviceTranscript ?: @"";
         if (onDev.length > 0) {
             joined = GFDualStreamConsensus(joined, onDev, [self customVocabularyForDictation]);
@@ -9017,6 +9591,9 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
         if (self.recognitionTask && !self.isRecording) {
             [self.recognitionTask cancel];
             self.recognitionTask = nil;
+        }
+        if ([self attemptWhisperMumbleRescueForDictation:self.activeDictation liveRaw:liveRaw onDeviceRaw:onDev consensusFallback:joined]) {
+            return;
         }
         [self applyFinalTranscript:[self polishOnDeviceTranscript:joined] dictation:self.activeDictation];
     } else {
@@ -9154,7 +9731,10 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     d.earlyText = polished; // after delivery: later results for d go to resolveEarlyPastedDictation
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((kLateSwapWindow + 1.0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (weakSelf.earlyWatchDictation == d) [weakSelf stopEarlyPasteWatch];
+        if (weakSelf.earlyWatchDictation == d) {
+            [weakSelf stopEarlyPasteWatch];
+            if (d.earlyResolved) [weakSelf clearTransientContextForDictation:d];
+        }
     });
 }
 
@@ -9164,6 +9744,7 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
 - (void)resolveEarlyPastedDictation:(GFDictation *)d geminiText:(NSString *)text {
     if (d.earlyResolved) return;
     d.earlyResolved = YES;
+    [self clearTransientContextForDictation:d];
     BOOL watched = self.earlyWatchDictation == d && self.globalKeyMonitor && self.earlyMouseMonitor;
     if (self.earlyWatchDictation == d) [self stopEarlyPasteWatch];
     BOOL hasText = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0;
@@ -9225,7 +9806,8 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
         odText = [self.latestOnDeviceTranscript ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     }
     odChars = odText.length;
-    if (GFRestEchoRejected(text, segs, odText)) {
+    if (GFRestEchoRejected(text, segs, odText)
+        || GFRestContextEchoRejected(text, d.transientCursorBefore, d.transientRecentContext, segs, odText)) {
         if (!self.unitTestMode) {
             GFLog(@"REST plausibility (dictation #%lu): Live no text, ondevice_chars=%lu; %lu chars -> %s",
                   (unsigned long)d.serial, (unsigned long)odChars, (unsigned long)text.length,
@@ -9253,7 +9835,10 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     if (self.restFallbackSink) { self.restFallbackSink(dictation); return; } // --test only (never set outside the built-in suite)
     NSString *apiKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey];
     NSString *selectedModel = [self currentGeminiModel];
-    if ([self isLiveWebSocketModel:selectedModel]) selectedModel = kDefaultModel; // live models are streaming-only
+    if ([self isLiveWebSocketModel:selectedModel]) {
+        BOOL promoteWhisperFallback = dictation.whisperOrLowSNRBoosted && (self.e2eMode.length == 0 || self.e2eWhisperRescue);
+        selectedModel = promoteWhisperFallback ? kRescueModel : kDefaultModel; // live models are streaming-only
+    }
 
     // Hop through the main queue once so PCM chunks the tap already queued are appended before we build the WAV.
     // Apple's recognizer keeps running in the background as the fallback if Gemini fails or is slow.
@@ -9320,7 +9905,15 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
         body = @{@"contents": @[@{@"parts": @[audioPart]}],
                  @"generationConfig": @{@"temperature": @(0.0), @"maxOutputTokens": @(kRestMaxOutputTokens)}};
     } else {
-        NSString *systemPrompt = @"You are a voice dictation and transcription engine. Output ONLY the clean, punctuated transcript of what the user dictated. Remove filler words (um, uh, like, you know) while preserving legitimate words and comparisons. Fix punctuation, capitalization, and resolve spoken self-corrections (for example, 'meet at 2 wait no 3pm' becomes 'meet at 3:00 PM'). Do not add line breaks, greetings formatting, or anything the user did not say. If the audio contains only silence or background noise with no intelligible speech, output an empty string (never repeat instructions). Output only the final text with no commentary or quotes.";
+        BOOL useContextualPrompt = (self.e2eMode.length == 0 || self.e2eWhisperRescue || self.e2eCursorContext.length > 0);
+        NSString *odClue = dictation.superseded ? dictation.onDeviceText : self.latestOnDeviceTranscript;
+        NSString *systemPrompt = useContextualPrompt
+            ? GFBuildContextualDictationSystemPrompt([self customVocabularyForDictation],
+                                                     dictation.transientAppName,
+                                                     dictation.transientCursorBefore,
+                                                     dictation.transientRecentContext,
+                                                     nil, odClue, NO)
+            : @"You are a voice dictation and transcription engine. Output ONLY the clean, punctuated transcript of what the user dictated. Remove filler words (um, uh, like, you know) while preserving legitimate words and comparisons. Fix punctuation, capitalization, and resolve spoken self-corrections (for example, 'meet at 2 wait no 3pm' becomes 'meet at 3:00 PM'). Do not add line breaks, greetings formatting, or anything the user did not say. If the audio contains only silence or background noise with no intelligible speech, output an empty string (never repeat instructions). Output only the final text with no commentary or quotes.";
         NSMutableDictionary *genConfig = [@{@"temperature": @(0.0), @"maxOutputTokens": @(kRestMaxOutputTokens)} mutableCopy];
         if ([model containsString:@"3.8"]) {
             genConfig[@"thinkingConfig"] = @{@"thinkingLevel": @"LOW"};
@@ -9331,7 +9924,14 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
                  @"contents": @[@{@"parts": @[audioPart, @{@"text": @"Transcribe and clean up this audio dictation."}]}],
                  @"generationConfig": genConfig};
     }
-    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    NSData *restBodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    if (!restBodyData) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self finishWithOnDeviceTranscriptForDictation:dictation];
+        });
+        return;
+    }
+    request.HTTPBody = restBodyData;
 
     __weak typeof(self) weakSelf = self;
     void (^completion)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -12872,9 +13472,10 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
 }
 
 - (void)showNoSpeechDetectedForDictation:(GFDictation *)d {
-    if (d.earlyText) { [self resolveEarlyPastedDictation:d geminiText:nil]; return; } // its on-device text was delivered early
+    if (d.earlyText) { [self clearTransientContextForDictation:d]; [self resolveEarlyPastedDictation:d geminiText:nil]; return; } // its on-device text was delivered early
     if (d.superseded && d.finished) return; // already ended
     d.finished = YES;
+    [self clearTransientContextForDictation:d];
     if (self.resultSink) { self.resultSink(nil, d ?: self.activeDictation); return; }
     if (self.e2eCompletion) {
         void (^done)(NSString *) = self.e2eCompletion;
@@ -12942,6 +13543,9 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
         return;
     }
     d.finished = YES;
+    if (self.earlyWatchDictation != d) {
+        [self clearTransientContextForDictation:d];
+    }
     if (self.hostCursorBeforeText.length > 0 || self.hostCursorAfterText.length > 0 || self.hostVoiceUndoHandler != nil) {
         BOOL handledByHostUndo = NO;
         text = [self applyHostDeliverySeamsToTranscript:text dictation:d handledByUndo:&handledByHostUndo];
@@ -18965,6 +19569,205 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 printf("%s: Custom Words acronym and double-consonant name over-biasing protection (%d%d)\n",
                        c129Ok ? "PASS" : "FAIL", init1, gem1);
             }
+            // Cycle 130: Whisper & Mumble Accuracy Upgrade (Phases 1-3: Acoustic Whisper AGC, Transient Context, & Two-Speed Rescue)
+            {
+                // 1. Phase 1: Whisper-aware AGC & raised room floor speech evidence (boosts formant whispers, ignores broadband room noise)
+                NSUInteger wLen = 24000; // 1.5 s at 16 kHz
+                int16_t *whispBuf = calloc(wLen, sizeof(int16_t));
+                int16_t *unboostedWhisp = calloc(wLen, sizeof(int16_t));
+                int16_t *roomOnly = calloc(wLen, sizeof(int16_t));
+                uint32_t wSeed = 20260806u;
+                for (NSUInteger i = 0; i < wLen; i++) {
+                    wSeed = wSeed * 1664525u + 1013904223u;
+                    double u1 = ((wSeed >> 8) / 16777216.0) + 1e-9;
+                    wSeed = wSeed * 1664525u + 1013904223u;
+                    double u2 = (wSeed >> 8) / 16777216.0;
+                    double g = sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+                    // Realistic noisy room tone: 85 RMS broadband hiss + 115 RMS 55 Hz sub-bass HVAC rumble (> 65 RMS old ceiling)
+                    double bg = 85.0 * g + 115.0 * sqrt(2.0) * sin(2.0 * M_PI * 55.0 * i / 16000.0);
+                    roomOnly[i] = (int16_t)lrint(MAX(-32768.0, MIN(32767.0, bg)));
+                    double sig = bg;
+                    if (i >= 4800 && i < 19200) {
+                        // Formant-resonant whispered speech (~235 RMS: oral cavity resonances at 650 Hz & 1650 Hz + breath)
+                        double f1 = 195.0 * sqrt(2.0) * sin(2.0 * M_PI * 650.0 * i / 16000.0);
+                        double f2 = 115.0 * sqrt(2.0) * sin(2.0 * M_PI * 1650.0 * i / 16000.0);
+                        sig += f1 + f2;
+                    }
+                    int16_t s16 = (int16_t)lrint(MAX(-32768.0, MIN(32767.0, sig)));
+                    whispBuf[i] = s16;
+                    unboostedWhisp[i] = s16;
+                }
+                GFSpeechEvidence evUnboostedWhisp = GFMeasureSpeechEvidence(unboostedWhisp, wLen);
+                GFSpeechEvidence evRoomOnly = GFMeasureSpeechEvidence(roomOnly, wLen);
+                GFAdaptiveGainState stWhisp, stRoom;
+                GFAdaptiveGainReset(&stWhisp, NO);
+                GFAdaptiveGainReset(&stRoom, NO);
+                double gWhisp = GFAdaptiveGainProcessPCM16(&stWhisp, whispBuf, wLen);
+                double gRoom = GFAdaptiveGainProcessPCM16(&stRoom, roomOnly, wLen);
+                GFSpeechEvidence evBoostedWhisp = GFMeasureSpeechEvidence(whispBuf, wLen);
+                BOOL c130_p1 = (stWhisp.maxGainApplied >= 3.2) && (stWhisp.totalWhisperFrames >= 6)
+                            && (gWhisp >= 1.0) && !GFNoLoudSpeech(evBoostedWhisp.peakRMS, evBoostedWhisp.evidenceSeconds)
+                            && !GFNoLoudSpeech(evUnboostedWhisp.peakRMS, evUnboostedWhisp.evidenceSeconds)
+                            && (gRoom == 1.0) && (stRoom.maxGainApplied == 1.0)
+                            && GFNoLoudSpeech(evRoomOnly.peakRMS, evRoomOnly.evidenceSeconds);
+                free(whispBuf); free(unboostedWhisp); free(roomOnly);
+                if (c130_p1) passed++; else failed++;
+                printf("%s: Cycle 130 Phase 1 whisper AGC & raised-floor speech evidence (maxGain=%.2fx, whispFrames=%lu, roomGain=%.2fx)\n",
+                       c130_p1 ? "PASS" : "FAIL", stWhisp.maxGainApplied, (unsigned long)stWhisp.totalWhisperFrames, gRoom);
+            }
+            {
+                // 2. Phase 2: Transient RAM-only cursor & recent-dictations context capture, 200-char bound, and post-delivery wipe
+                AppDelegate *ctxApp = [[AppDelegate alloc] init];
+                ctxApp.unitTestMode = YES;
+                ctxApp.recentDictations = [@[@"First recent note about the quarterly budget.",
+                                             @"Second recent note about the release checklist.",
+                                             @"Third older note that must not be included."] mutableCopy];
+                NSMutableString *longBefore = [NSMutableString string];
+                for (int k = 0; k < 30; k++) [longBefore appendString:@"0123456789"]; // 300 chars
+                [longBefore appendString:@" Replying to Siobhan:"];
+                ctxApp.hostCursorBeforeText = longBefore;
+                ctxApp.targetAppBundleID = @"com.tinyspeck.slackmacgap";
+                GFDictation *ctxD = [[GFDictation alloc] init];
+                ctxD.serial = 1;
+                ctxD.transientApiKey = @"DUMMY-TRANSIENT-KEY";
+                [ctxApp captureTransientContextForDictation:ctxD];
+                BOOL capturedOk = (ctxD.transientCursorBefore.length == kGFMaxTransientContextChars)
+                               && [ctxD.transientCursorBefore hasSuffix:@"Replying to Siobhan:"]
+                               && [ctxD.transientAppName isEqualToString:@"com.tinyspeck.slackmacgap"]
+                               && (ctxD.transientRecentContext.count == 2)
+                               && [ctxD.transientRecentContext[0] containsString:@"quarterly budget"]
+                               && [ctxD.transientRecentContext[1] containsString:@"release checklist"];
+                __block NSString *deliveredCtx = nil;
+                ctxApp.resultSink = ^(NSString *txt, GFDictation * which) { deliveredCtx = txt; };
+                [ctxApp applyFinalTranscript:@"Sounds good to me. " dictation:ctxD];
+                BOOL wipedOk = (ctxD.transientCursorBefore == nil)
+                            && (ctxD.transientRecentContext == nil)
+                            && (ctxD.transientAppName == nil)
+                            && (ctxD.transientApiKey == nil)
+                            && (deliveredCtx.length > 0 && [deliveredCtx.lowercaseString containsString:@"sounds good to me."]);
+                // UTF-16 emoji surrogate-pair boundary safety + early-paste anti-echo retention
+                NSMutableString *emojiHead = [NSMutableString string];
+                for (int k = 0; k < 199; k++) [emojiHead appendString:@"a"];
+                [emojiHead appendString:@"\U0001F680"]; // 2 UTF-16 units straddling index 199..200
+                NSString *emojiTailInput = [@"\U0001F680" stringByAppendingString:emojiHead]; // low surrogate at length - 200
+                NSString *sHead = GFSanitizeTransientContextSnippet(emojiHead, 200, NO);
+                NSString *sTail = GFSanitizeTransientContextSnippet(emojiTailInput, 200, YES);
+                unichar loneHi = 0xD83D;
+                NSString *loneRaw = [NSString stringWithFormat:@"Hello %@ world", [NSString stringWithCharacters:&loneHi length:1]];
+                NSString *sLone = GFSanitizeTransientContextSnippet(loneRaw, 200, NO);
+                NSString *emojiPrompt = GFBuildContextualDictationSystemPrompt(@[@"Zyphra"], @"Slack", sTail, @[sHead, sLone], nil, nil, NO);
+                NSData *emojiJSON = [NSJSONSerialization dataWithJSONObject:@{@"sys": emojiPrompt} options:0 error:nil];
+                GFDictation *earlyD = [[GFDictation alloc] init];
+                earlyD.serial = 2;
+                earlyD.transientCursorBefore = @"Do not echo this cursor line";
+                ctxApp.earlyWatchDictation = earlyD;
+                [ctxApp applyFinalTranscript:@"Early text. " dictation:earlyD];
+                BOOL keptDuringEarlyWatch = (earlyD.transientCursorBefore != nil);
+                earlyD.earlyText = @"Early text. ";
+                [ctxApp resolveEarlyPastedDictation:earlyD geminiText:nil];
+                BOOL wipedAfterEarlyResolve = (earlyD.transientCursorBefore == nil);
+                BOOL emojiAndEarlyOk = (emojiJSON.length > 0) && (sHead.length == 199) && keptDuringEarlyWatch && wipedAfterEarlyResolve;
+                BOOL c130_p2 = capturedOk && wipedOk && emojiAndEarlyOk;
+                if (c130_p2) passed++; else failed++;
+                printf("%s: Cycle 130 Phase 2 transient cursor & session context capture (<=200 chars, UTF-16 surrogate-safe, early-watch & RAM wipe) (%d%d%d)\n",
+                       c130_p2 ? "PASS" : "FAIL", capturedOk, wipedOk, emojiAndEarlyOk);
+            }
+            {
+                // 3. Phase 3a: Two-speed adaptive routing (Fast Lane 0ms vs Bounded Rescue Lane)
+                BOOL fastNormal = !GFShouldTriggerWhisperMumbleRescue(
+                    NO, 1.25,
+                    @"Please send the updated deck to the design team before Friday.",
+                    @"Please send the updated deck to the design team before Friday",
+                    96000, NO);
+                BOOL rescueWhisper = GFShouldTriggerWhisperMumbleRescue(
+                    YES, 4.40,
+                    @"Can we move the design review to Thursday?",
+                    @"Can we move the design to Thursday",
+                    96000, NO);
+                BOOL rescueSkipIdenticalWhisper = !GFShouldTriggerWhisperMumbleRescue(
+                    YES, 3.80,
+                    @"Meet me downstairs in five minutes.",
+                    @"Meet me downstairs in five minutes",
+                    64000, NO);
+                BOOL rescueMumbleDisagree = GFShouldTriggerWhisperMumbleRescue(
+                    NO, 1.40,
+                    @"Please archive the quarterly budget spreadsheet.",
+                    @"Peace are kind the court early bucket spread sheep.",
+                    96000, NO);
+                BOOL rescueSwallowedTail = GFShouldTriggerWhisperMumbleRescue(
+                    NO, 1.30,
+                    @"Please review the release",
+                    @"Please review the release checklist before we deploy the new build.",
+                    96000, NO);
+                BOOL fastSupersededOrTiny = !GFShouldTriggerWhisperMumbleRescue(YES, 4.5, @"Hello there", @"Hello", 8000, NO)
+                                         && !GFShouldTriggerWhisperMumbleRescue(YES, 4.5, @"Hello there", @"Hello", 96000, YES);
+                BOOL c130_p3a = fastNormal && rescueWhisper && rescueSkipIdenticalWhisper
+                             && rescueMumbleDisagree && rescueSwallowedTail && fastSupersededOrTiny;
+                if (c130_p3a) passed++; else failed++;
+                printf("%s: Cycle 130 Phase 3a two-speed Fast Lane vs Whisper/Mumble Rescue routing (%d%d%d%d%d%d)\n",
+                       c130_p3a ? "PASS" : "FAIL", fastNormal, rescueWhisper, rescueSkipIdenticalWhisper,
+                       rescueMumbleDisagree, rescueSwallowedTail, fastSupersededOrTiny);
+            }
+            {
+                // 4. Phase 3b: Contextual prompt builder, anti-echo net, and end-to-end Rescue execution + fallback
+                NSString *sysP = GFBuildContextualDictationSystemPrompt(
+                    @[@"Zyphra", @"Siobhan"], @"Messages", @"Hey Siobhan, did Zyphra ship?",
+                    @[@"Let's check the release notes."],
+                    @"Did Zebra ship the patch", @"Did cifra ship the patch", YES);
+                BOOL promptHasAll = [sysP containsString:@"Zyphra, Siobhan"]
+                                 && [sysP containsString:@"<CONTEXT_DO_NOT_REPEAT>"]
+                                 && [sysP containsString:@"Hey Siobhan, did Zyphra ship?"]
+                                 && [sysP containsString:@"<ROUGH_DRAFTS_FOR_CLUES_ONLY>"]
+                                 && [sysP containsString:@"Did Zebra ship the patch"];
+                BOOL echoBlocked = GFRestContextEchoRejected(@"Hey Siobhan, did Zyphra ship?",
+                                                             @"Hey Siobhan, did Zyphra ship?",
+                                                             @[@"Let's check the release notes."], 0, @"")
+                                && GFRestContextEchoRejected(@"Let's check the release notes.",
+                                                             @"Other cursor", @[@"Let's check the release notes."], 0, @"")
+                                && !GFRestContextEchoRejected(@"Yes, we shipped it five minutes ago.",
+                                                              @"Hey Siobhan, did Zyphra ship?",
+                                                              @[@"Let's check the release notes."], 0, @"");
+                // Exercise attemptWhisperMumbleRescueForDictation: success upgrade AND HTTP 503 graceful consensus fallback
+                AppDelegate *rApp = [[AppDelegate alloc] init];
+                rApp.unitTestMode = YES;
+                rApp.recordedPCMData = [NSMutableData dataWithLength:64000]; // 2.0 s
+                rApp.liveSegments = [@[@"Did Zebra ship the patch"] mutableCopy];
+                __block NSString *rescuedDelivered = nil;
+                rApp.resultSink = ^(NSString *txt, GFDictation *which) { rescuedDelivered = txt; };
+                rApp.whisperRescueTestHook = ^(NSString *m, NSString *sp, NSString *up, void (^respond)(NSInteger, NSString *)) {
+                    respond(200, @"Did Zyphra ship the patch?");
+                };
+                GFDictation *rD1 = [[GFDictation alloc] init];
+                rD1.serial = 1;
+                rD1.whisperOrLowSNRBoosted = YES;
+                rD1.maxAppliedGain = 4.5;
+                rApp.activeDictation = rD1;
+                BOOL started1 = [rApp attemptWhisperMumbleRescueForDictation:rD1
+                                                                     liveRaw:@"Did Zebra ship the patch"
+                                                                 onDeviceRaw:@"Did cifra ship the patch"
+                                                           consensusFallback:@"Did Zebra ship the patch"];
+                BOOL okUpgrade = started1 && [rescuedDelivered isEqualToString:@"Did Zyphra ship the patch? "];
+
+                __block NSString *fallbackDelivered = nil;
+                rApp.resultSink = ^(NSString *txt, GFDictation *which) { fallbackDelivered = txt; };
+                rApp.whisperRescueTestHook = ^(NSString *m, NSString *sp, NSString *up, void (^respond)(NSInteger, NSString *)) {
+                    respond(503, @"");
+                };
+                GFDictation *rD2 = [[GFDictation alloc] init];
+                rD2.serial = 2;
+                rD2.whisperOrLowSNRBoosted = YES;
+                rD2.maxAppliedGain = 4.5;
+                rApp.activeDictation = rD2;
+                BOOL started2 = [rApp attemptWhisperMumbleRescueForDictation:rD2
+                                                                     liveRaw:@"Meet me at three."
+                                                                 onDeviceRaw:@"Meet me at two"
+                                                           consensusFallback:@"Meet me at three."];
+                BOOL okFallback = started2 && [fallbackDelivered isEqualToString:@"Meet me at three. "];
+                BOOL c130_p3b = promptHasAll && echoBlocked && okUpgrade && okFallback;
+                if (c130_p3b) passed++; else failed++;
+                printf("%s: Cycle 130 Phase 3b contextual prompt, anti-echo net, and bounded Rescue upgrade + consensus fallback (%d%d%d%d)\n",
+                       c130_p3b ? "PASS" : "FAIL", promptHasAll, echoBlocked, okUpgrade, okFallback);
+            }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
@@ -19088,6 +19891,12 @@ int main(int argc, const char * argv[]) {
                     i += 1;
                 }
                 if (strcmp(argv[i], "--e2e-live-drop-output") == 0) delegate.e2eLiveDropOutput = YES;
+                if (strcmp(argv[i], "--e2e-whisper-rescue") == 0) delegate.e2eWhisperRescue = YES;
+                if (strcmp(argv[i], "--e2e-cursor-context") == 0 && i + 1 < argc) {
+                    delegate.e2eCursorContext = [NSString stringWithUTF8String:argv[i + 1]];
+                    i += 1;
+                    continue;
+                }
                 // optional, test-only: the first REST call answers HTTP 200 with a canned transcript after <seconds> (no network)
                 if (strcmp(argv[i], "--e2e-rest-fake-ok") == 0 && i + 1 < argc) {
                     delegate.e2eRestFakeOkDelay = atof(argv[i + 1]);

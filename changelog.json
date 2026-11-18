@@ -3,6 +3,16 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 130,
+      "scope": "engine",
+      "timestamp": "18 Nov \u00b7 13:00",
+      "title": "Clearer recognition when whispering or mumbling, with an automatic context rescue pass",
+      "highlights": [
+        "Boosts quiet whispers and soft speech into normal speaking volume with crisp consonant clarity, while leaving background room noise untouched.",
+        "Keeps clear speech instant on the fast streaming path, and automatically runs a sub-second full-sentence rescue pass using your boosted audio, Custom Words, text before your cursor, and last two dictations in memory whenever speech is whispered or mumbled."
+      ]
+    },
+    {
       "cycle": 129,
       "scope": "engine",
       "timestamp": "17 Nov \u00b7 16:00",
