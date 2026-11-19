@@ -3,6 +3,29 @@
   "product": "GeminiFlow",
   "entries": [
     {
+      "cycle": 133,
+      "scope": "mac",
+      "timestamp": "19 Nov \u00b7 12:30",
+      "title": "A quiet amber dot when your Gemini API key reaches its limit, and notices that fit the pill",
+      "highlights": [
+        "When Google reports that your key has reached its limit and a dictation falls back to on-device text, the pill briefly shows 'On-device \u00b7 API limit' with a small amber dot. Your text is still pasted.",
+        "While the limit applies, the menu bar icon carries a small amber dot and the first line of the menu reads 'On-device for now \u00b7 API limit reached'. Every other menu item stays as it was.",
+        "The Gemini API Key dialog starts with one sentence saying the key has reached its limit.",
+        "The sign clears by itself the next time Gemini answers, or when you save or remove a key. A busy Google server does not trigger it, and a limit is no longer mistaken for a rejected key.",
+        "The pill now grows to fit a longer notice instead of cutting it off. The notice shown when you switch apps before the text arrives now reads 'Copied \u00b7 paste with \u2318V'."
+      ]
+    },
+    {
+      "cycle": 132,
+      "scope": "engine",
+      "timestamp": "18 Nov \u00b7 16:20",
+      "title": "Instant delivery again: the second listen no longer holds up your text",
+      "highlights": [
+        "Delivers your text as soon as the fast result is ready. The extra second listen for whispered or mumbled speech is switched off for now: in real use it did not answer within its one second limit, so it only added a delay.",
+        "Judges whispering on the whole dictation, so a quiet first syllable or a soft last word no longer marks normal speech as a whisper, and the waveform shows your real volume instead of the boosted one."
+      ]
+    },
+    {
       "cycle": 131,
       "scope": "engine",
       "timestamp": "18 Nov \u00b7 15:30",

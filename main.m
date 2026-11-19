@@ -69,6 +69,8 @@ static NSArray<NSDictionary *> *GFBuiltInChangelogEntries(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         entries = @[
+            @{@"cycle": @(133), @"scope": @"mac", @"timestamp": @"19 Nov \u00B7 12:30", @"title": @"A quiet amber dot when your Gemini API key reaches its limit, and notices that fit the pill", @"highlights": @[@"When Google reports that your key has reached its limit and a dictation falls back to on-device text, the pill briefly shows 'On-device \u00b7 API limit' with a small amber dot. Your text is still pasted.", @"While the limit applies, the menu bar icon carries a small amber dot and the first line of the menu reads 'On-device for now \u00b7 API limit reached'. Every other menu item stays as it was.", @"The Gemini API Key dialog starts with one sentence saying the key has reached its limit.", @"The sign clears by itself the next time Gemini answers, or when you save or remove a key. A busy Google server does not trigger it, and a limit is no longer mistaken for a rejected key.", @"The pill now grows to fit a longer notice instead of cutting it off. The notice shown when you switch apps before the text arrives now reads 'Copied \u00b7 paste with \u2318V'."]},
+            @{@"cycle": @(132), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 16:20", @"title": @"Instant delivery again: the second listen no longer holds up your text", @"highlights": @[@"Delivers your text as soon as the fast result is ready. The extra second listen for whispered or mumbled speech is switched off for now: in real use it did not answer within its one second limit, so it only added a delay.", @"Judges whispering on the whole dictation, so a quiet first syllable or a soft last word no longer marks normal speech as a whisper, and the waveform shows your real volume instead of the boosted one."]},
             @{@"cycle": @(131), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 15:30", @"title": @"Keeps keys and passwords out of the context used for whispered or unclear speech", @"highlights": @[@"Removes anything shaped like a key, token, link, email address, file path, long number, or NAME=value setting from the short text before your cursor before it is used as context, and uses none of that text when it mentions a password, API key, token, or one-time code.", @"Does not read the text before your cursor at all in password managers, authenticator apps, terminals, messaging apps, database and API tools, or in windows whose title points to a sign-in, payment, or secrets page.", @"Does not pass along the name of the app you are in when it is one of those apps, and never offers to remember a word that looks like a key."]},
             @{@"cycle": @(130), @"scope": @"engine", @"timestamp": @"18 Nov \u00B7 13:00", @"title": @"Clearer recognition when whispering or mumbling, with an automatic context rescue pass", @"highlights": @[@"Boosts quiet whispers and soft speech into normal speaking volume with crisp consonant clarity, while leaving background room noise untouched.", @"Keeps clear speech instant on the fast streaming path, and automatically runs a sub-second full-sentence rescue pass using your boosted audio, Custom Words, text before your cursor, and last two dictations in memory whenever speech is whispered or mumbled."]},
             @{@"cycle": @(129), @"scope": @"engine", @"timestamp": @"17 Nov \u00B7 16:00", @"title": @"Prevents Custom Words over-biasing on ALL-CAPS acronyms and double-consonant names", @"highlights": @[@"Holds back unpronounceable ALL-CAPS consonant-cluster and broadcast-suffix acronyms (such as 'MGTV', 'GCP', and 'SDK') and pure-sonorant double-consonant names (such as 'Alanna' and 'Arianna') from cloud decoder boosting so ordinary speech is never misread as a custom word, while still matching spelled-out letters and phonetic variants locally.", @"Prevents auto-learning replacement pairs whose 'hear' side consists purely of common everyday words."]},
@@ -2589,11 +2591,22 @@ static const CGFloat kHUDPillBottomOffset = 68.0; // pill bottom edge above the 
 // The hands-free (locked) green (#38DC82, saturated so it reads on the dark frosted pill), used ONLY inside the pill by the
 // indicator dot, its soft halo and the waveform bars (backlog 0s: no green rim or glow around the pill).
 #define GF_HUD_GREEN(a) [NSColor colorWithCalibratedRed:0.22 green:0.86 blue:0.51 alpha:(a)]
+// Quiet amber dot (#F29926) used ONLY for the API-limit dot on the menu bar icon, status line, and fallback pill (Cycle 133).
+#define GF_HUD_AMBER(a) [NSColor colorWithCalibratedRed:0.95 green:0.60 blue:0.15 alpha:(a)]
+// Pill width for a notice: the text (plus the 6 pt amber dot and a 7 pt gap when it has one) with 15 pt on each side. Never
+// narrower than the normal pill, so short notices ("Cancelled", "No speech") look exactly as before; never wider than 320 pt.
+// Before Cycle 133 the pill had one fixed width and a longer notice ("Copied (app switched)") was cut off.
+static CGFloat GFHUDNoticePillWidth(NSString *text, BOOL amberDot) {
+    NSFont *f = [NSFont systemFontOfSize:12.5 weight:(amberDot ? NSFontWeightSemibold : NSFontWeightMedium)];
+    CGFloat needed = ceil([text ?: @"" sizeWithAttributes:@{NSFontAttributeName: f}].width) + (amberDot ? 13.0 : 0.0) + 30.0;
+    return MAX(kHUDPillWidth, MIN(320.0, needed));
+}
 
 // Window origin that keeps the pill centred kHUDPillBottomOffset above the bottom of visibleFrame (the pill sits kHUDGlowPad
 // inside the window), i.e. exactly where the old pill-sized window put it.
 static NSPoint GFHUDWindowOriginForVisibleFrame(NSRect visibleFrame, NSSize windowSize) {
-    CGFloat pad = (windowSize.width - kHUDPillWidth) / 2.0;
+    // The margin around the pill, from the window HEIGHT: the width grows for a long notice, the height never does.
+    CGFloat pad = (windowSize.height - kHUDPillHeight) / 2.0;
     return NSMakePoint(visibleFrame.origin.x + (visibleFrame.size.width - windowSize.width) / 2.0,
                        visibleFrame.origin.y + kHUDPillBottomOffset - pad);
 }
@@ -2607,6 +2620,7 @@ static NSPoint GFHUDWindowOriginForVisibleFrame(NSRect visibleFrame, NSSize wind
 @property (nonatomic, assign) float smoothedLevel;
 @property (nonatomic, assign) float animPhase;
 @property (nonatomic, copy) NSString *noticeText;
+@property (nonatomic, assign) BOOL noticeAmberDot;
 @end
 
 @implementation FloatingHUDView
@@ -2717,6 +2731,22 @@ static NSPoint GFHUDWindowOriginForVisibleFrame(NSRect visibleFrame, NSSize wind
             [barColor setFill];
             [bp fill];
         }
+    } else if (self.noticeAmberDot && self.noticeText.length > 0) {
+        // Quiet amber dot + centered notice text (Cycle 133: "On-device · API limit")
+        NSDictionary *attrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:12.5 weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:0.96 alpha:1.0]
+        };
+        NSSize ts = [self.noticeText sizeWithAttributes:attrs];
+        CGFloat dotD = 6.0, gap = 7.0;
+        CGFloat totalW = dotD + gap + ts.width;
+        CGFloat startX = bounds.origin.x + (bounds.size.width - totalW) / 2.0;
+        CGFloat dotY = bounds.origin.y + (bounds.size.height - dotD) / 2.0;
+        [GF_HUD_AMBER(1.0) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(startX, dotY, dotD, dotD)] fill];
+        NSRect textRect = NSMakeRect(startX + dotD + gap, bounds.origin.y + (bounds.size.height - ts.height) / 2.0,
+                                     ceil(ts.width) + 2.0, ceil(ts.height));
+        [self.noticeText drawInRect:textRect withAttributes:attrs];
     } else {
         // Centered status text (e.g. "Done", "Cancelled", "No speech")
         NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
@@ -2766,8 +2796,10 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 // Floating HUD Panel (compact frosted capsule)
 @interface FloatingHUDPanel : NSPanel
 @property (nonatomic, strong) FloatingHUDView *hudView;
+@property (nonatomic, strong) NSVisualEffectView *vfxView;
 @property (nonatomic, strong) NSTimer *animTimer;
 - (void)setHUDMode:(HUDMode)mode noticeText:(NSString *)text;
+- (void)setHUDMode:(HUDMode)mode noticeText:(NSString *)text amberDot:(BOOL)amberDot;
 - (void)updateAudioLevel:(float)level;
 - (void)showCenteredNearBottom;
 // Fades the HUD out, then hides it and stops the 60 fps timer, unless stillCurrent() says a newer presentation began
@@ -2813,6 +2845,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
         _hudView = [[FloatingHUDView alloc] initWithFrame:frame];
         _hudView.pillInset = kHUDGlowPad;
         _hudView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        _vfxView = vfx;
         [container addSubview:vfx];
         [container addSubview:_hudView];
 
@@ -2846,9 +2879,39 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
     }
 }
 
+- (void)updatePillWidthForMode:(HUDMode)mode noticeText:(NSString *)text amberDot:(BOOL)amberDot {
+    CGFloat wantPillW = kHUDPillWidth;
+    if ((mode == HUDModeNotice || mode == HUDModeSuccess) && text.length > 0) {
+        wantPillW = GFHUDNoticePillWidth(text, amberDot);
+    }
+    CGFloat wantWinW = wantPillW + 2.0 * kHUDGlowPad;
+    CGFloat wantWinH = kHUDPillHeight + 2.0 * kHUDGlowPad;
+    if (fabs(self.frame.size.width - wantWinW) > 0.5) {
+        NSRect fr = self.frame;
+        fr.origin.x += (fr.size.width - wantWinW) / 2.0;
+        fr.size = NSMakeSize(wantWinW, wantWinH);
+        [self setFrame:fr display:NO];
+        NSRect pillFrame = NSMakeRect(kHUDGlowPad, kHUDGlowPad, wantPillW, kHUDPillHeight);
+        self.vfxView.frame = pillFrame;
+        self.vfxView.maskImage = [NSImage imageWithSize:pillFrame.size flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+            [[NSColor blackColor] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:dstRect xRadius:18.0 yRadius:18.0] fill];
+            return YES;
+        }];
+        self.hudView.frame = NSMakeRect(0, 0, wantWinW, wantWinH);
+        [self invalidateShadow];
+    }
+}
+
 - (void)setHUDMode:(HUDMode)mode noticeText:(NSString *)text {
+    [self setHUDMode:mode noticeText:text amberDot:NO];
+}
+
+- (void)setHUDMode:(HUDMode)mode noticeText:(NSString *)text amberDot:(BOOL)amberDot {
     self.hudView.mode = mode;
+    self.hudView.noticeAmberDot = (mode == HUDModeNotice && amberDot);
     if (text) self.hudView.noticeText = text;
+    [self updatePillWidthForMode:mode noticeText:self.hudView.noticeText amberDot:self.hudView.noticeAmberDot];
     [self.hudView setNeedsDisplay:YES];
 }
 
@@ -2933,6 +2996,7 @@ static NSBitmapImageRep *GFRenderHUDView(FloatingHUDView *view, CGFloat scale, B
 @property (nonatomic, copy) NSArray<NSString *> *transientRecentContext;
 @property (nonatomic, strong) NSURLSessionDataTask *rescueTask;
 @property (nonatomic, assign) BOOL rescueFinished;
+@property (nonatomic, assign) BOOL quotaLimited;     // Cycle 133: Gemini failed due to HTTP 429 / quota / billing limit
 @end
 @implementation GFDictation
 @end
@@ -2950,6 +3014,9 @@ typedef struct {
     NSUInteger consecutiveVoicedFrames;
     NSUInteger consecutiveWhisperFrames;
     NSUInteger totalWhisperFrames;
+    NSUInteger speechFrames;          // every voiced or whisper frame of the recording
+    NSUInteger whisperShapedFrames;   // of those, the frames that look whispered
+    NSUInteger loudVoicedFrames;      // of those, the frames at clear normal speaking level
     double currentGain;
     double maxGainApplied;
     BOOL isBluetoothInput;
@@ -2977,6 +3044,10 @@ typedef struct {
 @property (nonatomic, assign) NSUInteger hudDismissalsHonored;  // counters for the --test suite / diagnostics
 @property (nonatomic, assign) NSUInteger hudDismissalsDropped;
 @property (nonatomic, assign) BOOL unitTestMode;                // --test: keep the user's log file quiet
+@property (nonatomic, assign) BOOL apiQuotaLimited;             // Cycle 133: sticky amber-dot indicator until Gemini succeeds or key changes
+@property (nonatomic, copy) NSString *lastHudNotice;            // --test: last HUD notice shown on returnToIdle
+@property (nonatomic, assign) BOOL lastHudNoticeAmberDot;       // --test: whether that notice used the amber dot
+@property (nonatomic, copy) NSString *lastIdleStatusTitle;      // --test: last idle status line
 
 // Audio capture
 @property (nonatomic, strong) AVAudioEngine *audioEngine;
@@ -4365,7 +4436,24 @@ static NSString *GFLiveProbeFieldsLine(NSSet<NSString *> *names) {
 // Did a Live session die because the server rejected its credentials? (handshake answered 4xx instead of 101, policy-violation /
 // invalid-payload close, an auth-ish close reason, or NSURLSession's bad-response / authentication errors). Network-level
 // failures (offline, DNS, timeouts, resets) are NOT auth: they fail exactly as before.
+// Cycle 133: Did Gemini reject or close a request because the API key reached its limit (HTTP 429, quota, RESOURCE_EXHAUSTED,
+// billing)? HTTP 503 ("high demand" server overload) is explicitly NOT a key limit.
+static BOOL GFGeminiFailureLooksLikeQuota(NSInteger httpStatus, NSInteger closeCode, NSString *reasonOrBody) {
+    (void)closeCode;
+    if (httpStatus == 503) return NO;
+    if (httpStatus == 429) return YES;
+    NSString *r = reasonOrBody.lowercaseString ?: @"";
+    if (r.length == 0) return NO;
+    for (NSString *w in @[@"resource_exhausted", @"resource exhausted", @"quota", @"rate limit", @"rate_limit",
+                          @"too many requests", @"billing", @"exceeded your current", @"spending cap",
+                          @"insufficient_quota", @"out of credit"]) {
+        if ([r containsString:w]) return YES;
+    }
+    return NO;
+}
+
 static BOOL GFLiveFailureLooksLikeAuth(NSInteger httpStatus, NSInteger closeCode, NSString *closeReason, NSString *errDomain, NSInteger errCode) {
+    if (GFGeminiFailureLooksLikeQuota(httpStatus, closeCode, closeReason)) return NO;
     if (httpStatus >= 400 && httpStatus < 500) return YES;
     if (closeCode == 1007 || closeCode == 1008) return YES;
     NSString *r = closeReason.lowercaseString ?: @"";
@@ -4629,6 +4717,9 @@ static void GFAdaptiveGainReset(GFAdaptiveGainState *st, BOOL isBluetoothInput) 
     st->consecutiveVoicedFrames = 0;
     st->consecutiveWhisperFrames = 0;
     st->totalWhisperFrames = 0;
+    st->speechFrames = 0;
+    st->whisperShapedFrames = 0;
+    st->loudVoicedFrames = 0;
     st->currentGain = 1.0;
     st->maxGainApplied = 1.0;
     st->isBluetoothInput = isBluetoothInput;
@@ -4706,7 +4797,10 @@ static double GFAdaptiveGainProcessPCM16(GFAdaptiveGainState *st, int16_t *sampl
 
         if (isVoiced || isWhisper) {
             st->consecutiveVoicedFrames += 1;
+            st->speechFrames += 1;
+            if (hpRMS >= 1100.0 && hpR1 >= 0.55) st->loudVoicedFrames += 1;
             if (isWhisper && (hpR1 < 0.65 || hpRMS < 500.0)) {
+                st->whisperShapedFrames += 1;
                 st->consecutiveWhisperFrames += 1;
                 if (st->consecutiveWhisperFrames >= 5) st->totalWhisperFrames += 1;
             } else {
@@ -4779,6 +4873,15 @@ static double GFAdaptiveGainProcessPCM16(GFAdaptiveGainState *st, int16_t *sampl
         }
     }
     return st->currentGain;
+}
+
+// Whisper verdict for the WHOLE recording so far: at least 0.3 s of speech, at least half of the speech frames
+// whisper-shaped, and fewer than one speech frame in five at clear normal speaking level (so a recording that is partly
+// whispered and partly spoken normally is not a whisper). A short quiet onset or a soft trailing word no longer marks a
+// normal-volume dictation as whispered.
+static BOOL GFAdaptiveGainUtteranceIsWhisper(const GFAdaptiveGainState *st) {
+    if (!st || st->speechFrames < 15) return NO;
+    return st->whisperShapedFrames * 2 >= st->speechFrames && st->loudVoicedFrames * 5 < st->speechFrames;
 }
 
 static void GFAdaptiveGainScaleFloatBuffer(AVAudioPCMBuffer *buffer, float gain) {
@@ -5111,7 +5214,9 @@ static BOOL GFShouldTriggerWhisperMumbleRescue(BOOL whisperBoosted, double maxGa
     double jacc = GFTranscriptLexicalJaccard(liveRaw, onDeviceRaw, &wordsLive, &wordsOnDev);
     if (wordsLive == 0) return NO;
     // 1. Acoustic whisper / very low voice: rescue unless both streams already agree almost identically.
-    if (whisperBoosted || maxGain >= 3.1) {
+    // A high peak gain alone no longer counts as a whisper: it is a one-way high-water mark that 0.1 s of quiet onset can set.
+    (void)maxGain;
+    if (whisperBoosted) {
         if (wordsLive >= 3 && wordsOnDev >= 3 && jacc >= 0.92 && labs((long)wordsLive - (long)wordsOnDev) <= 1) {
             return NO;
         }
@@ -5704,6 +5809,8 @@ static NSString *GFAdaptTextForMidSentenceCursor(NSString *text, NSString *befor
 static BOOL (*gGFMacDeliveryInterceptHook)(AppDelegate *slf, NSString *text, GFDictation *d) = NULL;
 static NSString *(*gGFMacCursorContextAdaptHook)(AppDelegate *slf, NSString *text) = NULL;
 static void (*gGFMacCaptureStartContextHook)(AppDelegate *slf, GFDictation *d) = NULL;
+static void (*gGFMacQuotaMenuRefreshHook)(AppDelegate *slf) = NULL;
+static void (*gGFMacSetHUDAmberNoticeHook)(AppDelegate *slf, HUDMode mode, NSString *notice, BOOL amberDot) = NULL;
 static id GFCopyFocusedElement(void) {
     AXUIElementRef sys = AXUIElementCreateSystemWide();
     if (!sys) return nil;
@@ -6407,9 +6514,34 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 
 #pragma mark - HUD / menu state
 
+- (void)refreshQuotaMenuAppearance {
+    if (self.menuIconState == 0 && !self.isRecording) {
+        if (self.apiQuotaLimited && (!self.lastIdleStatusTitle || [self.lastIdleStatusTitle isEqualToString:@"Ready: Hold or Double-Tap Fn"])) {
+            self.lastIdleStatusTitle = @"On-device for now · API limit reached";
+        } else if (!self.apiQuotaLimited && [self.lastIdleStatusTitle isEqualToString:@"On-device for now · API limit reached"]) {
+            self.lastIdleStatusTitle = @"Ready: Hold or Double-Tap Fn";
+        }
+    }
+    if (gGFMacQuotaMenuRefreshHook) {
+        gGFMacQuotaMenuRefreshHook(self);
+    }
+}
+
+- (void)noteGeminiQuotaReached {
+    self.apiQuotaLimited = YES;
+    [self refreshQuotaMenuAppearance];
+}
+
+- (void)noteGeminiQuotaHealthy {
+    if (!self.apiQuotaLimited) return;
+    self.apiQuotaLimited = NO;
+    [self refreshQuotaMenuAppearance];
+}
+
 - (void)setMenuIconState:(NSInteger)state {
     _menuIconState = state;
     if (self.statusItem) self.statusItem.button.image = [self menuBarIconForState:state];
+    [self refreshQuotaMenuAppearance];
     [self busyMarkerRefresh];
 }
 
@@ -6494,7 +6626,18 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     }
     [self setMenuIconState:0];
     self.statusMenuItem.title = title ?: @"Ready: Hold or Double-Tap Fn";
-    if (notice) [self.hudPanel setHUDMode:mode noticeText:notice];
+    self.lastIdleStatusTitle = title ?: @"Ready: Hold or Double-Tap Fn";
+    [self refreshQuotaMenuAppearance];
+    BOOL amberNotice = (mode == HUDModeNotice && notice && [notice containsString:@"API limit"]);
+    self.lastHudNotice = notice;
+    self.lastHudNoticeAmberDot = amberNotice;
+    if (notice) {
+        if (amberNotice && gGFMacSetHUDAmberNoticeHook) {
+            gGFMacSetHUDAmberNoticeHook(self, mode, notice, YES);
+        } else {
+            [self.hudPanel setHUDMode:mode noticeText:notice];
+        }
+    }
     [self dismissHUDAfterDelay:delay];
 }
 
@@ -6507,7 +6650,22 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     if (d.superseded) {
         // A previous dictation finished while a newer press owns the HUD and icon (recording OR already Thinking, when
         // isRecording is NO and returnToIdle's guard would not help): leave them alone (backlog 6).
+        if (d.quotaLimited) [self noteGeminiQuotaReached]; // the dot appears once the newer press is over (nothing is drawn now)
         if (!self.unitTestMode) GFLog(@"HUD: dictation #%lu delivered late; the newer press keeps the HUD", (unsigned long)d.serial);
+        return;
+    }
+    GFDictation *eff = d ?: self.activeDictation;
+    if (eff.quotaLimited) {
+        [self noteGeminiQuotaReached];
+        if (!trusted) {
+            [self returnToIdleWithStatusTitle:@"Copied! (Enable Accessibility to Auto-Paste)"
+                                       notice:@"Copied · API limit"
+                                         mode:HUDModeNotice dismissAfter:2.6];
+        } else {
+            [self returnToIdleWithStatusTitle:@"On-device for now · API limit reached"
+                                       notice:@"On-device · API limit"
+                                         mode:HUDModeNotice dismissAfter:2.6];
+        }
         return;
     }
     if (!trusted) {
@@ -6652,6 +6810,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 
 - (void)selectOnDeviceMode {
     [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
+    [self noteGeminiQuotaHealthy]; // Gemini is no longer asked, so the limit sign could never clear by itself
     [self updateEngineCheckmarks];
 }
 
@@ -6659,9 +6818,15 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     NSString *existingKey = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefApiKey] ?: @"";
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Gemini API Key";
-    alert.informativeText = existingKey.length > 0
-        ? @"A key is saved on this Mac (shown masked below). Paste a new key to replace it, or leave the field empty to keep it. You can paste a raw key or a GEMINI_API_KEY=... line:"
-        : @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
+    if (self.apiQuotaLimited) {
+        alert.informativeText = existingKey.length > 0
+            ? @"This key has reached its limit, so dictation is on-device for now. Paste a new key to replace it, or leave the field empty to keep it. You can paste a raw key or a GEMINI_API_KEY=... line:"
+            : @"This key has reached its limit, so dictation is on-device for now. Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
+    } else {
+        alert.informativeText = existingKey.length > 0
+            ? @"A key is saved on this Mac (shown masked below). Paste a new key to replace it, or leave the field empty to keep it. You can paste a raw key or a GEMINI_API_KEY=... line:"
+            : @"Paste your Google Gemini API key below (stored locally on your Mac). You can paste a raw key or a GEMINI_API_KEY=... line:";
+    }
     [alert addButtonWithTitle:@"Save"];
     [alert addButtonWithTitle:@"Cancel"];
     [alert addButtonWithTitle:@"Get API Key"];
@@ -6685,6 +6850,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
     if (existingKey.length > 0 && resp == NSAlertThirdButtonReturn + 1) {
         [[NSUserDefaults standardUserDefaults] setObject:@"" forKey:kPrefApiKey];
         [[NSUserDefaults standardUserDefaults] setObject:@"ondevice" forKey:kPrefEngineMode];
+        [self noteGeminiQuotaHealthy];
         [self updateEngineCheckmarks];
     } else if (resp == NSAlertFirstButtonReturn) {
         NSString *cleanKey = nil;
@@ -6692,6 +6858,7 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
         if (action == GFApiKeySaveStore) {
             [[NSUserDefaults standardUserDefaults] setObject:cleanKey forKey:kPrefApiKey];
             NSLog(@"Gemini API key saved.");
+            [self noteGeminiQuotaHealthy];
             [[NSUserDefaults standardUserDefaults] setObject:@"gemini" forKey:kPrefEngineMode];
             [self updateEngineCheckmarks];
             [self verifyApiKeyForLive];
@@ -6735,17 +6902,29 @@ static void GFLogAppendLine(NSString *path, NSString *line) {
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 0;
+        NSString *bodyStr = data.length > 0 ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *notice;
-            if (error || status == 0) notice = @"Key check failed (offline?)";
-            else if (status == 200) notice = @"Gemini Live ready";
-            else if (status == 400 || status == 401 || status == 403) notice = @"API key invalid";
-            else if (status == 404) notice = @"Live model unavailable for this key";
-            else notice = [NSString stringWithFormat:@"Key check failed (HTTP %ld)", (long)status];
+            BOOL isLimit = NO;
+            if (error || status == 0) {
+                notice = @"Key check failed (offline?)";
+            } else if (status == 200) {
+                notice = @"Gemini Live ready";
+            } else if (GFGeminiFailureLooksLikeQuota(status, 0, bodyStr)) {
+                notice = @"API limit reached";
+                isLimit = YES;
+                [self noteGeminiQuotaReached];
+            } else if (status == 400 || status == 401 || status == 403) {
+                notice = @"API key invalid";
+            } else if (status == 404) {
+                notice = @"Live model unavailable for this key";
+            } else {
+                notice = [NSString stringWithFormat:@"Key check failed (HTTP %ld)", (long)status];
+            }
             GFLog(@"API key check: HTTP %ld -> %@", (long)status, notice);
             if (self.isRecording || self.menuIconState != 0) return; // a dictation is recording or Thinking: keep its HUD (backlog 19)
-            [self.hudPanel setHUDMode:HUDModeNotice noticeText:notice];
-            [self dismissHUDAfterDelay:1.8];
+            [self.hudPanel setHUDMode:HUDModeNotice noticeText:notice amberDot:isLimit];
+            [self dismissHUDAfterDelay:(isLimit ? 2.6 : 1.8)];
         });
     }] resume];
 }
@@ -7118,7 +7297,8 @@ static BOOL GFMacDeliveryIntercept(AppDelegate *slf, NSString *text, GFDictation
         if (!slf.pasteInFlight) [slf setClipboardText:text];
         GFLog(@"Window-switch paste shield: frontmost app changed (pid %d -> %d); copied to clipboard instead of auto-pasting",
               (int)slf.targetAppPID, (int)currentPid);
-        [slf returnToIdleWithStatusTitle:@"Copied (window switched before paste)" notice:@"Copied (app switched)" mode:HUDModeNotice dismissAfter:1.6];
+        if ((d ?: slf.activeDictation).quotaLimited) [slf noteGeminiQuotaReached];
+        [slf returnToIdleWithStatusTitle:@"Copied to clipboard: paste with \u2318V" notice:@"Copied \u00b7 paste with \u2318V" mode:HUDModeNotice dismissAfter:2.2];
         return YES;
     }
 
@@ -7221,10 +7401,80 @@ static void GFMacCaptureStartContext(AppDelegate *slf, GFDictation *d) {
     }
 }
 
+static NSImage *GFMacAmberMenuDotImage(void) {
+    static NSImage *dotImg = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dotImg = [NSImage imageWithSize:NSMakeSize(10, 10) flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+            (void)dstRect;
+            [GF_HUD_AMBER(1.0) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(2.0, 2.0, 6.0, 6.0)] fill];
+            return YES;
+        }];
+        [dotImg setTemplate:NO];
+    });
+    return dotImg;
+}
+
+// Where the amber dot sits on the status bar button: 4 pt across, at the top-right corner of the 18 pt icon (which is centred).
+static NSRect GFMacQuotaDotFrame(NSRect buttonBounds, BOOL flipped) {
+    const CGFloat d = 4.0, dx = 6.5, up = 6.3;
+    CGFloat cx = NSMidX(buttonBounds) + dx;
+    CGFloat cy = flipped ? NSMidY(buttonBounds) - up : NSMidY(buttonBounds) + up;
+    return NSMakeRect(cx - d / 2.0, cy - d / 2.0, d, d);
+}
+
+static void GFMacRefreshQuotaMenu(AppDelegate *slf) {
+    if (!slf) return;
+    if (slf.statusItem.button) {
+        // The icon stays a template image (tinted by the menu bar); the dot is a separate small view on top of the button, shown
+        // only with the idle icon.
+        NSStatusBarButton *btn = slf.statusItem.button;
+        NSView *dot = nil;
+        for (NSView *sv in btn.subviews) {
+            if ([sv.identifier isEqualToString:@"gf-api-limit-dot"]) { dot = sv; break; }
+        }
+        BOOL show = slf.apiQuotaLimited && slf.menuIconState == 0;
+        if (show && !dot) {
+            dot = [[NSView alloc] initWithFrame:NSZeroRect];
+            dot.identifier = @"gf-api-limit-dot";
+            dot.wantsLayer = YES;
+            dot.layer.backgroundColor = GF_HUD_AMBER(1.0).CGColor;
+            dot.layer.cornerRadius = 2.0;
+            dot.autoresizingMask = NSViewMinXMargin | NSViewMaxXMargin | NSViewMinYMargin | NSViewMaxYMargin;
+            [btn addSubview:dot];
+        }
+        if (dot) {
+            dot.frame = GFMacQuotaDotFrame(btn.bounds, btn.isFlipped);
+            dot.hidden = !show;
+        }
+    }
+    if (slf.statusMenuItem) {
+        NSString *limitTitle = @"On-device for now · API limit reached";
+        BOOL idle = slf.menuIconState == 0 && !slf.isRecording;
+        if (idle && slf.apiQuotaLimited && [slf.statusMenuItem.title isEqualToString:@"Ready: Hold or Double-Tap Fn"]) {
+            slf.statusMenuItem.title = limitTitle;
+        } else if (idle && !slf.apiQuotaLimited && [slf.statusMenuItem.title isEqualToString:limitTitle]) {
+            slf.statusMenuItem.title = @"Ready: Hold or Double-Tap Fn";
+        }
+        // The amber dot belongs to the limit line only: never next to another status line ("Copied ...", "Saved to Custom
+        // Words") and never while a press is recording or thinking.
+        BOOL limitLine = idle && slf.apiQuotaLimited && [slf.statusMenuItem.title isEqualToString:limitTitle];
+        slf.statusMenuItem.image = limitLine ? GFMacAmberMenuDotImage() : nil;
+    }
+}
+
+static void GFMacSetHUDAmberNotice(AppDelegate *slf, HUDMode mode, NSString *notice, BOOL amberDot) {
+    if (!slf || !slf.hudPanel || !notice) return;
+    [slf.hudPanel setHUDMode:mode noticeText:notice amberDot:amberDot];
+}
+
 __attribute__((constructor)) static void GFRegisterMacDeliveryIntercept(void) {
     gGFMacDeliveryInterceptHook = GFMacDeliveryIntercept;
     gGFMacCursorContextAdaptHook = GFMacCursorContextAdapt;
     gGFMacCaptureStartContextHook = GFMacCaptureStartContext;
+    gGFMacQuotaMenuRefreshHook = GFMacRefreshQuotaMenu;
+    gGFMacSetHUDAmberNoticeHook = GFMacSetHUDAmberNotice;
 }
 
 #pragma mark - Audio Recording Engine
@@ -7825,7 +8075,16 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
             appliedGain = GFAdaptiveGainProcessPCM16(&self->_agcState, convertedBuffer.int16ChannelData[0], convertedBuffer.frameLength);
         }
         double chunkMaxGain = self->_agcState.maxGainApplied;
-        BOOL chunkWhisperBoosted = (self->_agcState.totalWhisperFrames >= 6 || chunkMaxGain >= 3.1);
+        BOOL chunkWhisperBoosted = GFAdaptiveGainUtteranceIsWhisper(&self->_agcState);
+        // Input level for the waveform: measured BEFORE the boost, so it shows the real volume.
+        float peak = 0.0f;
+        if (buffer.floatChannelData != NULL) {
+            float *chan = buffer.floatChannelData[0];
+            for (AVAudioFrameCount f = 0; f < buffer.frameLength; f++) {
+                float val = fabsf(chan[f]);
+                if (val > peak) peak = val;
+            }
+        }
         if (appliedGain > 1.01) {
             GFAdaptiveGainScaleFloatBuffer(buffer, (float)appliedGain);
         }
@@ -7836,15 +8095,7 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
             [req appendAudioPCMBuffer:buffer];
         }
 
-        // Calculate input volume level directly for smooth waveform animation
-        float peak = 0.0f;
-        if (buffer.floatChannelData != NULL) {
-            float *chan = buffer.floatChannelData[0];
-            for (AVAudioFrameCount f = 0; f < buffer.frameLength; f++) {
-                float val = fabsf(chan[f]);
-                if (val > peak) peak = val;
-            }
-        }
+        // Input volume level for smooth waveform animation (peak measured above, before the boost)
         float animLevel = peak * 4.0f;
         if (animLevel > 1.0f) animLevel = 1.0f;
 
@@ -7866,9 +8117,7 @@ static BOOL GFShouldShowApiKeyCheckHUD(BOOL isRecording, NSInteger menuIconState
                         if (chunkMaxGain > s.activeDictation.maxAppliedGain) {
                             s.activeDictation.maxAppliedGain = chunkMaxGain;
                         }
-                        if (chunkWhisperBoosted) {
-                            s.activeDictation.whisperOrLowSNRBoosted = YES;
-                        }
+                        s.activeDictation.whisperOrLowSNRBoosted = chunkWhisperBoosted; // latest whole-utterance verdict, not a latch
                     }
                     if (s.isRecording) [s.hudPanel updateAudioLevel:animLevel];
 
@@ -8294,6 +8543,8 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
     }
     NSString *joined = GFJoinLiveSegmentsDeduplicatingSeam(d.detachedLiveSegments);
     if (success && joined.length > 0) {
+        d.quotaLimited = NO; // Gemini Live answered
+        [self noteGeminiQuotaHealthy];
         if (!self.unitTestMode) {
             GFLog(@"Dictation #%lu: detached Live session %lu finished concurrently (%@, %lu segments, %lu chars)",
                   (unsigned long)d.serial, (unsigned long)d.detachedLiveSessionId, reason,
@@ -8437,6 +8688,17 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
               GFLiveSessionAgeSeconds([NSDate timeIntervalSinceReferenceDate], self.liveSocketReadyTime), left,
               self.liveSentBytes / 32000.0, self.liveCoveredBytes / 32000.0);
         return;
+    }
+    if ([json[@"error"] isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *errObj = json[@"error"];
+        NSInteger errCode = [errObj[@"code"] respondsToSelector:@selector(integerValue)] ? [errObj[@"code"] integerValue] : 0;
+        NSString *errStatus = [errObj[@"status"] isKindOfClass:[NSString class]] ? errObj[@"status"] : @"";
+        NSString *errMsg = [errObj[@"message"] isKindOfClass:[NSString class]] ? errObj[@"message"] : @"";
+        NSString *combined = [NSString stringWithFormat:@"%@ %@", errStatus, errMsg];
+        if (GFGeminiFailureLooksLikeQuota(errCode, 0, combined)) {
+            self.activeDictation.quotaLimited = YES;
+            if (!self.unitTestMode) GFLog(@"Live: the server sent an API limit error frame (code %ld, status %@)", (long)errCode, errStatus);
+        }
     }
     NSDictionary *va = json[@"voiceActivity"];
     if ([va isKindOfClass:[NSDictionary class]]) {
@@ -8981,6 +9243,11 @@ static NSUInteger GFSafeAlignedLiveByteOffset(NSUInteger requestedOffset, NSUInt
     NSInteger http = 0, closeCode = 0; // how the socket ended: HTTP status of the handshake, close code and close reason
     NSString *closeReason = nil;
     [self liveCloseDetailsOfTask:task http:&http code:&closeCode reason:&closeReason];
+    if (ours && GFGeminiFailureLooksLikeQuota(http, closeCode, closeReason.length > 0 ? closeReason : error.localizedDescription)) {
+        self.activeDictation.quotaLimited = YES;
+        if (!self.unitTestMode) GFLog(@"Live: the server reported an API limit (HTTP %ld, close code %ld, reason %lu chars)",
+                                      (long)http, (long)closeCode, (unsigned long)closeReason.length);
+    }
     if ([self liveSetupProbeExtra]) { // setup probe (e2e only): how the socket ended (a rejected setup closes it before setupComplete)
         GFLog(@"%@", GFLiveProbeCloseLine(self.liveWebSocketConnected, sid, self.liveAuthViaHeader, http, closeCode, closeReason,
                                           error.domain, error.code));
@@ -9647,6 +9914,10 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     }
     NSString *apiKey = dictation.transientApiKey;
     if (apiKey.length == 0 && self.whisperRescueTestHook == nil) return NO;
+    // The app does not wait for the rescue pass: in real use it did not answer inside its 0.95 s budget, so the wait only
+    // added about one second. The consensus transcript is delivered at once (return NO). The bounded pass below stays for
+    // the unit-test hook and the e2e flag, so it can be switched back on with a budget that measurements support.
+    if (self.whisperRescueTestHook == nil && !self.e2eWhisperRescue) return NO;
 
     NSArray<NSString *> *vocab = [self customVocabularyForDictation];
     NSString *sysPrompt = GFBuildContextualDictationSystemPrompt(vocab, dictation.transientAppName,
@@ -9771,6 +10042,8 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     }
     [self closeLiveWebSocket];
     if (joined.length > 0) {
+        self.activeDictation.quotaLimited = NO;
+        [self noteGeminiQuotaHealthy];
         NSString *liveRaw = joined;
         NSString *onDev = self.latestOnDeviceTranscript ?: @"";
         if (onDev.length > 0) {
@@ -9945,6 +10218,17 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
     }
     if (!hasText) {
         if (!self.unitTestMode) GFLog(@"Early paste: no Gemini text for dictation #%lu; the delivered on-device text stays", (unsigned long)d.serial);
+        if (d.quotaLimited) {
+            [self noteGeminiQuotaReached];
+            if (!d.superseded && !self.isRecording && self.menuIconState == 0) {
+                // The pill was dismissed when the early text was delivered: present it again, BEFORE returnToIdle, so the
+                // dismissal scheduled there belongs to this presentation.
+                [self presentHUD];
+                [self returnToIdleWithStatusTitle:@"On-device for now · API limit reached"
+                                           notice:@"On-device · API limit"
+                                             mode:HUDModeNotice dismissAfter:2.6];
+            }
+        }
         return;
     }
     NSTimeInterval since = d.earlyPasteTime > 0 ? [NSDate timeIntervalSinceReferenceDate] - d.earlyPasteTime : -1;
@@ -10145,6 +10429,14 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
                 });
                 return;
             }
+            NSString *errBodyStr = data.length > 0 ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+            BOOL hitQuota = GFGeminiFailureLooksLikeQuota(httpResp.statusCode, 0, errBodyStr.length > 0 ? errBodyStr : error.localizedDescription);
+            if (hitQuota) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    dictation.quotaLimited = YES;
+                    GFLog(@"Gemini %@: API limit (HTTP %ld); the on-device text is used and the limit sign is shown", model, (long)httpResp.statusCode);
+                });
+            }
             dispatch_async(dispatch_get_main_queue(), ^{
                 GFLog(@"Falling back to on-device transcript.");
                 [weakSelf finishWithOnDeviceTranscriptForDictation:dictation];
@@ -10172,6 +10464,10 @@ static NSString *GFJoinLiveSegmentsDeduplicatingSeam(NSArray<NSString *> *segmen
             GFLog(@"Exception parsing Gemini response: %@", e);
         }
 
+        dispatch_async(dispatch_get_main_queue(), ^{
+            dictation.quotaLimited = NO;
+            [weakSelf noteGeminiQuotaHealthy];
+        });
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *cleaned = [extractedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             GFLog(@"Gemini %@ ok in %.2fs (%lu chars, %.1fs audio, finishReason %@)", model, elapsed,
@@ -13672,7 +13968,16 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
         return;
     }
     if (d.superseded) { // a newer press owns the HUD and icon (recording or Thinking): nothing to show for the old one
+        if (d.quotaLimited) [self noteGeminiQuotaReached];
         if (!self.unitTestMode) GFLog(@"Dictation #%lu: no speech (a newer press keeps the HUD)", (unsigned long)d.serial);
+        return;
+    }
+    GFDictation *eff = d ?: self.activeDictation;
+    if (eff.quotaLimited) {
+        [self noteGeminiQuotaReached];
+        [self returnToIdleWithStatusTitle:@"On-device for now · API limit reached"
+                                   notice:@"API limit reached"
+                                     mode:HUDModeNotice dismissAfter:2.6];
         return;
     }
     [self returnToIdleWithStatusTitle:nil notice:@"No speech" mode:HUDModeNotice dismissAfter:1.0];
@@ -17345,6 +17650,70 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
         // Backlog 0s (replaces the cycle-26 0n rim/glow tests): hands-free (locked) mode has NO green at or around the pill edge, only a
         // strong green dot + green waveform bars inside the pill; hold-to-talk, Thinking and notices have no green at all.
         // Renders the real HUD view offscreen.
+        {   // Cycle 133: every notice the pill can show fits inside it; short notices keep the normal pill.
+            NSDictionary *medium = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5 weight:NSFontWeightMedium]};
+            NSDictionary *semi = @{NSFontAttributeName: [NSFont systemFontOfSize:12.5 weight:NSFontWeightSemibold]};
+            NSArray<NSString *> *plain = @[@"Copied \u00b7 paste with \u2318V", @"Enable Accessibility", @"Saved to Custom Words", @"Checking API key...",
+                                           @"Key check failed (offline?)", @"Gemini Live ready", @"API key invalid",
+                                           @"Live model unavailable for this key", @"Key check failed (HTTP 500)", @"Mic unavailable",
+                                           @"Mic access needed", @"Undone", @"Cancelled", @"No speech", @"Copied"];
+            NSArray<NSString *> *amber = @[@"On-device \u00b7 API limit", @"Copied \u00b7 API limit", @"API limit reached"];
+            int misfit = 0, widened = 0;
+            for (NSString *t in plain) {
+                CGFloat tw = ceil([t sizeWithAttributes:medium].width), pw = GFHUDNoticePillWidth(t, NO);
+                if (pw - 24.0 < tw || pw < kHUDPillWidth || pw > 320.0) misfit++; // the text area is the pill minus 12 pt on each side
+                if (pw > kHUDPillWidth) widened++;
+            }
+            for (NSString *t in amber) {
+                CGFloat tw = ceil([t sizeWithAttributes:semi].width), pw = GFHUDNoticePillWidth(t, YES);
+                if (pw - 30.0 < tw + 13.0 || pw < kHUDPillWidth || pw > 320.0) misfit++;
+            }
+            BOOL shortKept = GFHUDNoticePillWidth(@"Cancelled", NO) == kHUDPillWidth && GFHUDNoticePillWidth(@"No speech", NO) == kHUDPillWidth
+                          && GFHUDNoticePillWidth(@"Undone", NO) == kHUDPillWidth && GFHUDNoticePillWidth(@"Copied", NO) == kHUDPillWidth
+                          && GFHUDNoticePillWidth(nil, NO) == kHUDPillWidth;
+            CGFloat oldNotice = ceil([@"Copied (app switched)" sizeWithAttributes:medium].width);
+            BOOL fitOk = misfit == 0 && shortKept;
+            if (fitOk) passed++; else failed++;
+            printf("%s: every HUD notice fits its pill (%d widened, %d misfits; short notices keep %.0f pt; the old 'Copied (app switched)' was %.0f pt wide in a %.0f pt text area)\n",
+                   fitOk ? "PASS" : "FAIL", widened, misfit, kHUDPillWidth, oldNotice, kHUDPillWidth - 24.0);
+            // A widened window keeps the pill at the same height above the visible bottom and centred (before round 2 the
+            // vertical margin was taken from the window width, so a wide notice dropped by up to 96 pt).
+            NSRect vfs[] = {NSMakeRect(0, 0, 1512, 945), NSMakeRect(-1920, 40, 1920, 1040), NSMakeRect(1512, -200, 2560, 1415)};
+            CGFloat widths[] = {kHUDPillWidth, GFHUDNoticePillWidth(@"On-device \u00b7 API limit", YES), 233.0, 320.0};
+            int originBad = 0;
+            for (int i = 0; i < 3; i++) {
+                for (int w = 0; w < 4; w++) {
+                    NSPoint o = GFHUDWindowOriginForVisibleFrame(vfs[i], NSMakeSize(widths[w] + 2.0 * kHUDGlowPad, kHUDPillHeight + 2.0 * kHUDGlowPad));
+                    BOOL yOk = o.y + kHUDGlowPad == vfs[i].origin.y + kHUDPillBottomOffset;
+                    BOOL xOk = fabs((o.x + kHUDGlowPad + widths[w] / 2.0) - NSMidX(vfs[i])) < 0.01;
+                    if (!yOk || !xOk) originBad++;
+                }
+            }
+            if (originBad == 0) passed++; else failed++;
+            printf("%s: a widened HUD window keeps the pill centred and %.0f pt above the visible bottom (%d of 12 placements wrong)\n",
+                   originBad == 0 ? "PASS" : "FAIL", kHUDPillBottomOffset, originBad);
+            // The status-line dot: next to the limit line only, only while idle; cleared with the limit.
+            AppDelegate *md = [[AppDelegate alloc] init];
+            md.unitTestMode = YES;
+            md.statusMenuItem = [[NSMenuItem alloc] initWithTitle:@"Ready: Hold or Double-Tap Fn" action:nil keyEquivalent:@""];
+            [md noteGeminiQuotaReached];
+            BOOL lineOn = [md.statusMenuItem.title isEqualToString:@"On-device for now \u00b7 API limit reached"] && md.statusMenuItem.image != nil;
+            md.statusMenuItem.title = @"Saved to Custom Words";
+            [md refreshQuotaMenuAppearance];
+            BOOL otherLineClean = md.statusMenuItem.image == nil && [md.statusMenuItem.title isEqualToString:@"Saved to Custom Words"];
+            md.statusMenuItem.title = @"On-device for now \u00b7 API limit reached";
+            [md refreshQuotaMenuAppearance];
+            BOOL lineBack = md.statusMenuItem.image != nil;
+            [md setMenuIconState:1];
+            BOOL busyClean = md.statusMenuItem.image == nil;
+            [md setMenuIconState:0];
+            [md noteGeminiQuotaHealthy];
+            BOOL lineOff = md.statusMenuItem.image == nil && [md.statusMenuItem.title isEqualToString:@"Ready: Hold or Double-Tap Fn"];
+            BOOL lineOk = lineOn && otherLineClean && lineBack && busyClean && lineOff;
+            if (lineOk) passed++; else failed++;
+            printf("%s: the amber dot in the menu sits next to the limit line only, only while idle, and goes with the limit (%d%d%d%d%d)\n",
+                   lineOk ? "PASS" : "FAIL", lineOn, otherLineClean, lineBack, busyClean, lineOff);
+        }
         {
             NSRect big = NSMakeRect(0, 0, kHUDPillWidth + 2.0 * kHUDGlowPad, kHUDPillHeight + 2.0 * kHUDGlowPad);
             NSRect pillR = NSInsetRect(big, kHUDGlowPad, kHUDGlowPad);
@@ -19793,7 +20162,29 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 double gWhisp = GFAdaptiveGainProcessPCM16(&stWhisp, whispBuf, wLen);
                 double gRoom = GFAdaptiveGainProcessPCM16(&stRoom, roomOnly, wLen);
                 GFSpeechEvidence evBoostedWhisp = GFMeasureSpeechEvidence(whispBuf, wLen);
-                BOOL c130_p1 = (stWhisp.maxGainApplied >= 3.2) && (stWhisp.totalWhisperFrames >= 6)
+                // Whole-utterance whisper verdict: the whispered clip is a whisper; a loud voiced clip that starts with 0.1 s of
+                // quiet onset and ends with 0.2 s of soft trailing voice is not.
+                NSUInteger nLen = 32000; // 2.0 s
+                int16_t *normalBuf = calloc(nLen, sizeof(int16_t));
+                for (NSUInteger i = 0; i < nLen; i++) {
+                    double amp = (i < 1600) ? 380.0 : ((i >= nLen - 3200) ? 420.0 : 3200.0);
+                    double v = amp * sqrt(2.0) * (0.7 * sin(2.0 * M_PI * 180.0 * i / 16000.0) + 0.5 * sin(2.0 * M_PI * 360.0 * i / 16000.0)
+                                                  + 0.3 * sin(2.0 * M_PI * 720.0 * i / 16000.0));
+                    normalBuf[i] = (int16_t)lrint(MAX(-32768.0, MIN(32767.0, v)));
+                }
+                GFAdaptiveGainState stNormal;
+                GFAdaptiveGainReset(&stNormal, NO);
+                GFAdaptiveGainProcessPCM16(&stNormal, normalBuf, nLen);
+                free(normalBuf);
+                GFAdaptiveGainState stEmpty;
+                GFAdaptiveGainReset(&stEmpty, NO);
+                BOOL utteranceVerdictOk = GFAdaptiveGainUtteranceIsWhisper(&stWhisp) && stWhisp.speechFrames >= 15
+                                       && !GFAdaptiveGainUtteranceIsWhisper(&stNormal) && stNormal.speechFrames >= 60
+                                       && !GFAdaptiveGainUtteranceIsWhisper(&stRoom) && !GFAdaptiveGainUtteranceIsWhisper(&stEmpty)
+                                       && !GFAdaptiveGainUtteranceIsWhisper(NULL)
+                                       && !GFShouldTriggerWhisperMumbleRescue(NO, 4.5, @"Can we move the meeting to Monday?",
+                                                                              @"Can we move the meeting to Sunday", 96000, NO);
+                BOOL c130_p1 = utteranceVerdictOk && (stWhisp.maxGainApplied >= 3.2) && (stWhisp.totalWhisperFrames >= 6)
                             && (gWhisp >= 1.0) && !GFNoLoudSpeech(evBoostedWhisp.peakRMS, evBoostedWhisp.evidenceSeconds)
                             && !GFNoLoudSpeech(evUnboostedWhisp.peakRMS, evUnboostedWhisp.evidenceSeconds)
                             && (gRoom == 1.0) && (stRoom.maxGainApplied == 1.0)
@@ -20010,6 +20401,96 @@ static BOOL GFShouldDeferSupersededWAVFallback(BOOL isSuperseded, BOOL isRecordi
                 printf("%s: Cycle 131 context hygiene (secret-shaped tokens, credential labels, redaction at the prompt, off-limits apps and windows) (%d%d%d)\n",
                        c131Ok ? "PASS" : "FAIL", c131_1, c131_2, c131_3);
             }
+            // Cycle 133 (V2 design): API quota / rate-limit / out-of-credit classifier and quiet amber-dot surfacing
+            {
+                BOOL c133_1 = GFGeminiFailureLooksLikeQuota(429, 0, nil)
+                           && GFGeminiFailureLooksLikeQuota(403, 0, @"{\"error\":{\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"You exceeded your current quota, please check your plan and billing details.\"}}")
+                           && GFGeminiFailureLooksLikeQuota(0, 1008, @"Quota exceeded for metric")
+                           && GFGeminiFailureLooksLikeQuota(0, 1011, @"Too many requests")
+                           && !GFGeminiFailureLooksLikeQuota(503, 0, @"The model is overloaded. High demand.")
+                           && !GFGeminiFailureLooksLikeQuota(401, 0, @"API key not valid")
+                           && !GFGeminiFailureLooksLikeQuota(0, 1006, @"network connection lost");
+                if (c133_1) passed++; else failed++;
+                printf("%s: GFGeminiFailureLooksLikeQuota identifies 429/quota/billing and ignores 503/401/network (%d)\n",
+                       c133_1 ? "PASS" : "FAIL", c133_1);
+
+                BOOL c133_2 = !GFLiveFailureLooksLikeAuth(429, 0, @"Too Many Requests", nil, 0)
+                           && !GFLiveFailureLooksLikeAuth(0, 1008, @"RESOURCE_EXHAUSTED: quota exceeded", nil, 0)
+                           && GFLiveFailureLooksLikeAuth(401, 0, @"API key not valid", nil, 0)
+                           && GFLiveFailureLooksLikeAuth(403, 0, @"Permission denied", nil, 0);
+                if (c133_2) passed++; else failed++;
+                printf("%s: GFLiveFailureLooksLikeAuth excludes quota/429 failures from invalid-key auth retries (%d)\n",
+                       c133_2 ? "PASS" : "FAIL", c133_2);
+
+                AppDelegate *qd = [[AppDelegate alloc] init];
+                qd.unitTestMode = YES;
+                GFDictation *qDict = [[GFDictation alloc] init];
+                qDict.quotaLimited = YES;
+                [qd setMenuIconState:2];
+                [qd showDeliveredUIAccessibilityTrusted:YES dictation:qDict];
+                BOOL hitOk = qd.apiQuotaLimited
+                          && qd.lastHudNoticeAmberDot
+                          && [qd.lastHudNotice isEqualToString:@"On-device \u00b7 API limit"]
+                          && [qd.lastIdleStatusTitle isEqualToString:@"On-device for now \u00b7 API limit reached"];
+                [qd noteGeminiQuotaHealthy];
+                BOOL clearOk = !qd.apiQuotaLimited
+                            && [qd.lastIdleStatusTitle isEqualToString:@"Ready: Hold or Double-Tap Fn"];
+                GFDictation *nsDict = [[GFDictation alloc] init];
+                nsDict.quotaLimited = YES;
+                [qd setMenuIconState:2];
+                [qd showNoSpeechDetectedForDictation:nsDict];
+                BOOL nsOk = qd.apiQuotaLimited && qd.lastHudNoticeAmberDot && [qd.lastHudNotice isEqualToString:@"API limit reached"];
+                BOOL c133_3 = hitOk && clearOk && nsOk;
+                if (c133_3) passed++; else failed++;
+                printf("%s: V2 quota-limited delivery and no-speech surface quiet amber-dot notice and auto-clear (%d%d%d)\n",
+                       c133_3 ? "PASS" : "FAIL", hitOk, clearOk, nsOk);
+
+                // Early text delivered, then the backup answers with a limit: the dismissed pill is presented again for the notice.
+                AppDelegate *ed = [[AppDelegate alloc] init];
+                ed.unitTestMode = YES;
+                GFDictation *eDict = [[GFDictation alloc] init];
+                eDict.earlyText = @"synthetic early text";
+                eDict.quotaLimited = YES;
+                NSUInteger genBefore = ed.hudGeneration;
+                [ed resolveEarlyPastedDictation:eDict geminiText:nil];
+                BOOL earlyOk = ed.hudGeneration == genBefore + 1 && ed.apiQuotaLimited && ed.lastHudNoticeAmberDot
+                            && [ed.lastHudNotice isEqualToString:@"On-device \u00b7 API limit"];
+                GFDictation *eNoLimit = [[GFDictation alloc] init];
+                eNoLimit.earlyText = @"synthetic early text";
+                AppDelegate *ed2 = [[AppDelegate alloc] init];
+                ed2.unitTestMode = YES;
+                [ed2 resolveEarlyPastedDictation:eNoLimit geminiText:nil];
+                BOOL earlyQuiet = ed2.hudGeneration == 0 && !ed2.apiQuotaLimited && ed2.lastHudNotice == nil;
+                BOOL c133_4 = earlyOk && earlyQuiet;
+                if (c133_4) passed++; else failed++;
+                printf("%s: a limit answer after the early text presents the pill again for its notice; no limit, no pill (%d%d)\n",
+                       c133_4 ? "PASS" : "FAIL", earlyOk, earlyQuiet);
+
+                // Text from a detached Live session clears the sign; a superseded limit fallback sets it without a notice.
+                AppDelegate *dd = [[AppDelegate alloc] init];
+                dd.unitTestMode = YES;
+                NSMutableArray<NSString *> *ddSink = [NSMutableArray array];
+                dd.resultSink = ^(NSString *t, GFDictation *x) { [ddSink addObject:t ?: @"<NO SPEECH>"]; };
+                [dd noteGeminiQuotaReached];
+                GFDictation *det = [[GFDictation alloc] init];
+                det.superseded = YES;
+                det.quotaLimited = YES;
+                det.detachedLiveSegments = [NSMutableArray arrayWithObject:@"Synthetic detached text."];
+                [dd resolveDetachedLiveDictation:det success:YES reason:@"test"];
+                BOOL detachedOk = !det.quotaLimited && !dd.apiQuotaLimited && ddSink.count == 1;
+                AppDelegate *sd = [[AppDelegate alloc] init];
+                sd.unitTestMode = YES;
+                [sd setMenuIconState:2]; // a newer press is thinking
+                GFDictation *old = [[GFDictation alloc] init];
+                old.superseded = YES;
+                old.quotaLimited = YES;
+                [sd showDeliveredUIAccessibilityTrusted:YES dictation:old];
+                BOOL supersededOk = sd.apiQuotaLimited && sd.menuIconState == 2 && sd.lastHudNotice == nil && sd.hudGeneration == 0;
+                BOOL c133_5 = detachedOk && supersededOk;
+                if (c133_5) passed++; else failed++;
+                printf("%s: detached Live text clears the limit sign; a superseded limit fallback sets it and leaves the newer press alone (%d%d)\n",
+                       c133_5 ? "PASS" : "FAIL", detachedOk, supersededOk);
+            }
         }
         printf("\nSummary: %d passed, %d failed (trailing space verified)\n", passed, failed);
         return failed == 0 ? 0 : 1;
@@ -20044,6 +20525,43 @@ int main(int argc, const char * argv[]) {
                 NSString *path = [dir stringByAppendingPathComponent:names[i]];
                 if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);
                 else { printf("FAILED %s\n", path.UTF8String); bad++; }
+            }
+            {   // Cycle 133: the API-limit notice (amber dot + text) in its wider pill, and the menu bar icon with its dot
+                NSString *limitText = @"On-device \u00b7 API limit";
+                FloatingHUDView *v = [[FloatingHUDView alloc] initWithFrame:NSMakeRect(0, 0, GFHUDNoticePillWidth(limitText, YES) + 2.0 * kHUDGlowPad,
+                                                                                       kHUDPillHeight + 2.0 * kHUDGlowPad)];
+                v.pillInset = kHUDGlowPad;
+                v.mode = HUDModeNotice;
+                v.noticeAmberDot = YES;
+                v.noticeText = limitText;
+                NSData *png = [GFRenderHUDView(v, 2.0, YES) representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                NSString *path = [dir stringByAppendingPathComponent:@"hud-api-limit.png"];
+                if (png && [png writeToFile:path atomically:YES]) printf("WROTE %s\n", path.UTF8String);
+                else { printf("FAILED %s\n", path.UTF8String); bad++; }
+                NSImage *icon = [delegate menuBarIconForState:0];
+                const CGFloat k = 6.0; // 24 x 22 pt button at 6x
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:144 pixelsHigh:132 bitsPerSample:8
+                                                                           samplesPerPixel:4 hasAlpha:YES isPlanar:NO
+                                                                            colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:144 * 4 bitsPerPixel:32];
+                NSGraphicsContext *ctx = rep ? [NSGraphicsContext graphicsContextWithBitmapImageRep:rep] : nil;
+                if (ctx) {
+                    [NSGraphicsContext saveGraphicsState];
+                    [NSGraphicsContext setCurrentContext:ctx];
+                    [[NSColor colorWithCalibratedWhite:0.93 alpha:1.0] setFill];
+                    NSRectFill(NSMakeRect(0, 0, 144, 132));
+                    NSRect btn = NSMakeRect(0, 0, 24, 22);
+                    [icon drawInRect:NSMakeRect((NSMidX(btn) - 9.0) * k, (NSMidY(btn) - 9.0) * k, 18.0 * k, 18.0 * k) fromRect:NSZeroRect
+                           operation:NSCompositingOperationSourceOver fraction:1.0];
+                    NSRect dr = GFMacQuotaDotFrame(btn, NO);
+                    [GF_HUD_AMBER(1.0) setFill];
+                    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(dr.origin.x * k, dr.origin.y * k, dr.size.width * k, dr.size.height * k)] fill];
+                    [ctx flushGraphics];
+                    [NSGraphicsContext restoreGraphicsState];
+                }
+                NSData *iconPng = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                NSString *iconPath = [dir stringByAppendingPathComponent:@"menubar-api-limit.png"];
+                if (iconPng && [iconPng writeToFile:iconPath atomically:YES]) printf("WROTE %s\n", iconPath.UTF8String);
+                else { printf("FAILED %s\n", iconPath.UTF8String); bad++; }
             }
             return bad ? 1 : 0;
         }
